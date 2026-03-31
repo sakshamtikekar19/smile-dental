@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Playfair Display", serif;
+  --font-sans: "Inter", sans-serif;
+  
+  --color-brand-gold: #D4AF37;
+  --color-brand-beige: #F5F5DC;
+  --color-brand-blue: #E0F2F7;
+}
+
+:root {
+  background-color: #ffffff;
+  color: #333333;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
+}
+
+/* Ensure Tailwind base styles are applied */
+@layer base {
+  * {
+    @apply border-zinc-200;
+  }
+  body {
+    @apply bg-white text-zinc-900;
+  }
+}

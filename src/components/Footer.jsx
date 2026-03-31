@@ -1,0 +1,77 @@
+import { motion } from "framer-motion";
+import AnimatedSection from "../components/AnimatedSection";
+import PremiumButton from "../components/PremiumButton";
+
+const Footer = () => {
+  return (
+    <footer className="bg-zinc-900 text-white py-24">
+      <div className="container mx-auto px-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
+          <div className="lg:col-span-1">
+            <div className="flex items-center gap-2 mb-8">
+              <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
+                <div className="w-4 h-4 bg-black rounded-sm rotate-45" />
+              </div>
+              <span className="font-serif text-xl font-semibold tracking-tight">SMILE STUDIO</span>
+            </div>
+            <p className="text-zinc-400 leading-relaxed mb-8 max-w-xs">
+              Redefining cosmetic dentistry through advanced technology and artistic precision.
+            </p>
+            <div className="flex gap-4">
+              {["IG", "FB", "TW", "LI"].map((s) => (
+                <a key={s} href="#" className="w-10 h-10 rounded-full border border-zinc-700 flex items-center justify-center text-xs font-bold hover:bg-white hover:text-black transition-all">
+                  {s}
+                </a>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-serif text-xl mb-8">Services</h4>
+            <ul className="space-y-4 text-zinc-400">
+              <li><a href="#" className="hover:text-white transition-colors">Teeth Whitening</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Invisalign</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Veneers</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Dental Implants</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-serif text-xl mb-8">Quick Links</h4>
+            <ul className="space-y-4 text-zinc-400">
+              <li><a href="#" className="hover:text-white transition-colors">About Us</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Smile Simulator</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Our Gallery</a></li>
+              <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-serif text-xl mb-8">Newsletter</h4>
+            <p className="text-zinc-400 mb-6">Join our community for the latest in dental care and exclusive offers.</p>
+            <div className="relative">
+              <input 
+                type="email" 
+                placeholder="Your email address" 
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-full py-4 px-6 text-sm focus:outline-none focus:border-white transition-colors"
+              />
+              <button className="absolute right-2 top-2 bottom-2 bg-white text-black px-6 rounded-full text-xs font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors">
+                Join
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-12 border-t border-zinc-800 flex flex-col md:flex-row justify-between items-center gap-6 text-zinc-500 text-xs uppercase tracking-widest font-bold">
+          <p>© 2026 Smile Studio. All rights reserved.</p>
+          <div className="flex gap-8">
+            <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
+            <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+export default Footer;
