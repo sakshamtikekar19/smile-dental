@@ -177,13 +177,13 @@ const SmileSimulatorAI = () => {
     canvas.height = img.height;
     const ctx = canvas.getContext("2d");
 
-    // Black background means "preserve"; white area means "inpaint".
-    ctx.fillStyle = "black";
+    // For this inpainting model: white preserves, black is editable.
+    ctx.fillStyle = "white";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const { centerX, centerY, clipRx, clipRy } = estimateSmileBandForMask(img);
 
-    ctx.fillStyle = "white";
+    ctx.fillStyle = "black";
     ctx.beginPath();
     ctx.ellipse(centerX, centerY, clipRx, clipRy, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -194,12 +194,47 @@ const SmileSimulatorAI = () => {
   const estimateSmileBandForMask = (img) => {
     const width = img.width;
     const height = img.height;
-    
-    // Heuristic for smile position in a standard portrait/selfie
+
+    // Scan lower-middle face area and find brightest horizontal band (teeth).
+    const sample = document.createElement("canvas");
+    sample.width = width;
+    sample.height = height;
+    const sctx = sample.getContext("2d", { willReadFrequently: true });
+    sctx.drawImage(img, 0, 0, width, height);
+    const data = sctx.getImageData(0, 0, width, height).data;
+
+    const yStart = Math.max(0, Math.floor(height * 0.48));
+    const yEnd = Math.min(height - 1, Math.floor(height * 0.82));
+    let bestY = Math.floor(height * 0.62);
+    let bestScore = -Infinity;
+
+    for (let y = yStart; y <= yEnd; y += 2) {
+      let sum = 0;
+      let count = 0;
+      const xStart = Math.floor(width * 0.25);
+      const xEnd = Math.floor(width * 0.75);
+      for (let x = xStart; x <= xEnd; x += 2) {
+        const i = (y * width + x) * 4;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        sum += luminance;
+        count += 1;
+      }
+      const avg = count > 0 ? sum / count : 0;
+      const centerBias = 1 - Math.abs((y / height) - 0.62);
+      const score = avg + centerBias * 18;
+      if (score > bestScore) {
+        bestScore = score;
+        bestY = y;
+      }
+    }
+
     const centerX = width * 0.5;
-    const centerY = height * 0.62; // Positioned slightly lower for mouth
-    const clipRx = width * 0.18;   // Horizontal spread of smile
-    const clipRy = height * 0.07;  // Vertical height of teeth area
+    const centerY = Math.min(height * 0.78, Math.max(height * 0.52, bestY));
+    const clipRx = width * 0.2;
+    const clipRy = height * 0.08;
 
     return { centerX, centerY, clipRx, clipRy };
   };
@@ -564,7 +599,7 @@ const SmileSimulatorAI = () => {
                   <ReactCompareImage 
                     leftImage={beforeImage} 
                     rightImage={afterImage}
-                    rightImageCss={{ filter: "brightness(1.05) contrast(1.08) saturate(1.03)" }}
+                    rightImageCss={{ filter: "brightness(1.08) contrast(1.14) saturate(1.06)" }}
                     sliderLineWidth={2}
                     sliderLineColor="#D4AF37"
                     handleSize={40}
@@ -607,6 +642,9 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
+
+
 
 
 
