@@ -15,6 +15,10 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
+app.get('/', (_req, res) => {
+  res.send('Smile Dental API is running. Use /api/health and /api/smile.');
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -118,3 +122,4 @@ app.post('/api/smile', async (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
+
