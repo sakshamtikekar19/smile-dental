@@ -8,8 +8,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const app = express();
 const port = process.env.PORT || 5000;
 
-const PRIMARY_MODEL = 'stability-ai/sdxl-inpainting';
-const FALLBACK_VERSION = 'aca001c8b137114d5e594c68f7084ae6d82f364758aab8d997b233e8ef3c4d93'; // sepal/sdxl-inpainting
+const ACTIVE_VERSION = 'aca001c8b137114d5e594c68f7084ae6d82f364758aab8d997b233e8ef3c4d93';
 
 app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -19,13 +18,10 @@ app.get('/', (_req, res) => {
   res.send('Smile Dental API is running. Use /api/health and /api/smile.');
 });
 
-
 app.get('/api/replicate-account', async (_req, res) => {
   try {
     const token = process.env.REPLICATE_API_TOKEN || '';
-    const maskedToken = token.length > 12
-      ? `${token.slice(0, 6)}...${token.slice(-4)}`
-      : 'missing';
+    const maskedToken = token.length > 12 ? `${token.slice(0, 6)}...${token.slice(-4)}` : 'missing';
 
     const response = await fetch('https://api.replicate.com/v1/account', {
       headers: {
@@ -41,17 +37,14 @@ app.get('/api/replicate-account', async (_req, res) => {
       account: data,
     });
   } catch (error) {
-    return res.status(500).json({
-      ok: false,
-      error: error.message,
-    });
+    return res.status(500).json({ ok: false, error: error.message });
   }
 });
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
-    primary_model: PRIMARY_MODEL,
-    fallback_version: FALLBACK_VERSION,
+    active_version: ACTIVE_VERSION,
     timestamp: new Date().toISOString(),
   });
 });
@@ -76,23 +69,15 @@ async function toDataUrlFromRemote(url) {
 }
 
 async function createPrediction(modelInput) {
-  try {
-    return await replicate.predictions.create({
-      model: PRIMARY_MODEL,
-      input: modelInput,
-    });
-  } catch (_err) {
-    return replicate.predictions.create({
-      version: FALLBACK_VERSION,
-      input: modelInput,
-    });
-  }
+  return replicate.predictions.create({
+    version: ACTIVE_VERSION,
+    input: modelInput,
+  });
 }
 
 app.post('/api/smile', async (req, res) => {
   try {
     const { image, mask, mode = 'whitening' } = req.body;
-
     if (!image || !mask) {
       return res.status(400).json({ error: 'Image and mask are required' });
     }
@@ -106,9 +91,7 @@ app.post('/api/smile', async (req, res) => {
         'Enhance only the teeth to create a visibly improved smile. Teeth should be whiter and slightly aligned while keeping result natural. Do not modify face, lips, or identity.',
     };
 
-    const normalizedMode = ['whitening', 'alignment', 'transformation'].includes(mode)
-      ? mode
-      : 'whitening';
+    const normalizedMode = ['whitening', 'alignment', 'transformation'].includes(mode) ? mode : 'whitening';
 
     const modelInput = {
       image,
@@ -123,8 +106,8 @@ app.post('/api/smile', async (req, res) => {
     };
 
     const prediction = await createPrediction(modelInput);
-
     let result = await replicate.predictions.get(prediction.id);
+
     while (result.status !== 'succeeded' && result.status !== 'failed') {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       result = await replicate.predictions.get(prediction.id);
@@ -139,12 +122,8 @@ app.post('/api/smile', async (req, res) => {
     return res.json({ output, outputDataUrl, mode: normalizedMode });
   } catch (error) {
     if (error?.status === 429) {
-      return res.status(429).json({
-        error: error.message,
-        retry_after: error.retryAfter ?? 10,
-      });
+      return res.status(429).json({ error: error.message, retry_after: error.retryAfter ?? 10 });
     }
-
     return res.status(500).json({ error: error.message });
   }
 });
@@ -152,4 +131,3 @@ app.post('/api/smile', async (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
-
