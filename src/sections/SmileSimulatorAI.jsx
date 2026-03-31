@@ -17,7 +17,7 @@ import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
 
-const AI_SMILE_API = "http://localhost:5000/api/smile";
+const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (window.location.hostname === "localhost" ? "http://localhost:5000/api/smile" : "/api/smile");
 const TREATMENTS = [
   { id: "whitening", label: "Teeth Whitening", icon: Sparkles, desc: "Brighten your natural smile" },
   { id: "alignment", label: "Teeth Alignment", icon: AlignCenter, desc: "Perfectly straight teeth" },
@@ -262,6 +262,37 @@ const SmileSimulatorAI = () => {
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
+  };
+
+  const normalizeImage = async (imageSrc, maxWidth = 1280) => {
+    const img = await loadImage(imageSrc);
+    const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+    const width = Math.round(img.width * scale);
+    const height = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.9);
+  };
+
+  const toDisplayableImage = async (imageValue) => {
+    if (typeof imageValue !== "string") return imageValue;
+    if (imageValue.startsWith("data:")) return imageValue;
+    try {
+      const res = await fetch(imageValue, { mode: "cors" });
+      if (!res.ok) return imageValue;
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (_e) {
+      return imageValue;
+    }
   };
   const loadImage = (src) =>
     new Promise((resolve, reject) => {
@@ -541,6 +572,7 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
 
 
 
