@@ -172,7 +172,7 @@ const SmileSimulatorAI = () => {
     const normalized = await normalizeImage(imageSrc, 1024);
     const img = await loadImage(normalized);
     const bounds = await detectMouthBounds(img);
-    const croppedImage = cropImage(normalized, bounds);
+    const croppedImage = await cropImage(normalized, bounds);
     const mask = createTeethMask(bounds.width, bounds.height);
 
     return {
@@ -561,3 +561,4 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
