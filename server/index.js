@@ -31,6 +31,19 @@ if (!process.env.REPLICATE_API_TOKEN) {
   console.error('Missing REPLICATE_API_TOKEN in server/.env');
 }
 
+async function toDataUrlFromRemote(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const contentType = response.headers.get('content-type') || 'image/png';
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    return `data:${contentType};base64,${base64}`;
+  } catch (_error) {
+    return null;
+  }
+}
+
 app.post('/api/smile', async (req, res) => {
   try {
     const { image, mask, mode = 'whitening' } = req.body;
@@ -61,8 +74,6 @@ app.post('/api/smile', async (req, res) => {
     const negativePrompt =
       'distorted face, extra teeth, fake smile, plastic texture, blurry, unrealistic, duplicate mouth, duplicate teeth';
 
-    console.log(`Starting smile enhancement prediction for mode: ${normalizedMode}`);
-
     const modelInput = {
       image,
       mask,
@@ -79,26 +90,20 @@ app.post('/api/smile', async (req, res) => {
       input: modelInput,
     });
 
-    console.log('Prediction created:', prediction.id);
-
     let result = await replicate.predictions.get(prediction.id);
     while (result.status !== 'succeeded' && result.status !== 'failed') {
-      console.log('Prediction status:', result.status);
       await new Promise((resolve) => setTimeout(resolve, 1000));
       result = await replicate.predictions.get(prediction.id);
     }
 
     if (result.status === 'succeeded') {
-      console.log('Prediction succeeded!');
       const output = Array.isArray(result.output) ? result.output[0] : result.output;
-      return res.json({ output, mode: normalizedMode });
+      const outputDataUrl = typeof output === 'string' ? await toDataUrlFromRemote(output) : null;
+      return res.json({ output, outputDataUrl, mode: normalizedMode });
     }
 
-    console.error('Prediction failed:', result.error);
     return res.status(500).json({ error: result.error || 'AI processing failed' });
   } catch (error) {
-    console.error('Server error:', error);
-
     if (error?.status === 429) {
       return res.status(429).json({
         error: error.message,
@@ -113,4 +118,3 @@ app.post('/api/smile', async (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
-

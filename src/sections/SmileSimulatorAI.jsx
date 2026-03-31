@@ -41,9 +41,10 @@ const SmileSimulatorAI = () => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (event) => {
-        setBeforeImage(event.target.result);
-        processWithAI(event.target.result);
+      reader.onload = async (event) => {
+        const normalized = await normalizeImage(event.target.result);
+        setBeforeImage(normalized);
+        processWithAI(normalized);
       };
       reader.readAsDataURL(file);
     }
@@ -86,10 +87,14 @@ const SmileSimulatorAI = () => {
     const ctx = canvas.getContext("2d");
     if (!video.videoWidth || !video.videoHeight) return;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const maxWidth = 1280;
+    const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
+    const outW = Math.round(video.videoWidth * scale);
+    const outH = Math.round(video.videoHeight * scale);
+    canvas.width = outW;
+    canvas.height = outH;
+    ctx.drawImage(video, 0, 0, outW, outH);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
     setBeforeImage(dataUrl);
     stopCamera();
     processWithAI(dataUrl);
@@ -116,8 +121,10 @@ const SmileSimulatorAI = () => {
       if (!response.ok) {
         throw new Error(data.error || "AI request failed");
       }
-      if (data.output) {
-        setAfterImage(data.output);
+      if (data.output || data.outputDataUrl) {
+        const rawOutput = data.outputDataUrl || data.output;
+        const displayOutput = await toDisplayableImage(rawOutput);
+        setAfterImage(displayOutput);
         setStep("result");
       } else {
         throw new Error(data.error || "Failed to process image");
@@ -572,6 +579,9 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
+
+
 
 
 
