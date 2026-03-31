@@ -17,7 +17,8 @@ import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
 
-const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (window.location.hostname === "localhost" ? "http://localhost:5000/api/smile" : "/api/smile");
+const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
 const TREATMENTS = [
   { id: "whitening", label: "Teeth Whitening", icon: Sparkles, desc: "Brighten your natural smile" },
   { id: "alignment", label: "Teeth Alignment", icon: AlignCenter, desc: "Perfectly straight teeth" },
@@ -105,6 +106,13 @@ const SmileSimulatorAI = () => {
     setError(null);
     const requestTreatment = selectedTreatment;
     setActiveTreatment(requestTreatment);
+
+    if (!AI_SMILE_API) {
+      setError("Backend API is not configured for this domain. Set VITE_AI_SMILE_API to your deployed backend URL.");
+      setStep("upload");
+      return;
+    }
+
     try {
       const mask = await createTeethMask(base64Image);
       const response = await fetch(AI_SMILE_API, {
@@ -121,14 +129,15 @@ const SmileSimulatorAI = () => {
       if (!response.ok) {
         throw new Error(data.error || "AI request failed");
       }
-      if (data.output || data.outputDataUrl) {
-        const rawOutput = data.outputDataUrl || data.output;
-        const displayOutput = await toDisplayableImage(rawOutput);
-        setAfterImage(displayOutput);
-        setStep("result");
-      } else {
-        throw new Error(data.error || "Failed to process image");
+
+      const outputCandidate = getOutputImageValue(data);
+      if (!outputCandidate) {
+        throw new Error("AI returned an invalid image format. Please try again.");
       }
+
+      const displayOutput = await toDisplayableImage(outputCandidate);
+      setAfterImage(displayOutput);
+      setStep("result");
     } catch (err) {
       console.error("AI Error:", err);
       const retryHint =
@@ -284,22 +293,41 @@ const SmileSimulatorAI = () => {
     return canvas.toDataURL("image/jpeg", 0.9);
   };
 
-  const toDisplayableImage = async (imageValue) => {
-    if (typeof imageValue !== "string") return imageValue;
-    if (imageValue.startsWith("data:")) return imageValue;
-    try {
-      const res = await fetch(imageValue, { mode: "cors" });
-      if (!res.ok) return imageValue;
-      const blob = await res.blob();
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch (_e) {
-      return imageValue;
+
+  const getOutputImageValue = (data) => {
+    if (!data) return null;
+    if (typeof data.outputDataUrl === "string" && data.outputDataUrl.startsWith("data:image/")) {
+      return data.outputDataUrl;
     }
+
+    if (typeof data.output === "string") {
+      return data.output;
+    }
+
+    if (Array.isArray(data.output) && typeof data.output[0] === "string") {
+      return data.output[0];
+    }
+
+    if (data.output && typeof data.output === "object" && typeof data.output.url === "string") {
+      return data.output.url;
+    }
+
+    return null;
+  };
+  const toDisplayableImage = async (imageValue) => {
+    if (typeof imageValue !== "string") {
+      throw new Error("AI output is not a valid image string.");
+    }
+
+    const trimmed = imageValue.trim();
+    if (trimmed.startsWith("data:image/")) return trimmed;
+
+    const isHttpUrl = /^https?:\/\//i.test(trimmed);
+    if (!isHttpUrl) {
+      throw new Error("AI output URL format is invalid.");
+    }
+
+    return trimmed;
   };
   const loadImage = (src) =>
     new Promise((resolve, reject) => {
@@ -579,6 +607,8 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
+
 
 
 
