@@ -19,6 +19,34 @@ app.get('/', (_req, res) => {
   res.send('Smile Dental API is running. Use /api/health and /api/smile.');
 });
 
+
+app.get('/api/replicate-account', async (_req, res) => {
+  try {
+    const token = process.env.REPLICATE_API_TOKEN || '';
+    const maskedToken = token.length > 12
+      ? `${token.slice(0, 6)}...${token.slice(-4)}`
+      : 'missing';
+
+    const response = await fetch('https://api.replicate.com/v1/account', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    return res.status(response.status).json({
+      ok: response.ok,
+      token_hint: maskedToken,
+      account: data,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: error.message,
+    });
+  }
+});
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -124,3 +152,4 @@ app.post('/api/smile', async (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
+
