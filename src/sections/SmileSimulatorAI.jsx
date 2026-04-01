@@ -21,7 +21,8 @@ const TREATMENTS = [
 const MOUTH_PERIMETER_INDICES = [61, 291, 0, 17, 13, 14, 78, 308];
 /** Used only for sanity (eyes should sit above the mouth), not for mouth box math */
 const EYE_SANITY_INDICES = [33, 133, 362, 263];
-const MOUTH_CONFIDENCE_MIN = 0.8;
+/** Tuned so real smiles pass; still rejects empty/weird detections */
+const MOUTH_CONFIDENCE_MIN = 0.62;
 const OVAL_FEATHER_PX = 16;
 
 /** Upper dental arch (left → right) — follows lip/teeth row in FaceMesh topology */
@@ -45,8 +46,8 @@ const initFaceMesh = async () => {
     faceMesh.setOptions({
       maxNumFaces: 1,
       refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      minDetectionConfidence: 0.4,
+      minTrackingConfidence: 0.4,
     });
 
     faceMeshInstance = faceMesh;
@@ -219,15 +220,19 @@ const SmileSimulatorAI = () => {
 
     const eyeYs = EYE_SANITY_INDICES.map((ei) => landmarks[ei]?.y).filter((v) => typeof v === "number");
     const avgEyeY = eyeYs.length ? eyeYs.reduce((a, b) => a + b, 0) / eyeYs.length : 0.35;
-    const eyeAbove = avgEyeY < mouthCenterY - 0.025 ? 1 : 0.55;
+    // Soft penalty only when eyes are clearly below the mouth (bad pose); mild tilt/3-4 view OK
+    let eyeFactor = 1;
+    if (avgEyeY >= mouthCenterY + 0.04) eyeFactor = 0.45;
+    else if (avgEyeY >= mouthCenterY - 0.005) eyeFactor = 0.88;
 
-    const wScore = mouthWidthNorm > 0.11 && mouthWidthNorm < 0.55 ? 1 : Math.max(0, 1 - Math.abs(mouthWidthNorm - 0.3) * 5);
-    const yScore = mouthCenterY > 0.36 && mouthCenterY < 0.92 ? 1 : 0.35;
-    const hScore = lipSep > 0.006 ? 1 : 0.45;
-    const posScore = cy / ih > 0.34 && cy / ih < 0.9 ? 1 : 0.4;
+    const wScore = mouthWidthNorm > 0.08 && mouthWidthNorm < 0.58 ? 1 : Math.max(0.15, 1 - Math.abs(mouthWidthNorm - 0.28) * 4);
+    const yScore = mouthCenterY > 0.3 && mouthCenterY < 0.94 ? 1 : 0.45;
+    // Closed or relaxed mouth: small lip gap is normal
+    const hScore = lipSep > 0.002 ? 1 : 0.78;
+    const posScore = cy / ih > 0.3 && cy / ih < 0.92 ? 1 : 0.5;
 
     const confidence = clamp(
-      (0.32 * wScore + 0.28 * yScore + 0.22 * hScore + 0.18 * posScore) * eyeAbove,
+      (0.32 * wScore + 0.28 * yScore + 0.22 * hScore + 0.18 * posScore) * eyeFactor,
       0,
       1
     );
@@ -765,7 +770,9 @@ const SmileSimulatorAI = () => {
                   <div className="w-20 h-20 bg-brand-blue/30 rounded-full flex items-center justify-center text-zinc-600"><Upload size={32} /></div>
                 </div>
                 <h3 className="text-2xl font-serif mb-4">Upload or Capture Smile</h3>
-                <p className="text-zinc-400 mb-10 max-w-sm mx-auto">Keep teeth visible and centered for best mouth detection.</p>
+                <p className="text-zinc-400 mb-10 max-w-sm mx-auto">
+                  Face the camera with your mouth and teeth visible. Good lighting helps. If you see an error below, try again with a clearer smile photo.
+                </p>
 
                 {error && <div className="mb-8 p-4 bg-red-50 text-red-500 text-sm rounded-xl border border-red-100">{error}</div>}
                 {cameraError && !error && <div className="mb-8 p-4 bg-amber-50 text-amber-800 text-sm rounded-xl border border-amber-100">{cameraError}</div>}
