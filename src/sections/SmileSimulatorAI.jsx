@@ -183,55 +183,75 @@ const SmileSimulatorAI = () => {
     };
   };
 
-  const detectMouthBounds = async (img) => {
+    const detectMouthBounds = async (img) => {
     const width = img.width;
     const height = img.height;
+
+    const fallback = {
+      x: Math.floor(width * 0.25),
+      y: Math.floor(height * 0.55),
+      width: Math.floor(width * 0.5),
+      height: Math.floor(height * 0.3),
+    };
 
     try {
       const detector = await ensureFaceLandmarker();
       const result = detector.detect(img);
       const face = result?.faceLandmarks?.[0];
 
-      if (face?.length) {
-        let minX = 1;
-        let maxX = 0;
-        let minY = 1;
-        let maxY = 0;
-
-        for (const idx of LIP_INDEXES) {
-          const p = face[idx];
-          if (!p) continue;
-          minX = Math.min(minX, p.x);
-          maxX = Math.max(maxX, p.x);
-          minY = Math.min(minY, p.y);
-          maxY = Math.max(maxY, p.y);
-        }
-
-        const padX = (maxX - minX) * 0.35;
-        const padY = (maxY - minY) * 0.55;
-
-        const left = clamp(Math.floor((minX - padX) * width), 0, width - 2);
-        const top = clamp(Math.floor((minY - padY) * height), 0, height - 2);
-        const right = clamp(Math.ceil((maxX + padX) * width), left + 2, width);
-        const bottom = clamp(Math.ceil((maxY + padY) * height), top + 2, height);
-
-        return {
-          x: left,
-          y: top,
-          width: right - left,
-          height: bottom - top,
-        };
+      if (!face?.length) {
+        return fallback;
       }
-    } catch (_err) {
-      // Fall back below.
-    }
 
-    return {
-      x: Math.floor(width * 0.25),
-      y: Math.floor(height * 0.55),
-      width: Math.floor(width * 0.5),
-      height: Math.floor(height * 0.3),
-    };
+      let minX = 1;
+      let maxX = 0;
+      let minY = 1;
+      let maxY = 0;
+
+      for (const idx of LIP_INDEXES) {
+        const p = face[idx];
+        if (!p) continue;
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+
+      const padX = (maxX - minX) * 0.35;
+      const padY = (maxY - minY) * 0.55;
+
+      let left = Math.floor((minX - padX) * width);
+      let top = Math.floor((minY - padY) * height);
+      let right = Math.ceil((maxX + padX) * width);
+      let bottom = Math.ceil((maxY + padY) * height);
+
+      // Hard safety rails: never allow mouth box in eye region.
+      const minTop = Math.floor(height * 0.5);
+      const maxBottom = Math.floor(height * 0.9);
+      top = Math.max(top, minTop);
+      bottom = Math.min(bottom, maxBottom);
+
+      left = clamp(left, 0, width - 2);
+      top = clamp(top, minTop, height - 2);
+      right = clamp(right, left + 2, width);
+      bottom = clamp(bottom, top + 2, maxBottom);
+
+      const bounds = {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      };
+
+      const centerY = bounds.y + bounds.height * 0.5;
+      if (centerY < height * 0.58 || bounds.height < height * 0.08) {
+        return fallback;
+      }
+
+      return bounds;
+    } catch (_err) {
+      return fallback;
+    }
   };
 
   const createTeethMask = (width, height) => {
@@ -561,4 +581,5 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
 
