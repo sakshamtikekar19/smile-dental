@@ -30,6 +30,13 @@ const UPPER_ARCH_INDICES = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308
 /** Lower dental arch (left → right) */
 const LOWER_ARCH_INDICES = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
 
+/** Mouth-only fallback (user-specified). If ≥4 land inside the guide oval, we still run the sim. */
+const MOUTH_FIRST_INDICES = [0, 13, 14, 17, 37, 267];
+/**
+ * Normalized guide ellipse (matches enlarged camera overlay). Radii are 20% larger than a typical base so landmarks near the frame still count.
+ */
+const MOUTH_GUIDE_OVAL_NORM = { cx: 0.5, cy: 0.56, rx: 0.2 * 1.2, ry: 0.12 * 1.2 };
+
 let faceMeshInstance;
 let faceMeshLoadFailed = false;
 let faceLandmarkerInstance;
@@ -72,8 +79,8 @@ const initFaceMesh = async () => {
     faceMesh.setOptions({
       maxNumFaces: 1,
       refineLandmarks: true,
-      minDetectionConfidence: 0.4,
-      minTrackingConfidence: 0.4,
+      minDetectionConfidence: 0.3,
+      minTrackingConfidence: 0.3,
     });
 
     faceMeshInstance = faceMesh;
@@ -272,6 +279,102 @@ const SmileSimulatorAI = () => {
     buildMouthAnalysis(landmarks, iw, ih, MOUTH_PERIMETER_INDICES) ||
     buildMouthAnalysis(landmarks, iw, ih, MOUTH_FALLBACK_INDICES);
 
+  /** Slightly looser hit-test (15%) so landmarks just outside the drawn guide still qualify */
+  const pointInNormalizedGuideOval = (nx, ny) => {
+    const o = MOUTH_GUIDE_OVAL_NORM;
+    const hitRx = o.rx * 1.15;
+    const hitRy = o.ry * 1.15;
+    const dx = (nx - o.cx) / hitRx;
+    const dy = (ny - o.cy) / hitRy;
+    return dx * dx + dy * dy <= 1.03;
+  };
+
+  /** ≥4 of the mouth-first points inside guide → proceed without full-face hull */
+  const buildAnalysisFromMouthFirstIndices = (landmarks, iw, ih) => {
+    const inGuide = [];
+    for (const i of MOUTH_FIRST_INDICES) {
+      const p = landmarks[i];
+      if (!p || typeof p.x !== "number" || typeof p.y !== "number") continue;
+      if (!pointInNormalizedGuideOval(p.x, p.y)) continue;
+      inGuide.push({ x: p.x * iw, y: p.y * ih });
+    }
+    if (inGuide.length < 4) return null;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    inGuide.forEach(({ x, y }) => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    });
+
+    if (!(maxX > minX && maxY > minY)) return null;
+
+    const padX = (maxX - minX) * 0.18 + 8;
+    const padY = (maxY - minY) * 0.22 + 10;
+
+    let x = Math.floor(minX - padX);
+    let y = Math.floor(minY - padY);
+    let width = Math.ceil(maxX - minX + padX * 2);
+    let height = Math.ceil(maxY - minY + padY * 2);
+
+    x = clamp(x, 0, iw - 1);
+    y = clamp(y, 0, ih - 1);
+    width = clamp(width, 24, iw - x);
+    height = clamp(height, 24, ih - y);
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const rx = Math.max((maxX - minX) / 2 * 1.1, 12);
+    const ry = Math.max((maxY - minY) / 2 * 1.15, 10);
+
+    return {
+      confidence: 0.55,
+      bounds: { x, y, width, height },
+      oval: { cx, cy, rx, ry },
+    };
+  };
+
+  const tryAnalyzeLandmarksFullOrMouthFirst = (landmarks, iw, ih) =>
+    analyzeMouthFromLandmarks(landmarks, iw, ih) || buildAnalysisFromMouthFirstIndices(landmarks, iw, ih);
+
+  /** Brightness/contrast lift on guide ellipse bbox to help detectors in shadows */
+  const boostMouthGuideRegion = (ctx, iw, ih) => {
+    const o = MOUTH_GUIDE_OVAL_NORM;
+    const px = o.cx * iw;
+    const py = o.cy * ih;
+    const prx = o.rx * iw;
+    const pry = o.ry * ih;
+    const pad = 1.1;
+    const x0 = clamp(Math.floor(px - prx * pad), 0, iw - 1);
+    const y0 = clamp(Math.floor(py - pry * pad), 0, ih - 1);
+    const x1 = clamp(Math.ceil(px + prx * pad), 0, iw);
+    const y1 = clamp(Math.ceil(py + pry * pad), 0, ih);
+    const rw = x1 - x0;
+    const rh = y1 - y0;
+    if (rw < 8 || rh < 8) return;
+
+    const imageData = ctx.getImageData(x0, y0, rw, rh);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i];
+      let g = d[i + 1];
+      let b = d[i + 2];
+      const contrast = 1.1;
+      const bright = 18;
+      r = (r - 128) * contrast + 128 + bright;
+      g = (g - 128) * contrast + 128 + bright;
+      b = (b - 128) * contrast + 128 + bright;
+      d[i] = clamp(Math.round(r), 0, 255);
+      d[i + 1] = clamp(Math.round(g), 0, 255);
+      d[i + 2] = clamp(Math.round(b), 0, 255);
+    }
+    ctx.putImageData(imageData, x0, y0);
+  };
+
   /** Typical selfie mouth band when ML fails (iOS Safari / blocked CDN) */
   const heuristicMouthRegion = (iw, ih) => {
     const cx = iw * 0.5;
@@ -299,8 +402,8 @@ const SmileSimulatorAI = () => {
       return null;
     }
     const faceLm = result?.faceLandmarks?.[0];
-    if (!faceLm || faceLm.length < 100) return null;
-    const analysis = analyzeMouthFromLandmarks(faceLm, canvas.width, canvas.height);
+    if (!faceLm || faceLm.length < 50) return null;
+    const analysis = tryAnalyzeLandmarksFullOrMouthFirst(faceLm, canvas.width, canvas.height);
     if (!analysis) return null;
     return { ...analysis, landmarks: faceLm };
   };
@@ -330,7 +433,7 @@ const SmileSimulatorAI = () => {
             finish(fail);
             return;
           }
-          const analysis = analyzeMouthFromLandmarks(landmarks, canvas.width, canvas.height);
+          const analysis = tryAnalyzeLandmarksFullOrMouthFirst(landmarks, canvas.width, canvas.height);
           if (!analysis) {
             finish(fail);
             return;
@@ -362,7 +465,9 @@ const SmileSimulatorAI = () => {
     const canvas = document.createElement("canvas");
     canvas.width = iw;
     canvas.height = ih;
-    canvas.getContext("2d").drawImage(img, 0, 0);
+    const detCtx = canvas.getContext("2d");
+    detCtx.drawImage(img, 0, 0);
+    boostMouthGuideRegion(detCtx, iw, ih);
 
     let lm = null;
     try {
@@ -744,7 +849,9 @@ const SmileSimulatorAI = () => {
       if (!mouth.bounds || !mouth.oval) {
         setBeforeImage(null);
         setAfterImage(null);
-        setError("Something went wrong preparing your photo. Please try again.");
+        setError(
+          "Keep your mouth slightly open so we can see your teeth clearly. Ensure there are no strong shadows on your lips, and try again."
+        );
         setStep("upload");
         return;
       }
@@ -890,7 +997,9 @@ const SmileSimulatorAI = () => {
             {step === "camera" && (
               <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative aspect-video overflow-hidden rounded-3xl bg-black shadow-2xl">
                 <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center"><div className="h-24 w-60 rounded-[999px] border-2 border-brand-gold/80 bg-white/10" /></div>
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="h-[7.2rem] w-[18rem] max-w-[92%] rounded-[999px] border-2 border-brand-gold/80 bg-white/10" />
+                </div>
                 <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-4 p-6">
                   <button type="button" onClick={reset} className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-white"><X size={22} /></button>
                   <button type="button" onClick={takePhoto} className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full bg-white"><span className="h-12 w-12 rounded-full bg-zinc-900" /></button>
