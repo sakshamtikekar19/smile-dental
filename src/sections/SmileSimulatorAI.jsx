@@ -32,6 +32,32 @@ const LOWER_ARCH_INDICES = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
 
 let faceMeshInstance;
 let faceMeshLoadFailed = false;
+let faceLandmarkerInstance;
+let faceLandmarkerLoadFailed = false;
+
+const initFaceLandmarker = async () => {
+  if (faceLandmarkerLoadFailed) return null;
+  if (faceLandmarkerInstance) return faceLandmarkerInstance;
+  try {
+    const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
+    const fileset = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
+    );
+    faceLandmarkerInstance = await FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: {
+        modelAssetPath:
+          "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+        delegate: "CPU",
+      },
+      runningMode: "IMAGE",
+      numFaces: 1,
+    });
+    return faceLandmarkerInstance;
+  } catch (_err) {
+    faceLandmarkerLoadFailed = true;
+    return null;
+  }
+};
 
 const initFaceMesh = async () => {
   if (faceMeshLoadFailed) return null;
@@ -246,49 +272,115 @@ const SmileSimulatorAI = () => {
     buildMouthAnalysis(landmarks, iw, ih, MOUTH_PERIMETER_INDICES) ||
     buildMouthAnalysis(landmarks, iw, ih, MOUTH_FALLBACK_INDICES);
 
-  /**
-   * @returns {Promise<{ ok: boolean, confidence?: number, bounds?: object, oval?: object }>}
-   */
-  const detectMouth = async (imageSrc) => {
-    const img = await loadImage(imageSrc);
-    const fail = { ok: false, confidence: 0 };
+  /** Typical selfie mouth band when ML fails (iOS Safari / blocked CDN) */
+  const heuristicMouthRegion = (iw, ih) => {
+    const cx = iw * 0.5;
+    const cy = ih * 0.63;
+    const rx = Math.max(iw * 0.19, 14);
+    const ry = Math.max(ih * 0.1, 10);
+    const width = clamp(Math.ceil(rx * 2.45), 48, iw);
+    const height = clamp(Math.ceil(ry * 2.35), 40, ih);
+    const x = clamp(Math.floor(cx - width / 2), 0, iw - width);
+    const y = clamp(Math.floor(cy - height / 2), Math.floor(ih * 0.45), Math.max(0, ih - height));
+    return {
+      confidence: 0.35,
+      bounds: { x, y, width, height },
+      oval: { cx, cy, rx, ry },
+    };
+  };
 
-    const faceMesh = await initFaceMesh();
-    if (!faceMesh) return fail;
+  const tryFaceLandmarker = async (canvas) => {
+    const landmarker = await initFaceLandmarker();
+    if (!landmarker) return null;
+    let result;
+    try {
+      result = landmarker.detect(canvas);
+    } catch (_e) {
+      return null;
+    }
+    const faceLm = result?.faceLandmarks?.[0];
+    if (!faceLm || faceLm.length < 100) return null;
+    const analysis = analyzeMouthFromLandmarks(faceLm, canvas.width, canvas.height);
+    if (!analysis) return null;
+    return { ...analysis, landmarks: faceLm };
+  };
 
-    return new Promise((resolve) => {
+  const runFaceMeshOnCanvas = (canvas) =>
+    new Promise((resolve) => {
+      const fail = { ok: false };
       let settled = false;
-      const timer = window.setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          resolve(fail);
-        }
-      }, 15000);
-
+      let timer;
       const finish = (payload) => {
         if (settled) return;
         settled = true;
-        window.clearTimeout(timer);
+        if (timer) window.clearTimeout(timer);
         resolve(payload);
       };
+      timer = window.setTimeout(() => finish(fail), 12000);
 
-      faceMesh.onResults((results) => {
-        const landmarks = results?.multiFaceLandmarks?.[0];
-        if (!landmarks) {
+      initFaceMesh().then((faceMesh) => {
+        if (!faceMesh) {
           finish(fail);
           return;
         }
-        const analysis = analyzeMouthFromLandmarks(landmarks, img.width, img.height);
-        if (!analysis) {
-          finish(fail);
-          return;
-        }
-        // Any successful landmark analysis runs the sim; confidence is informational only
-        finish({ ok: true, ...analysis, landmarks });
+
+        faceMesh.onResults((results) => {
+          const landmarks = results?.multiFaceLandmarks?.[0];
+          if (!landmarks) {
+            finish(fail);
+            return;
+          }
+          const analysis = analyzeMouthFromLandmarks(landmarks, canvas.width, canvas.height);
+          if (!analysis) {
+            finish(fail);
+            return;
+          }
+          finish({ ok: true, ...analysis, landmarks });
+        });
+
+        faceMesh.send({ image: canvas }).catch(() => finish(fail));
       });
-
-      faceMesh.send({ image: img }).catch(() => finish(fail));
     });
+
+  /**
+   * 1) Face Landmarker (reliable on mobile Safari)
+   * 2) Legacy FaceMesh with **Canvas** (HTMLImageElement often fails on iOS)
+   * 3) Heuristic mouth band (always returns bounds so users aren’t blocked)
+   */
+  const detectMouth = async (imageSrc) => {
+    const img = await loadImage(imageSrc);
+    if (typeof img.decode === "function") {
+      try {
+        await img.decode();
+      } catch (_e) {
+        /* ignore */
+      }
+    }
+
+    const iw = img.width;
+    const ih = img.height;
+    const canvas = document.createElement("canvas");
+    canvas.width = iw;
+    canvas.height = ih;
+    canvas.getContext("2d").drawImage(img, 0, 0);
+
+    let lm = null;
+    try {
+      lm = await tryFaceLandmarker(canvas);
+    } catch (_e) {
+      lm = null;
+    }
+    if (lm) {
+      return { ok: true, bounds: lm.bounds, oval: lm.oval, confidence: lm.confidence, landmarks: lm.landmarks };
+    }
+
+    const mesh = await runFaceMeshOnCanvas(canvas);
+    if (mesh.ok && mesh.bounds && mesh.oval) {
+      return mesh;
+    }
+
+    const h = heuristicMouthRegion(iw, ih);
+    return { ok: true, ...h, landmarks: null };
   };
 
   const squareCropRect = (iw, ih, oval) => {
@@ -652,23 +744,12 @@ const SmileSimulatorAI = () => {
       if (!mouth.bounds || !mouth.oval) {
         setBeforeImage(null);
         setAfterImage(null);
-        setError(
-          "We couldn’t detect a face clearly. Use a well-lit photo, face the camera, and ensure your mouth and teeth are visible."
-        );
+        setError("Something went wrong preparing your photo. Please try again.");
         setStep("upload");
         return;
       }
 
       const { bounds, oval, landmarks } = mouth;
-      if (!landmarks) {
-        setBeforeImage(null);
-        setAfterImage(null);
-        setError(
-          "We couldn’t detect a face clearly. Use a well-lit photo, face the camera, and ensure your mouth and teeth are visible."
-        );
-        setStep("upload");
-        return;
-      }
 
       let canvasEnhanced = normalized;
 
@@ -701,7 +782,7 @@ const SmileSimulatorAI = () => {
       let merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval);
 
       const imgRef = await loadImage(normalized);
-      if (selectedTreatment === "braces") {
+      if (selectedTreatment === "braces" && landmarks) {
         merged = await applyBracesOverlay(merged, landmarks, imgRef.width, imgRef.height, oval);
       }
 
@@ -785,7 +866,7 @@ const SmileSimulatorAI = () => {
                 </div>
                 <h3 className="text-2xl font-serif mb-4">Upload or Capture Smile</h3>
                 <p className="text-zinc-400 mb-10 max-w-sm mx-auto">
-                  Face the camera with your mouth and teeth visible. Good lighting helps. If you see an error below, try again with a clearer smile photo.
+                  Face the camera with your mouth visible. On phones we also support automatic framing if live face detection is slow.
                 </p>
 
                 {error && <div className="mb-8 p-4 bg-red-50 text-red-500 text-sm rounded-xl border border-red-100">{error}</div>}
