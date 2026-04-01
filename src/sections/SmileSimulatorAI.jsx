@@ -216,7 +216,7 @@ const SmileSimulatorAI = () => {
     });
   };
 
-  const applyTeethWhitening = async (imageSrc, bounds) => {
+    const applyTeethWhitening = async (imageSrc, bounds) => {
     return new Promise((resolve) => {
       const img = new Image();
       img.src = imageSrc;
@@ -231,7 +231,6 @@ const SmileSimulatorAI = () => {
         ctx.drawImage(img, 0, 0);
 
         const { x, y, width, height } = bounds;
-
         const imageData = ctx.getImageData(x, y, width, height);
         const data = imageData.data;
 
@@ -240,16 +239,27 @@ const SmileSimulatorAI = () => {
           let g = data[i + 1];
           let b = data[i + 2];
 
-          const isToothLike = r > 120 && g > 120 && b < 160;
+          const brightness = (r + g + b) / 3;
+          const yellowBias = r - b;
+
+          // Broader, stronger tooth-likelihood check for visible whitening.
+          const isToothLike = brightness > 70 && brightness < 235 && yellowBias > -15;
 
           if (isToothLike) {
-            r *= 0.92;
-            g *= 1.08;
-            b *= 1.12;
+            // Remove warm/yellow cast and brighten with mild contrast lift.
+            r = r * 0.84 + 6;
+            g = g * 1.14 + 10;
+            b = b * 1.2 + 14;
 
-            data[i] = Math.min(255, r);
-            data[i + 1] = Math.min(255, g);
-            data[i + 2] = Math.min(255, b);
+            // Slight global lift in mouth crop for clearer visual difference.
+            const contrast = 1.06;
+            r = (r - 128) * contrast + 128;
+            g = (g - 128) * contrast + 128;
+            b = (b - 128) * contrast + 128;
+
+            data[i] = Math.min(255, Math.max(0, Math.round(r)));
+            data[i + 1] = Math.min(255, Math.max(0, Math.round(g)));
+            data[i + 2] = Math.min(255, Math.max(0, Math.round(b)));
           }
         }
 
@@ -542,6 +552,7 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
 
 
 
