@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Upload, Camera, X, CheckCircle2, Info, Sparkles, RefreshCw, AlignCenter, ShieldPlus } from "lucide-react";
-import * as FaceMeshModule from "@mediapipe/face_mesh";
+
 import ReactCompareImage from "react-compare-image";
 import PremiumButton from "../components/PremiumButton";
 import AnimatedSection from "../components/AnimatedSection";
@@ -17,23 +17,31 @@ const TREATMENTS = [
 ];
 
 let faceMeshInstance;
+let faceMeshLoadFailed = false;
 
-const initFaceMesh = () => {
+const initFaceMesh = async () => {
+  if (faceMeshLoadFailed) return null;
   if (faceMeshInstance) return faceMeshInstance;
 
-  const faceMesh = new FaceMeshModule.FaceMesh({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-  });
+  try {
+    const FaceMeshModule = await import("@mediapipe/face_mesh");
+    const faceMesh = new FaceMeshModule.FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+    });
 
-  faceMesh.setOptions({
-    maxNumFaces: 1,
-    refineLandmarks: true,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5,
-  });
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
 
-  faceMeshInstance = faceMesh;
-  return faceMesh;
+    faceMeshInstance = faceMesh;
+    return faceMeshInstance;
+  } catch (_err) {
+    faceMeshLoadFailed = true;
+    return null;
+  }
 };
 
 const SmileSimulatorAI = () => {
@@ -115,7 +123,15 @@ const SmileSimulatorAI = () => {
   const detectMouth = async (imageSrc) => {
     const img = await loadImage(imageSrc);
 
-    const faceMesh = initFaceMesh();
+    const faceMesh = await initFaceMesh();
+    if (!faceMesh) {
+      return {
+        x: Math.floor(img.width * 0.25),
+        y: Math.floor(img.height * 0.55),
+        width: Math.floor(img.width * 0.5),
+        height: Math.floor(img.height * 0.3),
+      };
+    }
 
     return new Promise(async (resolve) => {
       const fallback = {
@@ -468,4 +484,6 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
+
 
