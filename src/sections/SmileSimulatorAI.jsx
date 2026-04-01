@@ -16,6 +16,13 @@ const TREATMENTS = [
   { id: "transformation", label: "Full Smile", icon: ShieldPlus, desc: "Whitening + alignment" },
 ];
 
+/** Lip / mouth perimeter only — do not use eye indices for mouth geometry */
+const MOUTH_PERIMETER_INDICES = [61, 291, 0, 17, 13, 14, 78, 308];
+/** Used only for sanity (eyes should sit above the mouth), not for mouth box math */
+const EYE_SANITY_INDICES = [33, 133, 362, 263];
+const MOUTH_CONFIDENCE_MIN = 0.8;
+const OVAL_FEATHER_PX = 16;
+
 let faceMeshInstance;
 let faceMeshLoadFailed = false;
 
@@ -63,7 +70,6 @@ const SmileSimulatorAI = () => {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const normalized = await normalizeImage(ev.target.result, 1024);
-      setBeforeImage(normalized);
       processWithAI(normalized);
     };
     reader.readAsDataURL(file);
@@ -112,7 +118,6 @@ const SmileSimulatorAI = () => {
 
     const captured = canvas.toDataURL("image/jpeg", 0.88);
     stopCamera();
-    setBeforeImage(captured);
     processWithAI(captured);
   };
 
@@ -140,83 +145,153 @@ const SmileSimulatorAI = () => {
       img.src = src;
     });
 
-  const detectMouthBounds = (landmarks, imageWidth, imageHeight) => {
-    const mouthPoints = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  /** Normalized distance inside ellipse: <=1 inside, ~1..(1+feather) feather zone */
+  const ellipseFeatherWeight = (px, py, oval, featherPx) => {
+    const { cx, cy, rx, ry } = oval;
+    if (rx <= 0 || ry <= 0) return 0;
+    const nx = (px - cx) / rx;
+    const ny = (py - cy) / ry;
+    const dist = Math.sqrt(nx * nx + ny * ny);
+    const edge = 1;
+    const outer = 1 + featherPx / Math.max(rx, ry);
+    if (dist <= edge) return 1;
+    if (dist >= outer) return 0;
+    const t = (outer - dist) / (outer - edge);
+    return t * t * (3 - 2 * t);
+  };
+
+  /**
+   * Mouth geometry from mouth-only landmarks. Eyes are not used for the box;
+   * optional sanity: eyes above mouth.
+   */
+  const analyzeMouthFromLandmarks = (landmarks, iw, ih) => {
+    for (const i of MOUTH_PERIMETER_INDICES) {
+      const p = landmarks[i];
+      if (!p || typeof p.x !== "number" || typeof p.y !== "number") return null;
+    }
 
     let minX = Infinity;
     let minY = Infinity;
-    let maxX = 0;
-    let maxY = 0;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
 
-    mouthPoints.forEach((i) => {
-      const point = landmarks[i];
-      const x = point.x * imageWidth;
-      const y = point.y * imageHeight;
-
+    MOUTH_PERIMETER_INDICES.forEach((i) => {
+      const p = landmarks[i];
+      const x = p.x * iw;
+      const y = p.y * ih;
       minX = Math.min(minX, x);
       minY = Math.min(minY, y);
       maxX = Math.max(maxX, x);
       maxY = Math.max(maxY, y);
     });
 
-    const bounds = {
-      x: Math.max(0, Math.floor(minX - 10)),
-      y: Math.max(Math.floor(imageHeight * 0.5), Math.floor(minY - 10)),
-      width: Math.floor(maxX - minX + 20),
-      height: Math.floor(maxY - minY + 20),
+    if (!(maxX > minX && maxY > minY)) return null;
+
+    const padX = (maxX - minX) * 0.14 + 6;
+    const padY = (maxY - minY) * 0.18 + 8;
+
+    let x = Math.floor(minX - padX);
+    let y = Math.floor(minY - padY);
+    let width = Math.ceil(maxX - minX + padX * 2);
+    let height = Math.ceil(maxY - minY + padY * 2);
+
+    x = clamp(x, 0, iw - 1);
+    y = clamp(y, 0, ih - 1);
+    width = clamp(width, 24, iw - x);
+    height = clamp(height, 24, ih - y);
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const rx = Math.max((maxX - minX) / 2 * 1.08, 12);
+    const ry = Math.max((maxY - minY) / 2 * 1.12, 10);
+
+    const mouthWidthNorm = Math.abs(landmarks[291].x - landmarks[61].x);
+    const mouthCenterY = (landmarks[13].y + landmarks[14].y) / 2;
+    const lipSep = Math.abs(landmarks[14].y - landmarks[13].y);
+
+    const eyeYs = EYE_SANITY_INDICES.map((ei) => landmarks[ei]?.y).filter((v) => typeof v === "number");
+    const avgEyeY = eyeYs.length ? eyeYs.reduce((a, b) => a + b, 0) / eyeYs.length : 0.35;
+    const eyeAbove = avgEyeY < mouthCenterY - 0.025 ? 1 : 0.55;
+
+    const wScore = mouthWidthNorm > 0.11 && mouthWidthNorm < 0.55 ? 1 : Math.max(0, 1 - Math.abs(mouthWidthNorm - 0.3) * 5);
+    const yScore = mouthCenterY > 0.36 && mouthCenterY < 0.92 ? 1 : 0.35;
+    const hScore = lipSep > 0.006 ? 1 : 0.45;
+    const posScore = cy / ih > 0.34 && cy / ih < 0.9 ? 1 : 0.4;
+
+    const confidence = clamp(
+      (0.32 * wScore + 0.28 * yScore + 0.22 * hScore + 0.18 * posScore) * eyeAbove,
+      0,
+      1
+    );
+
+    return {
+      confidence,
+      bounds: { x, y, width, height },
+      oval: { cx, cy, rx, ry },
     };
-
-    if (bounds.height < imageHeight * 0.08) {
-      return {
-        x: Math.floor(imageWidth * 0.25),
-        y: Math.floor(imageHeight * 0.55),
-        width: Math.floor(imageWidth * 0.5),
-        height: Math.floor(imageHeight * 0.3),
-      };
-    }
-
-    return bounds;
   };
 
+  /**
+   * @returns {Promise<{ ok: boolean, confidence?: number, bounds?: object, oval?: object }>}
+   */
   const detectMouth = async (imageSrc) => {
     const img = await loadImage(imageSrc);
+    const fail = { ok: false, confidence: 0 };
 
     const faceMesh = await initFaceMesh();
-    if (!faceMesh) {
-      return {
-        x: Math.floor(img.width * 0.25),
-        y: Math.floor(img.height * 0.55),
-        width: Math.floor(img.width * 0.5),
-        height: Math.floor(img.height * 0.3),
-      };
-    }
+    if (!faceMesh) return fail;
 
-    return new Promise(async (resolve) => {
-      const fallback = {
-        x: Math.floor(img.width * 0.25),
-        y: Math.floor(img.height * 0.55),
-        width: Math.floor(img.width * 0.5),
-        height: Math.floor(img.height * 0.3),
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (payload) => {
+        if (settled) return;
+        settled = true;
+        resolve(payload);
       };
 
       faceMesh.onResults((results) => {
         const landmarks = results?.multiFaceLandmarks?.[0];
         if (!landmarks) {
-          resolve(fallback);
+          finish(fail);
           return;
         }
-        resolve(detectMouthBounds(landmarks, img.width, img.height));
+        const analysis = analyzeMouthFromLandmarks(landmarks, img.width, img.height);
+        if (!analysis) {
+          finish(fail);
+          return;
+        }
+        const ok = analysis.confidence >= MOUTH_CONFIDENCE_MIN;
+        finish({ ok, ...analysis });
       });
 
-      try {
-        await faceMesh.send({ image: img });
-      } catch (_e) {
-        resolve(fallback);
-      }
+      faceMesh.send({ image: img }).catch(() => finish(fail));
     });
   };
 
-    const applyTeethWhitening = async (imageSrc, bounds) => {
+  const squareCropRect = (iw, ih, oval) => {
+    const maxSide = Math.min(iw, ih);
+    let side = Math.min(maxSide, Math.ceil(2.35 * Math.max(oval.rx, oval.ry)));
+    side = clamp(side, 120, maxSide);
+    let x0 = Math.round(oval.cx - side / 2);
+    let y0 = Math.round(oval.cy - side / 2);
+    x0 = clamp(x0, 0, iw - side);
+    y0 = clamp(y0, 0, ih - side);
+    return { x: x0, y: y0, width: side, height: side };
+  };
+
+  const cropImageToDataUrl = async (imageSrc, rect) => {
+    const img = await loadImage(imageSrc);
+    const canvas = document.createElement("canvas");
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
+    return canvas.toDataURL("image/jpeg", 0.92);
+  };
+
+  const applyTeethWhitening = async (imageSrc, oval) => {
     return new Promise((resolve) => {
       const img = new Image();
       img.src = imageSrc;
@@ -230,40 +305,47 @@ const SmileSimulatorAI = () => {
 
         ctx.drawImage(img, 0, 0);
 
-        const { x, y, width, height } = bounds;
-        const imageData = ctx.getImageData(x, y, width, height);
+        const pad = OVAL_FEATHER_PX + 6;
+        const x0 = clamp(Math.floor(oval.cx - oval.rx - pad), 0, canvas.width - 1);
+        const x1 = clamp(Math.ceil(oval.cx + oval.rx + pad), 0, canvas.width);
+        const y0 = clamp(Math.floor(oval.cy - oval.ry - pad), 0, canvas.height - 1);
+        const y1 = clamp(Math.ceil(oval.cy + oval.ry + pad), 0, canvas.height);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
 
-        for (let i = 0; i < data.length; i += 4) {
-          let r = data[i];
-          let g = data[i + 1];
-          let b = data[i + 2];
+        for (let py = y0; py < y1; py++) {
+          for (let px = x0; px < x1; px++) {
+            const wMouth = ellipseFeatherWeight(px, py, oval, OVAL_FEATHER_PX);
+            if (wMouth <= 0) continue;
 
-          const brightness = (r + g + b) / 3;
-          const yellowBias = r - b;
+            const idx = (py * canvas.width + px) * 4;
+            let r = data[idx];
+            let g = data[idx + 1];
+            let b = data[idx + 2];
 
-          // Broader, stronger tooth-likelihood check for visible whitening.
-          const isToothLike = brightness > 70 && brightness < 235 && yellowBias > -15;
+            const brightness = (r + g + b) / 3;
+            const yellowBias = r - b;
+            const isToothLike = brightness > 65 && brightness < 245 && yellowBias > -22;
+            if (!isToothLike) continue;
 
-          if (isToothLike) {
-            // Remove warm/yellow cast and brighten with mild contrast lift.
-            r = r * 0.84 + 6;
-            g = g * 1.14 + 10;
-            b = b * 1.2 + 14;
+            const w = wMouth;
+            r = r * (1 - w) + w * (r * 0.84 + 6);
+            g = g * (1 - w) + w * (g * 1.14 + 10);
+            b = b * (1 - w) + w * (b * 1.2 + 14);
 
-            // Slight global lift in mouth crop for clearer visual difference.
             const contrast = 1.06;
             r = (r - 128) * contrast + 128;
             g = (g - 128) * contrast + 128;
             b = (b - 128) * contrast + 128;
 
-            data[i] = Math.min(255, Math.max(0, Math.round(r)));
-            data[i + 1] = Math.min(255, Math.max(0, Math.round(g)));
-            data[i + 2] = Math.min(255, Math.max(0, Math.round(b)));
+            data[idx] = Math.min(255, Math.max(0, Math.round(r)));
+            data[idx + 1] = Math.min(255, Math.max(0, Math.round(g)));
+            data[idx + 2] = Math.min(255, Math.max(0, Math.round(b)));
           }
         }
 
-        ctx.putImageData(imageData, x, y);
+        ctx.putImageData(imageData, 0, 0);
         resolve(canvas.toDataURL("image/jpeg", 0.95));
       };
     });
@@ -310,18 +392,24 @@ const SmileSimulatorAI = () => {
     return canvas.toDataURL("image/jpeg", 0.95);
   };
 
-  const createTeethMask = (width, height) => {
+  /** Soft oval mask in crop pixel space (white = edit region for inpainting) */
+  const createTeethMaskForCrop = (cw, ch, ovalInCrop) => {
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = cw;
+    canvas.height = ch;
     const ctx = canvas.getContext("2d");
-
     ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, cw, ch);
 
-    ctx.fillStyle = "#FFFFFF";
+    const { cx, cy, rx, ry } = ovalInCrop;
+    const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(rx, ry) + OVAL_FEATHER_PX);
+    grd.addColorStop(0, "rgba(255,255,255,1)");
+    grd.addColorStop(0.72, "rgba(255,255,255,0.92)");
+    grd.addColorStop(1, "rgba(255,255,255,0)");
+
+    ctx.fillStyle = grd;
     ctx.beginPath();
-    ctx.ellipse(width * 0.5, height * 0.58, width * 0.32, height * 0.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, rx + OVAL_FEATHER_PX * 0.5, ry + OVAL_FEATHER_PX * 0.5, 0, 0, Math.PI * 2);
     ctx.fill();
 
     return canvas.toDataURL("image/png");
@@ -342,7 +430,7 @@ const SmileSimulatorAI = () => {
     return data.outputDataUrl || data.output || null;
   };
 
-  const mergeFinalImage = async (originalSrc, mouthEnhancedSrc, bounds) => {
+  const mergeFinalImage = async (originalSrc, mouthEnhancedSrc, bounds, oval) => {
     const [original, mouth] = await Promise.all([loadImage(originalSrc), loadImage(mouthEnhancedSrc)]);
     const canvas = document.createElement("canvas");
     canvas.width = original.width;
@@ -351,21 +439,30 @@ const SmileSimulatorAI = () => {
 
     ctx.drawImage(original, 0, 0);
 
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(
-      bounds.x + bounds.width * 0.5,
-      bounds.y + bounds.height * 0.58,
-      bounds.width * 0.36,
-      bounds.height * 0.24,
-      0,
-      0,
-      Math.PI * 2
-    );
-    ctx.clip();
-    ctx.drawImage(mouth, bounds.x, bounds.y, bounds.width, bounds.height);
-    ctx.restore();
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const out = imageData.data;
 
+    const tmp = document.createElement("canvas");
+    tmp.width = bounds.width;
+    tmp.height = bounds.height;
+    tmp.getContext("2d").drawImage(mouth, 0, 0, mouth.width, mouth.height, 0, 0, bounds.width, bounds.height);
+    const mouthPixels = tmp.getContext("2d").getImageData(0, 0, bounds.width, bounds.height).data;
+
+    for (let py = bounds.y; py < bounds.y + bounds.height; py++) {
+      for (let px = bounds.x; px < bounds.x + bounds.width; px++) {
+        const w = ellipseFeatherWeight(px, py, oval, OVAL_FEATHER_PX);
+        if (w <= 0) continue;
+
+        const oi = (py * canvas.width + px) * 4;
+        const mi = ((py - bounds.y) * bounds.width + (px - bounds.x)) * 4;
+
+        out[oi] = Math.round(out[oi] * (1 - w) + mouthPixels[mi] * w);
+        out[oi + 1] = Math.round(out[oi + 1] * (1 - w) + mouthPixels[mi + 1] * w);
+        out[oi + 2] = Math.round(out[oi + 2] * (1 - w) + mouthPixels[mi + 2] * w);
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
     return canvas.toDataURL("image/jpeg", 0.95);
   };
 
@@ -376,19 +473,35 @@ const SmileSimulatorAI = () => {
 
     try {
       const normalized = await normalizeImage(baseImage, 1024);
-      const bounds = await detectMouth(normalized);
+      const mouth = await detectMouth(normalized);
+
+      if (!mouth.ok || !mouth.bounds || !mouth.oval) {
+        setBeforeImage(null);
+        setAfterImage(null);
+        setError("Please center your smile in the frame");
+        setStep("upload");
+        return;
+      }
+
+      const { bounds, oval } = mouth;
 
       let canvasEnhanced = normalized;
 
       if (selectedTreatment === "whitening" || selectedTreatment === "transformation") {
-        canvasEnhanced = await applyTeethWhitening(canvasEnhanced, bounds);
+        canvasEnhanced = await applyTeethWhitening(canvasEnhanced, oval);
       }
       if (selectedTreatment === "alignment" || selectedTreatment === "transformation") {
         canvasEnhanced = await applyAlignmentWarp(canvasEnhanced, bounds);
       }
 
       const mouthCrop = await cropMouthRegion(canvasEnhanced, bounds);
-      const mask = createTeethMask(bounds.width, bounds.height);
+      const ovalInCrop = {
+        cx: oval.cx - bounds.x,
+        cy: oval.cy - bounds.y,
+        rx: oval.rx,
+        ry: oval.ry,
+      };
+      const mask = createTeethMaskForCrop(bounds.width, bounds.height, ovalInCrop);
 
       let aiPolishedCrop = null;
       try {
@@ -397,10 +510,15 @@ const SmileSimulatorAI = () => {
         aiPolishedCrop = null;
       }
 
-      const merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds);
+      const merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval);
 
-      setBeforeImage(normalized);
-      setAfterImage(merged);
+      const imgRef = await loadImage(normalized);
+      const previewRect = squareCropRect(imgRef.width, imgRef.height, oval);
+      const beforeSquare = await cropImageToDataUrl(normalized, previewRect);
+      const afterSquare = await cropImageToDataUrl(merged, previewRect);
+
+      setBeforeImage(beforeSquare);
+      setAfterImage(afterSquare);
       setStep("result");
     } catch (err) {
       setError(err?.message || "Simulation failed.");
@@ -515,8 +633,8 @@ const SmileSimulatorAI = () => {
 
             {step === "result" && (
               <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="space-y-8">
-                {/* Portrait aspect on small screens so selfies aren’t cropped at the chin; anchor crop on mouth */}
-                <div className="rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-white/20 bg-black w-full aspect-[3/4] max-h-[min(85vh,640px)] mx-auto sm:max-h-none sm:aspect-[4/5] md:aspect-[16/9] md:max-h-none">
+                {/* 1:1 mouth-centered crops — teeth stay the hero on all screen sizes */}
+                <div className="rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-white/20 bg-black w-full max-w-lg mx-auto aspect-square max-h-[min(92vw,560px)]">
                   <ReactCompareImage
                     key={afterImage || "compare"}
                     leftImage={beforeImage}
@@ -528,15 +646,15 @@ const SmileSimulatorAI = () => {
                     handleSize={44}
                     leftImageCss={{
                       objectFit: "cover",
-                      objectPosition: "center 72%",
+                      objectPosition: "center center",
                     }}
                     rightImageCss={{
                       objectFit: "cover",
-                      objectPosition: "center 72%",
+                      objectPosition: "center center",
                     }}
                   />
                 </div>
-                <p className="text-center text-xs text-zinc-500 md:hidden">Drag the gold line to compare before and after.</p>
+                <p className="text-center text-xs text-zinc-500 md:hidden">Drag the gold line to compare — preview is zoomed on your smile.</p>
 
                 <div className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-lg flex flex-col md:flex-row items-center justify-between gap-8">
                   <div className="flex items-center gap-4">
