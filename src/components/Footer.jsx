@@ -4,7 +4,7 @@ import PremiumButton from "../components/PremiumButton";
 
 const Footer = () => {
   return (
-    <footer className="bg-zinc-900 text-white py-24">
+    <footer id="about" className="bg-zinc-900 text-white py-24 scroll-mt-28">
       <div className="container mx-auto px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
           <div className="lg:col-span-1">
@@ -29,20 +29,20 @@ const Footer = () => {
           <div>
             <h4 className="font-serif text-xl mb-8">Services</h4>
             <ul className="space-y-4 text-zinc-400">
-              <li><a href="#" className="hover:text-white transition-colors">Teeth Whitening</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Invisalign</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Veneers</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Dental Implants</a></li>
+              <li><a href="#services" className="hover:text-white transition-colors">Teeth Whitening</a></li>
+              <li><a href="#services" className="hover:text-white transition-colors">Invisalign</a></li>
+              <li><a href="#services" className="hover:text-white transition-colors">Veneers</a></li>
+              <li><a href="#services" className="hover:text-white transition-colors">Dental Implants</a></li>
             </ul>
           </div>
 
           <div>
             <h4 className="font-serif text-xl mb-8">Quick Links</h4>
             <ul className="space-y-4 text-zinc-400">
-              <li><a href="#" className="hover:text-white transition-colors">About Us</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Smile Simulator</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Our Gallery</a></li>
-              <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
+              <li><a href="#about" className="hover:text-white transition-colors">About Us</a></li>
+              <li><a href="#simulation" className="hover:text-white transition-colors">Smile Simulator</a></li>
+              <li><a href="#gallery" className="hover:text-white transition-colors">Our Gallery</a></li>
+              <li><a href="#contact" className="hover:text-white transition-colors">Contact</a></li>
             </ul>
           </div>
 

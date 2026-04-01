@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Smile Studio</title>
+    <script>
+      (function () {
+        var base = "/smile-dental/";
+        var path = location.pathname.replace(/\/+$/, "") || "/";
+        if (path.indexOf(base.replace(/\/+$/, "")) === 0) {
+          location.replace(base + location.search + location.hash);
+        } else {
+          location.replace(base);
+        }
+      })();
+    </script>
+    <meta http-equiv="refresh" content="0;url=/smile-dental/" />
+  </head>
+  <body></body>
+</html>

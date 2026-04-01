@@ -21,7 +21,7 @@ function App() {
       <Testimonials />
       
       {/* Final CTA Section */}
-      <section className="py-24 bg-brand-blue/30 relative overflow-hidden">
+      <section id="contact" className="py-24 bg-brand-blue/30 relative overflow-hidden scroll-mt-28">
         <div className="absolute top-0 right-0 w-1/2 h-full bg-brand-gold/5 -z-10 blur-3xl rounded-full" />
         <div className="container mx-auto px-6 text-center max-w-4xl relative z-10">
           <AnimatedSection>

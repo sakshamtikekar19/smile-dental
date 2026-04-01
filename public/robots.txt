@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://sakshamtikekar19.github.io/smile-dental/sitemap.xml

@@ -30,7 +30,11 @@ const Hero = () => {
               >
                 Try Smile Simulation
               </PremiumButton>
-              <PremiumButton variant="secondary" className="text-base py-5 px-10">
+              <PremiumButton
+                variant="secondary"
+                className="text-base py-5 px-10"
+                onClick={() => document.getElementById("gallery")?.scrollIntoView({ behavior: "smooth" })}
+              >
                 View Our Gallery
               </PremiumButton>
             </div>

@@ -19,7 +19,7 @@ const testimonials = [
 
 const Testimonials = () => {
   return (
-    <section className="py-24 bg-white overflow-hidden">
+    <section id="gallery" className="py-24 bg-white overflow-hidden scroll-mt-28">
       <div className="container mx-auto px-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
           <AnimatedSection>

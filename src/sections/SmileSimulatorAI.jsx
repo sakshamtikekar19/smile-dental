@@ -545,7 +545,7 @@ const SmileSimulatorAI = () => {
   }, [step]);
 
   return (
-    <section id="simulation" className="py-24 bg-[#F9F9F7]">
+    <section id="simulation" className="py-24 bg-[#F9F9F7] scroll-mt-28">
       <div className="container mx-auto px-6">
         <AnimatedSection className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-serif text-zinc-900 mb-6">AI Smile Simulation</h2>
