@@ -531,18 +531,38 @@ const SmileSimulatorAI = () => {
 
   /** iOS / mobile: subtle contrast + saturation on mouth crop so previews read clearly after boostMouthGuideRegion. */
   const applyMouthPopFilter = (ctx, bounds) => {
-    if (!bounds || bounds.width < 4 || bounds.height < 4) return;
-    const { x, y, width, height } = bounds;
-    const canvas = ctx.canvas;
-    const tmp = document.createElement("canvas");
-    tmp.width = width;
-    tmp.height = height;
-    const tctx = tmp.getContext("2d");
-    if (!tctx) return;
-    tctx.filter = "contrast(1.05) saturate(1.1)";
-    tctx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
-    tctx.filter = "none";
-    ctx.drawImage(tmp, 0, 0, width, height, x, y, width, height);
+    if (!bounds) return;
+    const { width: cw, height: ch } = ctx.canvas;
+    let { x, y, width, height } = bounds;
+    if (
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width < 2 ||
+      height < 2
+    ) {
+      return;
+    }
+    x = Math.max(0, Math.floor(x));
+    y = Math.max(0, Math.floor(y));
+    width = Math.min(Math.floor(width), cw - x);
+    height = Math.min(Math.floor(height), ch - y);
+    if (width < 2 || height < 2 || x >= cw || y >= ch) return;
+
+    try {
+      const tmp = document.createElement("canvas");
+      tmp.width = width;
+      tmp.height = height;
+      const tctx = tmp.getContext("2d", { willReadFrequently: false });
+      if (!tctx) return;
+      tctx.filter = "contrast(1.05) saturate(1.1)";
+      tctx.drawImage(ctx.canvas, x, y, width, height, 0, 0, width, height);
+      tctx.filter = "none";
+      ctx.drawImage(tmp, 0, 0, width, height, x, y, width, height);
+    } catch {
+      /* Edge-to-edge / tainted canvas / memory: skip pop rather than breaking the pipeline */
+    }
   };
 
   const quadBezierPoint = (p0, p1, p2, t) => {
@@ -590,6 +610,29 @@ const SmileSimulatorAI = () => {
       ctx.rect(-w * 0.46, -h * 0.46, w * 0.92, h * 0.92);
     }
     ctx.stroke();
+    /* Metallic glint: top-left highlight + bottom-right shadow */
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(255,255,255,0.92)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.5, -h * 0.5);
+    ctx.lineTo(-w * 0.5 + Math.min(w * 0.42, 8), -h * 0.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.5, -h * 0.5);
+    ctx.lineTo(-w * 0.5, -h * 0.5 + Math.min(h * 0.42, 8));
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(18, 20, 26, 0.72)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(w * 0.5, h * 0.5);
+    ctx.lineTo(w * 0.5 - Math.min(w * 0.42, 8), h * 0.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(w * 0.5, h * 0.5);
+    ctx.lineTo(w * 0.5, h * 0.5 - Math.min(h * 0.42, 8));
+    ctx.stroke();
     ctx.restore();
   };
 
@@ -599,7 +642,11 @@ const SmileSimulatorAI = () => {
   const renderBraces = (landmarks, ctx, iw, ih, oval) => {
     if (!landmarks[78] || !landmarks[13] || !landmarks[308]) return;
     const p78 = { x: landmarks[78].x * iw, y: landmarks[78].y * ih };
-    const p13 = { x: landmarks[13].x * iw, y: landmarks[13].y * ih };
+    /* Nudge control below gum line so archwire sits on incisal / tooth body */
+    const p13 = {
+      x: landmarks[13].x * iw,
+      y: landmarks[13].y * ih + ih * 0.02,
+    };
     const p308 = { x: landmarks[308].x * iw, y: landmarks[308].y * ih };
 
     const scale = Math.max(iw, ih);
@@ -657,6 +704,7 @@ const SmileSimulatorAI = () => {
         const runPop = () => applyMouthPopFilter(ctx, bounds);
 
         const doWhitening = () => {
+          const canvas = ctx.canvas;
           ctx.save();
           let clipped = false;
           if (landmarks) clipped = generateTeethMask(landmarks, ctx, iw, ih);
@@ -666,6 +714,9 @@ const SmileSimulatorAI = () => {
             ctx.clip();
           }
           if (clipped || oval) {
+            ctx.filter = "brightness(1.05)";
+            ctx.drawImage(canvas, 0, 0, iw, ih, 0, 0, iw, ih);
+            ctx.filter = "none";
             ctx.globalCompositeOperation = "soft-light";
             ctx.globalAlpha = 0.4;
             ctx.fillStyle = "#FCF9F1";
@@ -738,6 +789,9 @@ const SmileSimulatorAI = () => {
           ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2);
           ctx.clip();
         }
+        ctx.filter = "brightness(1.05)";
+        ctx.drawImage(canvas, 0, 0, w, h, 0, 0, w, h);
+        ctx.filter = "none";
         ctx.globalCompositeOperation = "soft-light";
         ctx.globalAlpha = 0.4;
         ctx.fillStyle = "#FCF9F1";
