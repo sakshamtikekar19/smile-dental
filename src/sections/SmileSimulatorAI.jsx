@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Camera, X, CheckCircle2, Info, Sparkles, RefreshCw, AlignCenter, ShieldPlus } from "lucide-react";
+import { Upload, Camera, X, CheckCircle2, Info, Sparkles, RefreshCw, AlignCenter, ShieldPlus, Link2 } from "lucide-react";
 
 import ReactCompareImage from "react-compare-image";
 import PremiumButton from "../components/PremiumButton";
@@ -13,6 +13,7 @@ const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http
 const TREATMENTS = [
   { id: "whitening", label: "Whitening", icon: Sparkles, desc: "Visible whitening" },
   { id: "alignment", label: "Alignment", icon: AlignCenter, desc: "Subtle straightening" },
+  { id: "braces", label: "Braces", icon: Link2, desc: "Structural wire preview" },
   { id: "transformation", label: "Full Smile", icon: ShieldPlus, desc: "Whitening + alignment" },
 ];
 
@@ -22,6 +23,11 @@ const MOUTH_PERIMETER_INDICES = [61, 291, 0, 17, 13, 14, 78, 308];
 const EYE_SANITY_INDICES = [33, 133, 362, 263];
 const MOUTH_CONFIDENCE_MIN = 0.8;
 const OVAL_FEATHER_PX = 16;
+
+/** Upper dental arch (left → right) — follows lip/teeth row in FaceMesh topology */
+const UPPER_ARCH_INDICES = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291];
+/** Lower dental arch (left → right) */
+const LOWER_ARCH_INDICES = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
 
 let faceMeshInstance;
 let faceMeshLoadFailed = false;
@@ -263,7 +269,7 @@ const SmileSimulatorAI = () => {
           return;
         }
         const ok = analysis.confidence >= MOUTH_CONFIDENCE_MIN;
-        finish({ ok, ...analysis });
+        finish({ ok, ...analysis, landmarks });
       });
 
       faceMesh.send({ image: img }).catch(() => finish(fail));
@@ -289,6 +295,159 @@ const SmileSimulatorAI = () => {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
     return canvas.toDataURL("image/jpeg", 0.92);
+  };
+
+  const archPixelPoints = (landmarks, indices, iw, ih) => {
+    const pts = indices
+      .map((i) => {
+        const p = landmarks[i];
+        if (!p || typeof p.x !== "number") return null;
+        return { x: p.x * iw, y: p.y * ih };
+      })
+      .filter(Boolean);
+    return [...pts].sort((a, b) => a.x - b.x);
+  };
+
+  const offsetPointsTowardCenter = (points, cx, cy, frac) =>
+    points.map((p) => {
+      const dx = cx - p.x;
+      const dy = cy - p.y;
+      return { x: p.x + dx * frac, y: p.y + dy * frac };
+    });
+
+  const densifyPolyline = (points, stepsPerSeg) => {
+    if (points.length < 2) return points;
+    const out = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      out.push(a);
+      for (let s = 1; s < stepsPerSeg; s++) {
+        const t = s / stepsPerSeg;
+        out.push({ x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
+      }
+    }
+    out.push(points[points.length - 1]);
+    return out;
+  };
+
+  const drawBracket = (ctx, x, y, tangentRad, w, h) => {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(tangentRad + Math.PI / 2);
+    const g = ctx.createLinearGradient(-w, -h * 0.5, w, h * 0.5);
+    g.addColorStop(0, "#f4f4f5");
+    g.addColorStop(0.5, "#c4c4c8");
+    g.addColorStop(1, "#9ca3af");
+    ctx.fillStyle = g;
+    ctx.strokeStyle = "rgba(55,55,55,0.55)";
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-w * 0.5, -h * 0.5, w, h, 0.5);
+    } else {
+      ctx.rect(-w * 0.5, -h * 0.5, w, h);
+    }
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const drawWireAndBracketsOnArch = (ctx, points, scale) => {
+    if (points.length < 2) return;
+    const spacing = clamp(scale * 0.014, 7, 22);
+    const bracketW = clamp(scale * 0.0065, 2.5, 5);
+    const bracketH = clamp(scale * 0.012, 4, 10);
+    const lineW = clamp(scale * 0.0018, 0.9, 2.2);
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(218, 222, 228, 0.98)";
+    ctx.lineWidth = lineW;
+    ctx.shadowColor = "rgba(255,255,255,0.4)";
+    ctx.shadowBlur = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.strokeStyle = "rgba(140, 145, 155, 0.75)";
+    ctx.lineWidth = lineW * 0.45;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+
+    let distAlong = 0;
+    let nextBracket = spacing * 0.35;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+      const start = distAlong;
+      const end = distAlong + segLen;
+      if (segLen < 0.25) {
+        distAlong = end;
+        continue;
+      }
+      while (nextBracket <= end + 0.01) {
+        const t = (nextBracket - start) / segLen;
+        if (t >= 0 && t <= 1) {
+          const px = a.x + t * (b.x - a.x);
+          const py = a.y + t * (b.y - a.y);
+          const ang = Math.atan2(b.y - a.y, b.x - a.x);
+          drawBracket(ctx, px, py, ang, bracketW, bracketH);
+        }
+        nextBracket += spacing;
+      }
+      distAlong = end;
+    }
+  };
+
+  /**
+   * Draws fixed orthodontic-style wire + brackets on upper and lower arches.
+   * Clipped to the mouth oval so nothing renders on lips/cheeks/skin outside the teeth band.
+   */
+  const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = iw;
+        canvas.height = ih;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, iw, ih);
+
+        const upperRaw = archPixelPoints(landmarks, UPPER_ARCH_INDICES, iw, ih);
+        const lowerRaw = archPixelPoints(landmarks, LOWER_ARCH_INDICES, iw, ih);
+        if (upperRaw.length < 3 || lowerRaw.length < 3) {
+          resolve(canvas.toDataURL("image/jpeg", 0.95));
+          return;
+        }
+
+        const { cx, cy, rx, ry } = oval;
+        const upper = offsetPointsTowardCenter(upperRaw, cx, cy, 0.045);
+        const lower = offsetPointsTowardCenter(lowerRaw, cx, cy, 0.038);
+        const uDense = densifyPolyline(upper, 4);
+        const lDense = densifyPolyline(lower, 4);
+        const scale = Math.max(iw, ih);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx * 0.992, ry * 0.992, 0, 0, Math.PI * 2);
+        ctx.clip();
+
+        drawWireAndBracketsOnArch(ctx, uDense, scale);
+        drawWireAndBracketsOnArch(ctx, lDense, scale);
+
+        ctx.restore();
+        resolve(canvas.toDataURL("image/jpeg", 0.95));
+      };
+      img.onerror = () => reject(new Error("Could not load image for braces overlay"));
+      img.src = imageSrc;
+    });
   };
 
   const applyTeethWhitening = async (imageSrc, oval) => {
@@ -483,7 +642,14 @@ const SmileSimulatorAI = () => {
         return;
       }
 
-      const { bounds, oval } = mouth;
+      const { bounds, oval, landmarks } = mouth;
+      if (!landmarks) {
+        setBeforeImage(null);
+        setAfterImage(null);
+        setError("Please center your smile in the frame");
+        setStep("upload");
+        return;
+      }
 
       let canvasEnhanced = normalized;
 
@@ -504,15 +670,22 @@ const SmileSimulatorAI = () => {
       const mask = createTeethMaskForCrop(bounds.width, bounds.height, ovalInCrop);
 
       let aiPolishedCrop = null;
-      try {
-        aiPolishedCrop = await enhanceWithAI(mouthCrop, mask);
-      } catch (_err) {
-        aiPolishedCrop = null;
+      const skipAiPolish = selectedTreatment === "braces";
+      if (!skipAiPolish) {
+        try {
+          aiPolishedCrop = await enhanceWithAI(mouthCrop, mask);
+        } catch (_err) {
+          aiPolishedCrop = null;
+        }
       }
 
-      const merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval);
+      let merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval);
 
       const imgRef = await loadImage(normalized);
+      if (selectedTreatment === "braces") {
+        merged = await applyBracesOverlay(merged, landmarks, imgRef.width, imgRef.height, oval);
+      }
+
       const previewRect = squareCropRect(imgRef.width, imgRef.height, oval);
       const beforeSquare = await cropImageToDataUrl(normalized, previewRect);
       const afterSquare = await cropImageToDataUrl(merged, previewRect);
@@ -550,12 +723,12 @@ const SmileSimulatorAI = () => {
         <AnimatedSection className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-serif text-zinc-900 mb-6">AI Smile Simulation</h2>
           <p className="text-zinc-500 max-w-2xl mx-auto text-lg leading-relaxed">
-            Hybrid dental preview: canvas enhancement + AI polish.
+            Canvas preview (whitening, alignment, braces wire) + optional AI polish on the mouth crop.
           </p>
         </AnimatedSection>
 
         <AnimatedSection className="max-w-4xl mx-auto mb-12">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {TREATMENTS.map((t) => {
               const Icon = t.icon;
               const active = selectedTreatment === t.id;
