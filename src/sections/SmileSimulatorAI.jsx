@@ -25,10 +25,14 @@ const MOUTH_FALLBACK_INDICES = [61, 291, 13, 14, 78, 308];
 const EYE_SANITY_INDICES = [33, 133, 362, 263];
 const OVAL_FEATHER_PX = 16;
 
-/** Upper dental arch (left → right) — follows lip/teeth row in FaceMesh topology */
-const UPPER_ARCH_INDICES = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291];
-/** Lower dental arch (left → right) */
-const LOWER_ARCH_INDICES = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
+/**
+ * Dental arches: use **inner mouth** lip lines from FACEMESH_LIPS, NOT the outer contour.
+ * The outer lower path (61→…→17→…→291) follows the lower lip skin and chin — braces looked like they sat on the lip.
+ * Inner upper: 78→…→308 (MediaPipe segment [78,191]…[415,308]).
+ * Inner lower: 78→…→308 ([78,95]…[324,308]).
+ */
+const UPPER_ARCH_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
+const LOWER_ARCH_INDICES = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308];
 
 /** Mouth-only fallback (user-specified). If ≥4 land inside the guide oval, we still run the sim. */
 const MOUTH_FIRST_INDICES = [0, 13, 14, 17, 37, 267];
@@ -509,16 +513,15 @@ const SmileSimulatorAI = () => {
     return canvas.toDataURL("image/jpeg", 0.92);
   };
 
-  const archPixelPoints = (landmarks, indices, iw, ih) => {
-    const pts = indices
+  /** Preserves landmark order along the arch (required for U-shaped dental curves). */
+  const archPixelPointsInOrder = (landmarks, indices, iw, ih) =>
+    indices
       .map((i) => {
         const p = landmarks[i];
         if (!p || typeof p.x !== "number") return null;
         return { x: p.x * iw, y: p.y * ih };
       })
       .filter(Boolean);
-    return [...pts].sort((a, b) => a.x - b.x);
-  };
 
   const offsetPointsTowardCenter = (points, cx, cy, frac) =>
     points.map((p) => {
@@ -547,20 +550,30 @@ const SmileSimulatorAI = () => {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
-    const g = ctx.createLinearGradient(-w, -h * 0.5, w, h * 0.5);
-    g.addColorStop(0, "#f4f4f5");
-    g.addColorStop(0.5, "#c4c4c8");
-    g.addColorStop(1, "#9ca3af");
+    const g = ctx.createLinearGradient(-w, -h * 0.5, w * 0.7, h * 0.45);
+    g.addColorStop(0, "#e8eaee");
+    g.addColorStop(0.35, "#b8bcc4");
+    g.addColorStop(0.55, "#9ca3a8");
+    g.addColorStop(1, "#787f8a");
     ctx.fillStyle = g;
-    ctx.strokeStyle = "rgba(55,55,55,0.55)";
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = "rgba(45,48,55,0.65)";
+    ctx.lineWidth = Math.max(0.4, w * 0.12);
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
-      ctx.roundRect(-w * 0.5, -h * 0.5, w, h, 0.5);
+      ctx.roundRect(-w * 0.5, -h * 0.5, w, h, Math.min(0.8, w * 0.2));
     } else {
       ctx.rect(-w * 0.5, -h * 0.5, w, h);
     }
     ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = Math.max(0.25, w * 0.08);
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-w * 0.48, -h * 0.48, w * 0.96, h * 0.96, Math.min(0.7, w * 0.18));
+    } else {
+      ctx.rect(-w * 0.48, -h * 0.48, w * 0.96, h * 0.96);
+    }
     ctx.stroke();
     ctx.restore();
   };
@@ -574,10 +587,10 @@ const SmileSimulatorAI = () => {
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(218, 222, 228, 0.98)";
+    ctx.strokeStyle = "rgba(190, 196, 206, 0.98)";
     ctx.lineWidth = lineW;
-    ctx.shadowColor = "rgba(255,255,255,0.4)";
-    ctx.shadowBlur = 1.5;
+    ctx.shadowColor = "rgba(255,255,255,0.35)";
+    ctx.shadowBlur = 1.2;
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
@@ -632,16 +645,17 @@ const SmileSimulatorAI = () => {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, iw, ih);
 
-        const upperRaw = archPixelPoints(landmarks, UPPER_ARCH_INDICES, iw, ih);
-        const lowerRaw = archPixelPoints(landmarks, LOWER_ARCH_INDICES, iw, ih);
+        const upperRaw = archPixelPointsInOrder(landmarks, UPPER_ARCH_INDICES, iw, ih);
+        const lowerRaw = archPixelPointsInOrder(landmarks, LOWER_ARCH_INDICES, iw, ih);
         if (upperRaw.length < 3 || lowerRaw.length < 3) {
           resolve(canvas.toDataURL("image/jpeg", 0.95));
           return;
         }
 
         const { cx, cy, rx, ry } = oval;
-        const upper = offsetPointsTowardCenter(upperRaw, cx, cy, 0.045);
-        const lower = offsetPointsTowardCenter(lowerRaw, cx, cy, 0.038);
+        /* Inner-lip landmarks sit slightly inside the visible row; nudge outward (away from oval center) toward enamel. */
+        const upper = offsetPointsTowardCenter(upperRaw, cx, cy, -0.052);
+        const lower = offsetPointsTowardCenter(lowerRaw, cx, cy, -0.058);
         const uDense = densifyPolyline(upper, 4);
         const lDense = densifyPolyline(lower, 4);
         const scale = Math.max(iw, ih);
