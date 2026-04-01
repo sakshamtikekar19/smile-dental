@@ -523,12 +523,34 @@ const SmileSimulatorAI = () => {
       })
       .filter(Boolean);
 
-  const offsetPointsTowardCenter = (points, cx, cy, frac) =>
-    points.map((p) => {
-      const dx = cx - p.x;
-      const dy = cy - p.y;
-      return { x: p.x + dx * frac, y: p.y + dy * frac };
-    });
+  /**
+   * Inner-lip polylines hug the mouth opening (visually the lip/teeth border). Real brackets sit on enamel:
+   * move each point toward the mouth center and narrow slightly, then nudge upper/lower rows into the tooth band.
+   */
+  const projectArchesOntoToothBand = (upperPts, lowerPts, oval) => {
+    const { cx, cy, rx, ry } = oval;
+    if (upperPts.length < 2 || lowerPts.length < 2) return { upper: upperPts, lower: lowerPts };
+
+    const inward = 0.22;
+    const narrow = 0.06;
+    const upperExtraY = ry * 0.1;
+    const lowerExtraY = ry * 0.11;
+
+    const mapIn = (pts, isUpper) =>
+      pts.map((p) => {
+        let x = p.x + (cx - p.x) * inward;
+        let y = p.y + (cy - p.y) * inward;
+        x += (cx - x) * narrow;
+        if (isUpper) y += upperExtraY;
+        else y -= lowerExtraY;
+        return { x, y };
+      });
+
+    return {
+      upper: mapIn(upperPts, true),
+      lower: mapIn(lowerPts, false),
+    };
+  };
 
   const densifyPolyline = (points, stepsPerSeg) => {
     if (points.length < 2) return points;
@@ -546,66 +568,69 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
-  const drawBracket = (ctx, x, y, tangentRad, w, h) => {
+  /** Small rectangular metal bracket (stud) — narrow, low profile like bonded braces. */
+  const drawBracketStud = (ctx, x, y, tangentRad, w, h) => {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
-    const g = ctx.createLinearGradient(-w, -h * 0.5, w * 0.7, h * 0.45);
-    g.addColorStop(0, "#e8eaee");
-    g.addColorStop(0.35, "#b8bcc4");
-    g.addColorStop(0.55, "#9ca3a8");
-    g.addColorStop(1, "#787f8a");
+    const g = ctx.createLinearGradient(-w, -h * 0.5, w * 0.85, h * 0.4);
+    g.addColorStop(0, "#cfd3dc");
+    g.addColorStop(0.45, "#8b919d");
+    g.addColorStop(1, "#5c6370");
     ctx.fillStyle = g;
-    ctx.strokeStyle = "rgba(45,48,55,0.65)";
-    ctx.lineWidth = Math.max(0.4, w * 0.12);
+    ctx.strokeStyle = "rgba(30,32,38,0.5)";
+    ctx.lineWidth = Math.max(0.35, w * 0.1);
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
-      ctx.roundRect(-w * 0.5, -h * 0.5, w, h, Math.min(0.8, w * 0.2));
+      ctx.roundRect(-w * 0.5, -h * 0.5, w, h, Math.min(0.45, w * 0.15));
     } else {
       ctx.rect(-w * 0.5, -h * 0.5, w, h);
     }
     ctx.fill();
     ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.35)";
-    ctx.lineWidth = Math.max(0.25, w * 0.08);
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.lineWidth = Math.max(0.2, w * 0.06);
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
-      ctx.roundRect(-w * 0.48, -h * 0.48, w * 0.96, h * 0.96, Math.min(0.7, w * 0.18));
+      ctx.roundRect(-w * 0.46, -h * 0.46, w * 0.92, h * 0.92, Math.min(0.35, w * 0.12));
     } else {
-      ctx.rect(-w * 0.48, -h * 0.48, w * 0.96, h * 0.96);
+      ctx.rect(-w * 0.46, -h * 0.46, w * 0.92, h * 0.92);
     }
     ctx.stroke();
     ctx.restore();
   };
 
-  const drawWireAndBracketsOnArch = (ctx, points, scale) => {
+  const drawThinArchWire = (ctx, points, lineW) => {
     if (points.length < 2) return;
-    const spacing = clamp(scale * 0.014, 7, 22);
-    const bracketW = clamp(scale * 0.0065, 2.5, 5);
-    const bracketH = clamp(scale * 0.012, 4, 10);
-    const lineW = clamp(scale * 0.0018, 0.9, 2.2);
-
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(190, 196, 206, 0.98)";
+    ctx.strokeStyle = "rgba(118, 124, 136, 0.92)";
     ctx.lineWidth = lineW;
-    ctx.shadowColor = "rgba(255,255,255,0.35)";
-    ctx.shadowBlur = 1.2;
+    ctx.globalAlpha = 0.92;
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
     ctx.stroke();
-    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(210, 214, 222, 0.55)";
+    ctx.lineWidth = Math.max(0.35, lineW * 0.38);
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  };
 
-    ctx.strokeStyle = "rgba(140, 145, 155, 0.75)";
-    ctx.lineWidth = lineW * 0.45;
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-    ctx.stroke();
+  const drawWireAndBracketsOnArch = (ctx, points, scale) => {
+    if (points.length < 2) return;
+    const spacing = clamp(scale * 0.018, 10, 26);
+    const bracketW = clamp(scale * 0.0042, 1.6, 3.2);
+    const bracketH = clamp(scale * 0.0068, 2.4, 4.8);
+    const lineW = clamp(scale * 0.00095, 0.55, 1.15);
+
+    drawThinArchWire(ctx, points, lineW);
 
     let distAlong = 0;
-    let nextBracket = spacing * 0.35;
+    let nextBracket = spacing * 0.4;
     for (let i = 0; i < points.length - 1; i++) {
       const a = points[i];
       const b = points[i + 1];
@@ -622,7 +647,7 @@ const SmileSimulatorAI = () => {
           const px = a.x + t * (b.x - a.x);
           const py = a.y + t * (b.y - a.y);
           const ang = Math.atan2(b.y - a.y, b.x - a.x);
-          drawBracket(ctx, px, py, ang, bracketW, bracketH);
+          drawBracketStud(ctx, px, py, ang, bracketW, bracketH);
         }
         nextBracket += spacing;
       }
@@ -652,17 +677,15 @@ const SmileSimulatorAI = () => {
           return;
         }
 
-        const { cx, cy, rx, ry } = oval;
-        /* Inner-lip landmarks sit slightly inside the visible row; nudge outward (away from oval center) toward enamel. */
-        const upper = offsetPointsTowardCenter(upperRaw, cx, cy, -0.052);
-        const lower = offsetPointsTowardCenter(lowerRaw, cx, cy, -0.058);
-        const uDense = densifyPolyline(upper, 4);
-        const lDense = densifyPolyline(lower, 4);
+        const { upper: upperOnTeeth, lower: lowerOnTeeth } = projectArchesOntoToothBand(upperRaw, lowerRaw, oval);
+        const uDense = densifyPolyline(upperOnTeeth, 5);
+        const lDense = densifyPolyline(lowerOnTeeth, 5);
         const scale = Math.max(iw, ih);
 
         ctx.save();
+        /* Tighter clip on the tooth window — avoids drawing on vermilion / outer lip. */
         ctx.beginPath();
-        ctx.ellipse(cx, cy, rx * 0.992, ry * 0.992, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, cy + oval.ry * 0.04, oval.rx * 0.82, oval.ry * 0.66, 0, 0, Math.PI * 2);
         ctx.clip();
 
         drawWireAndBracketsOnArch(ctx, uDense, scale);
