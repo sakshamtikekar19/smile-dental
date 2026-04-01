@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { Sparkles, ShieldCheck, HeartPulse, ArrowRight } from "lucide-react";
 import AnimatedSection from "../components/AnimatedSection";
 

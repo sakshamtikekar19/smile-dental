@@ -36,7 +36,7 @@ async function toDataUrlFromRemote(url) {
     const arrayBuffer = await response.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
     return `data:${contentType};base64,${base64}`;
-  } catch (_error) {
+  } catch {
     return null;
   }
 }

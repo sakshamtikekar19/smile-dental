@@ -29,7 +29,7 @@ function App() {
               Ready to <span className="italic text-zinc-500">Transform</span> Your Smile?
             </h2>
             <p className="text-xl text-zinc-500 mb-12 max-w-2xl mx-auto leading-relaxed">
-              Book your complimentary consultation today and take the first step towards the smile you've always dreamed of.
+              Book your complimentary consultation today and take the first step towards the smile you&rsquo;ve always dreamed of.
             </p>
             <div className="flex flex-col sm:flex-row gap-6 justify-center">
               <PremiumButton className="text-lg py-6 px-12 shadow-xl shadow-black/10">

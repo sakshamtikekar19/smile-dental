@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import AnimatedSection from "../components/AnimatedSection";
 import PremiumButton from "../components/PremiumButton";
 
@@ -30,14 +29,14 @@ const Testimonials = () => {
             </h2>
             
             <div className="space-y-12 mt-16">
-              {testimonials.map((t, i) => (
+              {testimonials.map((t) => (
                 <div key={t.name} className="flex gap-6 items-start">
                   <div className="w-16 h-16 rounded-full overflow-hidden flex-shrink-0 shadow-lg border-2 border-white">
                     <img src={t.image} alt={t.name} className="w-full h-full object-cover" />
                   </div>
                   <div>
                     <p className="text-xl text-zinc-600 font-serif italic mb-4 leading-relaxed">
-                      "{t.content}"
+                      &ldquo;{t.content}&rdquo;
                     </p>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-zinc-900">{t.name}</span>

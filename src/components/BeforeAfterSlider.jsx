@@ -1,25 +1,28 @@
-import { useState, useRef, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const BeforeAfterSlider = ({ before, after }) => {
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef(null);
 
-  const handleMove = (e) => {
-    if (!isResizing || !containerRef.current) return;
+  const handleMouseUp = useCallback(() => setIsResizing(false), []);
 
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = e.type === "mousemove" ? e.pageX : e.touches[0].pageX;
-    const position = ((x - rect.left) / rect.width) * 100;
+  const handleMove = useCallback(
+    (e) => {
+      if (!isResizing || !containerRef.current) return;
 
-    if (position >= 0 && position <= 100) {
-      setSliderPosition(position);
-    }
-  };
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = e.type === "mousemove" ? e.pageX : e.touches[0].pageX;
+      const position = ((x - rect.left) / rect.width) * 100;
 
-  const handleMouseDown = () => setIsResizing(true);
-  const handleMouseUp = () => setIsResizing(false);
+      if (position >= 0 && position <= 100) {
+        setSliderPosition(position);
+      }
+    },
+    [isResizing]
+  );
+
+  const handleMouseDown = useCallback(() => setIsResizing(true), []);
 
   useEffect(() => {
     window.addEventListener("mousemove", handleMove);
@@ -32,36 +35,36 @@ const BeforeAfterSlider = ({ before, after }) => {
       window.removeEventListener("touchmove", handleMove);
       window.removeEventListener("touchend", handleMouseUp);
     };
-  }, [isResizing]);
+  }, [handleMove, handleMouseUp]);
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className="relative w-full aspect-video md:aspect-[16/9] rounded-2xl overflow-hidden shadow-2xl cursor-ew-resize select-none"
       onMouseDown={handleMouseDown}
       onTouchStart={handleMouseDown}
     >
       {/* After image (background) */}
-      <img 
-        src={after} 
-        alt="After Treatment" 
+      <img
+        src={after}
+        alt="After Treatment"
         className="absolute inset-0 w-full h-full object-cover"
       />
 
       {/* Before image (clipped) */}
-      <div 
+      <div
         className="absolute inset-0 w-full h-full overflow-hidden"
         style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
       >
-        <img 
-          src={before} 
-          alt="Before Treatment" 
+        <img
+          src={before}
+          alt="Before Treatment"
           className="absolute inset-0 w-full h-full object-cover"
         />
       </div>
 
       {/* Slider handle */}
-      <div 
+      <div
         className="absolute top-0 bottom-0 w-1 bg-white shadow-xl z-10"
         style={{ left: `${sliderPosition}%` }}
       >
