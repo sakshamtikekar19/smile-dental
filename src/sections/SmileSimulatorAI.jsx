@@ -57,6 +57,64 @@ const SmileSimulatorAI = () => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const normalized = await normalizeImage(ev.target.result, 1024);
+      setBeforeImage(normalized);
+      processWithAI(normalized);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+  };
+
+  const startCamera = async () => {
+    setError(null);
+    setCameraError(null);
+    setStep("camera");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
+    } catch (_err) {
+      setCameraError("Could not access camera. Allow permission or upload a photo.");
+      setStep("upload");
+    }
+  };
+
+  const takePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    if (!video.videoWidth || !video.videoHeight) return;
+
+    const maxWidth = 1024;
+    const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
+    const outW = Math.round(video.videoWidth * scale);
+    const outH = Math.round(video.videoHeight * scale);
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    canvas.width = outW;
+    canvas.height = outH;
+    ctx.drawImage(video, 0, 0, outW, outH);
+
+    const captured = canvas.toDataURL("image/jpeg", 0.88);
+    stopCamera();
+    setBeforeImage(captured);
+    processWithAI(captured);
+  };
 
   const normalizeImage = async (imageSrc, maxWidth = 1024) => {
     const img = await loadImage(imageSrc);
@@ -484,6 +542,7 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
+
 
 
 
