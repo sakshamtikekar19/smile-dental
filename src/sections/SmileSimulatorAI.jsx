@@ -868,17 +868,22 @@ const SmileSimulatorAI = () => {
       }
 
       const mouthCrop = await cropMouthRegion(canvasEnhanced, bounds);
-      const ovalInCrop = {
-        cx: oval.cx - bounds.x,
-        cy: oval.cy - bounds.y,
-        rx: oval.rx,
-        ry: oval.ry,
-      };
-      const mask = createTeethMaskForCrop(bounds.width, bounds.height, ovalInCrop);
+
+      /**
+       * Replicate/SDXL inpainting on small mouth crops often produces cyan/blue glow or wrong colors.
+       * Whitening/alignment use the canvas-enhanced mouthCrop only (natural, stable). Re-enable polish later with a teeth-specific model if needed.
+       */
+      const useReplicatePolish = false;
 
       let aiPolishedCrop = null;
-      const skipAiPolish = selectedTreatment === "braces";
-      if (!skipAiPolish) {
+      if (useReplicatePolish && AI_SMILE_API) {
+        const ovalInCrop = {
+          cx: oval.cx - bounds.x,
+          cy: oval.cy - bounds.y,
+          rx: oval.rx,
+          ry: oval.ry,
+        };
+        const mask = createTeethMaskForCrop(bounds.width, bounds.height, ovalInCrop);
         try {
           aiPolishedCrop = await enhanceWithAI(mouthCrop, mask);
         } catch (_err) {
@@ -930,7 +935,7 @@ const SmileSimulatorAI = () => {
         <AnimatedSection className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-serif text-zinc-900 mb-6">AI Smile Simulation</h2>
           <p className="text-zinc-500 max-w-2xl mx-auto text-lg leading-relaxed">
-            Canvas preview (whitening, alignment, braces wire) + optional AI polish on the mouth crop.
+            Professional canvas preview: whitening, alignment, and braces overlay—tuned for natural tooth color without generative color shifts.
           </p>
         </AnimatedSection>
 
