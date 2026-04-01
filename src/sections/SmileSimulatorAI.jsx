@@ -515,15 +515,28 @@ const SmileSimulatorAI = () => {
 
             {step === "result" && (
               <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="space-y-8">
-                <div className="rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-white/20 bg-black aspect-video md:aspect-[16/9]">
+                {/* Portrait aspect on small screens so selfies aren’t cropped at the chin; anchor crop on mouth */}
+                <div className="rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-white/20 bg-black w-full aspect-[3/4] max-h-[min(85vh,640px)] mx-auto sm:max-h-none sm:aspect-[4/5] md:aspect-[16/9] md:max-h-none">
                   <ReactCompareImage
+                    key={afterImage || "compare"}
                     leftImage={beforeImage}
                     rightImage={afterImage}
+                    aspectRatio="taller"
+                    sliderPositionPercentage={0.5}
                     sliderLineWidth={2}
                     sliderLineColor="#D4AF37"
-                    handleSize={40}
+                    handleSize={44}
+                    leftImageCss={{
+                      objectFit: "cover",
+                      objectPosition: "center 72%",
+                    }}
+                    rightImageCss={{
+                      objectFit: "cover",
+                      objectPosition: "center 72%",
+                    }}
                   />
                 </div>
+                <p className="text-center text-xs text-zinc-500 md:hidden">Drag the gold line to compare before and after.</p>
 
                 <div className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-lg flex flex-col md:flex-row items-center justify-between gap-8">
                   <div className="flex items-center gap-4">
