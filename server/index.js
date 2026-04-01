@@ -18,35 +18,8 @@ app.get('/', (_req, res) => {
   res.send('Smile Dental API is running. Use /api/health and /api/smile.');
 });
 
-app.get('/api/replicate-account', async (_req, res) => {
-  try {
-    const token = process.env.REPLICATE_API_TOKEN || '';
-    const maskedToken = token.length > 12 ? `${token.slice(0, 6)}...${token.slice(-4)}` : 'missing';
-
-    const response = await fetch('https://api.replicate.com/v1/account', {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    const data = await response.json();
-    return res.status(response.status).json({
-      ok: response.ok,
-      token_hint: maskedToken,
-      account: data,
-    });
-  } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message });
-  }
-});
-
 app.get('/api/health', (_req, res) => {
-  res.json({
-    ok: true,
-    active_version: ACTIVE_VERSION,
-    timestamp: new Date().toISOString(),
-  });
+  res.json({ ok: true, active_version: ACTIVE_VERSION, timestamp: new Date().toISOString() });
 });
 
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
@@ -68,46 +41,38 @@ async function toDataUrlFromRemote(url) {
   }
 }
 
-async function createPrediction(modelInput) {
-  return replicate.predictions.create({
-    version: ACTIVE_VERSION,
-    input: modelInput,
-  });
-}
-
 app.post('/api/smile', async (req, res) => {
   try {
-    const { image, mask, mode = 'whitening' } = req.body;
+    const { image, mask } = req.body;
+
     if (!image || !mask) {
       return res.status(400).json({ error: 'Image and mask are required' });
     }
-
-    const prompts = {
-      whitening:
-        'Enhance only the teeth to simulate professional teeth whitening. Make teeth visibly whiter and cleaner while keeping natural texture. Do not change shape or alignment. Do not modify lips, skin, or face.',
-      alignment:
-        'Enhance only the teeth to simulate improved alignment. Make teeth slightly straighter and evenly spaced while keeping natural imperfections. Do not modify face, lips, or identity.',
-      transformation:
-        'Enhance only the teeth to create a visibly improved smile. Teeth should be whiter and slightly aligned while keeping result natural. Do not modify face, lips, or identity.',
-    };
-
-    const normalizedMode = ['whitening', 'alignment', 'transformation'].includes(mode) ? mode : 'whitening';
+    if (typeof image !== 'string' || typeof mask !== 'string') {
+      return res.status(400).json({ error: 'Image and mask must be base64 strings' });
+    }
 
     const modelInput = {
       image,
       mask,
-      prompt: prompts[normalizedMode],
+      prompt:
+        'Enhance realism of the teeth and mouth area. Improve lighting, texture, and blending. Do not change shape, alignment, or identity. Keep everything natural.',
       negative_prompt:
-        'face change, skin smoothing, eye enhancement, hair change, extra teeth, distorted mouth, unrealistic smile, beauty filter',
-      num_inference_steps: 30,
-      guidance_scale: 7,
-      strength: 0.6,
-      mask_blur: 2,
+        'face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter',
+      num_inference_steps: 20,
+      guidance_scale: 5,
+      strength: 0.25,
+      mask_blur: 4,
+      width: 512,
+      height: 512,
     };
 
-    const prediction = await createPrediction(modelInput);
-    let result = await replicate.predictions.get(prediction.id);
+    const prediction = await replicate.predictions.create({
+      version: ACTIVE_VERSION,
+      input: modelInput,
+    });
 
+    let result = await replicate.predictions.get(prediction.id);
     while (result.status !== 'succeeded' && result.status !== 'failed') {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       result = await replicate.predictions.get(prediction.id);
@@ -119,7 +84,7 @@ app.post('/api/smile', async (req, res) => {
 
     const output = Array.isArray(result.output) ? result.output[0] : result.output;
     const outputDataUrl = typeof output === 'string' ? await toDataUrlFromRemote(output) : null;
-    return res.json({ output, outputDataUrl, mode: normalizedMode });
+    return res.json({ output, outputDataUrl });
   } catch (error) {
     if (error?.status === 429) {
       return res.status(429).json({ error: error.message, retry_after: error.retryAfter ?? 10 });
@@ -131,4 +96,3 @@ app.post('/api/smile', async (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
-

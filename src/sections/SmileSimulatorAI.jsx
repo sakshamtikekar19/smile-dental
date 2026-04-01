@@ -1,16 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Upload,
-  Camera,
-  X,
-  CheckCircle2,
-  Info,
-  Sparkles,
-  RefreshCw,
-  AlignCenter,
-  ShieldPlus,
-} from "lucide-react";
+import { Upload, Camera, X, CheckCircle2, Info, Sparkles, RefreshCw, AlignCenter, ShieldPlus } from "lucide-react";
 import { FilesetResolver, FaceLandmarker } from "@mediapipe/tasks-vision";
 import ReactCompareImage from "react-compare-image";
 import PremiumButton from "../components/PremiumButton";
@@ -21,9 +11,9 @@ const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostna
 const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
 
 const TREATMENTS = [
-  { id: "whitening", label: "Teeth Whitening", icon: Sparkles, desc: "Visible whitening with natural texture" },
-  { id: "alignment", label: "Teeth Alignment", icon: AlignCenter, desc: "Slightly straighter, natural spacing" },
-  { id: "transformation", label: "Smile Transformation", icon: ShieldPlus, desc: "Whitening + gentle alignment" },
+  { id: "whitening", label: "Whitening", icon: Sparkles, desc: "Visible whitening, natural texture" },
+  { id: "alignment", label: "Alignment", icon: AlignCenter, desc: "Subtle straightening illusion" },
+  { id: "transformation", label: "Full Smile", icon: ShieldPlus, desc: "Whitening + alignment" },
 ];
 
 const LIP_INDEXES = [
@@ -33,6 +23,7 @@ const LIP_INDEXES = [
 ];
 
 let faceLandmarkerPromise;
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 const ensureFaceLandmarker = async () => {
   if (!faceLandmarkerPromise) {
@@ -54,8 +45,6 @@ const ensureFaceLandmarker = async () => {
   return faceLandmarkerPromise;
 };
 
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("upload");
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
@@ -64,6 +53,7 @@ const SmileSimulatorAI = () => {
   const [afterImage, setAfterImage] = useState(null);
   const [error, setError] = useState(null);
   const [cameraError, setCameraError] = useState(null);
+
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -73,8 +63,8 @@ const SmileSimulatorAI = () => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (event) => {
-      const normalized = await normalizeImage(event.target.result, 1024);
+    reader.onload = async (ev) => {
+      const normalized = await normalizeImage(ev.target.result, 1024);
       setBeforeImage(normalized);
       processWithAI(normalized);
     };
@@ -83,7 +73,7 @@ const SmileSimulatorAI = () => {
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -94,99 +84,40 @@ const SmileSimulatorAI = () => {
     setCameraError(null);
     setStep("camera");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
-        audio: false,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
-    } catch (err) {
-      setCameraError("Could not access camera. Allow permissions or upload a photo.");
+    } catch (_err) {
+      setCameraError("Could not access camera. Allow permission or upload a photo.");
       setStep("upload");
     }
   };
 
-  const takePhoto = async () => {
+  const takePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     if (!video.videoWidth || !video.videoHeight) return;
 
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
     const maxWidth = 1024;
     const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
     const outW = Math.round(video.videoWidth * scale);
     const outH = Math.round(video.videoHeight * scale);
 
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
     canvas.width = outW;
     canvas.height = outH;
     ctx.drawImage(video, 0, 0, outW, outH);
-    const captured = canvas.toDataURL("image/jpeg", 0.88);
 
+    const captured = canvas.toDataURL("image/jpeg", 0.88);
     stopCamera();
     setBeforeImage(captured);
     processWithAI(captured);
   };
 
-  const processWithAI = async (baseImage) => {
-    setStep("processing");
-    setError(null);
-    const requestMode = selectedTreatment;
-    setActiveTreatment(requestMode);
-
-    if (!AI_SMILE_API) {
-      setError("Backend API is not configured for this domain. Set VITE_AI_SMILE_API to your deployed backend URL.");
-      setStep("upload");
-      return;
-    }
-
-    try {
-      const payload = await createMouthPayload(baseImage);
-      const response = await fetch(AI_SMILE_API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image: payload.croppedImage,
-          mask: payload.mask,
-          mode: requestMode,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "AI request failed");
-
-      const aiCrop = getOutputImageValue(data);
-      if (!aiCrop) throw new Error("AI returned an invalid result image.");
-
-      const merged = await mergeRegionIntoOriginal(payload.originalImage, aiCrop, payload.bounds);
-      const polished = await enhanceTeethRegion(merged, payload.bounds);
-      setAfterImage(polished);
-      setStep("result");
-    } catch (err) {
-      const message = typeof err?.message === "string" ? err.message : "AI Simulation service is unavailable.";
-      setError(message);
-      setStep("upload");
-    }
-  };
-
-  const createMouthPayload = async (imageSrc) => {
-    const normalized = await normalizeImage(imageSrc, 1024);
-    const img = await loadImage(normalized);
-    const bounds = await detectMouthBounds(img);
-    const croppedImage = await cropImage(normalized, bounds);
-    const mask = createTeethMask(bounds.width, bounds.height);
-
-    return {
-      originalImage: normalized,
-      croppedImage,
-      mask,
-      bounds,
-    };
-  };
-
-    const detectMouthBounds = async (img) => {
+  const detectMouth = async (img) => {
     const width = img.width;
     const height = img.height;
-
     const fallback = {
       x: Math.floor(width * 0.25),
       y: Math.floor(height * 0.55),
@@ -198,10 +129,7 @@ const SmileSimulatorAI = () => {
       const detector = await ensureFaceLandmarker();
       const result = detector.detect(img);
       const face = result?.faceLandmarks?.[0];
-
-      if (!face?.length) {
-        return fallback;
-      }
+      if (!face?.length) return fallback;
 
       let minX = 1;
       let maxX = 0;
@@ -219,13 +147,11 @@ const SmileSimulatorAI = () => {
 
       const padX = (maxX - minX) * 0.35;
       const padY = (maxY - minY) * 0.55;
-
       let left = Math.floor((minX - padX) * width);
       let top = Math.floor((minY - padY) * height);
       let right = Math.ceil((maxX + padX) * width);
       let bottom = Math.ceil((maxY + padY) * height);
 
-      // Hard safety rails: never allow mouth box in eye region.
       const minTop = Math.floor(height * 0.5);
       const maxBottom = Math.floor(height * 0.9);
       top = Math.max(top, minTop);
@@ -236,22 +162,87 @@ const SmileSimulatorAI = () => {
       right = clamp(right, left + 2, width);
       bottom = clamp(bottom, top + 2, maxBottom);
 
-      const bounds = {
-        x: left,
-        y: top,
-        width: right - left,
-        height: bottom - top,
-      };
-
+      const bounds = { x: left, y: top, width: right - left, height: bottom - top };
       const centerY = bounds.y + bounds.height * 0.5;
-      if (centerY < height * 0.58 || bounds.height < height * 0.08) {
-        return fallback;
-      }
-
+      if (centerY < height * 0.58 || bounds.height < height * 0.08) return fallback;
       return bounds;
     } catch (_err) {
       return fallback;
     }
+  };
+
+  const applyTeethWhitening = async (imageSrc, bounds) => {
+    const img = await loadImage(imageSrc);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+
+    const region = ctx.getImageData(bounds.x, bounds.y, bounds.width, bounds.height);
+    const data = region.data;
+
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i];
+      let g = data[i + 1];
+      let b = data[i + 2];
+
+      // +10% brightness and +8% contrast, slight yellow reduction.
+      r = (r - 128) * 1.08 + 128;
+      g = (g - 128) * 1.08 + 128;
+      b = (b - 128) * 1.08 + 128;
+
+      r = r * 1.04 - 4;
+      g = g * 1.08 + 3;
+      b = b * 1.08 + 4;
+
+      data[i] = clamp(Math.round(r), 0, 255);
+      data[i + 1] = clamp(Math.round(g), 0, 255);
+      data[i + 2] = clamp(Math.round(b), 0, 255);
+    }
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    ctx.putImageData(region, bounds.x, bounds.y);
+    return canvas.toDataURL("image/jpeg", 0.93);
+  };
+
+  const applyAlignmentWarp = async (imageSrc, bounds, scaleX = 0.97) => {
+    const img = await loadImage(imageSrc);
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+
+    const mouthCanvas = document.createElement("canvas");
+    mouthCanvas.width = bounds.width;
+    mouthCanvas.height = bounds.height;
+    const mctx = mouthCanvas.getContext("2d");
+    mctx.drawImage(canvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(
+      bounds.x + bounds.width * 0.5,
+      bounds.y + bounds.height * 0.58,
+      bounds.width * 0.35,
+      bounds.height * 0.24,
+      0,
+      0,
+      Math.PI * 2
+    );
+    ctx.clip();
+
+    const centerX = bounds.x + bounds.width * 0.5;
+    const centerY = bounds.y + bounds.height * 0.58;
+    ctx.translate(centerX, centerY);
+    ctx.scale(scaleX, 1);
+    ctx.translate(-centerX, -centerY);
+    ctx.drawImage(mouthCanvas, bounds.x, bounds.y, bounds.width, bounds.height);
+    ctx.restore();
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    return canvas.toDataURL("image/jpeg", 0.93);
   };
 
   const createTeethMask = (width, height) => {
@@ -260,7 +251,7 @@ const SmileSimulatorAI = () => {
     canvas.height = height;
     const ctx = canvas.getContext("2d");
 
-    // Required mask semantics: editable teeth area in white, everything else black.
+    // teeth editable = white, rest black
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, width, height);
 
@@ -272,100 +263,95 @@ const SmileSimulatorAI = () => {
     return canvas.toDataURL("image/png");
   };
 
-  const cropImage = (imageSrc, bounds) => {
-    const img = new Image();
-    img.src = imageSrc;
+  const cropImage = async (imageSrc, bounds) => {
+    const img = await loadImage(imageSrc);
     const canvas = document.createElement("canvas");
     canvas.width = bounds.width;
     canvas.height = bounds.height;
     const ctx = canvas.getContext("2d");
-    return new Promise((resolve, reject) => {
-      img.onload = () => {
-        ctx.drawImage(img, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.92));
-      };
-      img.onerror = reject;
+    ctx.drawImage(img, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+    return canvas.toDataURL("image/jpeg", 0.92);
+  };
+
+  const enhanceWithAI = async (mouthImage, mode, mask) => {
+    if (!AI_SMILE_API) return null;
+    const response = await fetch(AI_SMILE_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: mouthImage, mask, mode }),
     });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "AI polish failed");
+    return data.outputDataUrl || data.output || null;
   };
 
-  const mergeRegionIntoOriginal = async (originalSrc, cropSrc, bounds) => {
-    const [original, crop] = await Promise.all([loadImage(originalSrc), loadImage(cropSrc)]);
+  const mergeFinalImage = async (baseImage, mouthImage, bounds) => {
+    const [base, mouth] = await Promise.all([loadImage(baseImage), loadImage(mouthImage)]);
     const canvas = document.createElement("canvas");
-    canvas.width = original.width;
-    canvas.height = original.height;
+    canvas.width = base.width;
+    canvas.height = base.height;
     const ctx = canvas.getContext("2d");
 
-    ctx.drawImage(original, 0, 0);
+    ctx.drawImage(base, 0, 0);
 
-    // Feathered blend so only mouth area transitions softly.
-    ctx.save();
-    const grad = ctx.createRadialGradient(
-      bounds.x + bounds.width * 0.5,
-      bounds.y + bounds.height * 0.6,
-      bounds.width * 0.18,
-      bounds.x + bounds.width * 0.5,
-      bounds.y + bounds.height * 0.6,
-      Math.max(bounds.width, bounds.height) * 0.6
-    );
-    grad.addColorStop(0, "rgba(0,0,0,1)");
-    grad.addColorStop(1, "rgba(0,0,0,0)");
-
-    const maskCanvas = document.createElement("canvas");
-    maskCanvas.width = original.width;
-    maskCanvas.height = original.height;
-    const mctx = maskCanvas.getContext("2d");
-    mctx.fillStyle = "rgba(0,0,0,0)";
-    mctx.fillRect(0, 0, original.width, original.height);
-    mctx.fillStyle = grad;
-    mctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
-
-    const tempCanvas = document.createElement("canvas");
-    tempCanvas.width = original.width;
-    tempCanvas.height = original.height;
-    const tctx = tempCanvas.getContext("2d");
-    tctx.drawImage(crop, bounds.x, bounds.y, bounds.width, bounds.height);
-    tctx.globalCompositeOperation = "destination-in";
-    tctx.drawImage(maskCanvas, 0, 0);
-
-    ctx.drawImage(tempCanvas, 0, 0);
-    ctx.restore();
-
-    return canvas.toDataURL("image/jpeg", 0.93);
-  };
-
-  const enhanceTeethRegion = async (imageSrc, bounds) => {
-    const img = await loadImage(imageSrc);
-    const canvas = document.createElement("canvas");
-    canvas.width = img.width;
-    canvas.height = img.height;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(img, 0, 0);
-
+    // feathered region merge
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(
       bounds.x + bounds.width * 0.5,
       bounds.y + bounds.height * 0.58,
-      bounds.width * 0.32,
-      bounds.height * 0.2,
+      bounds.width * 0.36,
+      bounds.height * 0.24,
       0,
       0,
       Math.PI * 2
     );
     ctx.clip();
-    ctx.filter = "brightness(1.05) contrast(1.05)";
-    ctx.drawImage(canvas, 0, 0);
+    ctx.drawImage(mouth, bounds.x, bounds.y, bounds.width, bounds.height);
     ctx.restore();
 
     return canvas.toDataURL("image/jpeg", 0.93);
   };
 
-  const getOutputImageValue = (data) => {
-    if (!data) return null;
-    if (typeof data.outputDataUrl === "string" && data.outputDataUrl.startsWith("data:image/")) return data.outputDataUrl;
-    if (typeof data.output === "string") return data.output;
-    if (Array.isArray(data.output) && typeof data.output[0] === "string") return data.output[0];
-    return null;
+  const processWithAI = async (baseImage) => {
+    setStep("processing");
+    setError(null);
+    const mode = selectedTreatment;
+    setActiveTreatment(mode);
+
+    try {
+      const normalized = await normalizeImage(baseImage, 1024);
+      const img = await loadImage(normalized);
+      const bounds = await detectMouth(img);
+
+      let canvasEnhanced = normalized;
+      if (mode === "whitening" || mode === "transformation") {
+        canvasEnhanced = await applyTeethWhitening(canvasEnhanced, bounds);
+      }
+      if (mode === "alignment" || mode === "transformation") {
+        canvasEnhanced = await applyAlignmentWarp(canvasEnhanced, bounds, 0.97);
+      }
+
+      const mouthCrop = await cropImage(canvasEnhanced, bounds);
+      const mask = createTeethMask(bounds.width, bounds.height);
+
+      let aiPolishedCrop = null;
+      try {
+        aiPolishedCrop = await enhanceWithAI(mouthCrop, mode, mask);
+      } catch (_aiErr) {
+        aiPolishedCrop = null;
+      }
+
+      const finalMouth = aiPolishedCrop || mouthCrop;
+      const merged = await mergeFinalImage(normalized, finalMouth, bounds);
+      setAfterImage(merged);
+      setBeforeImage(normalized);
+      setStep("result");
+    } catch (err) {
+      const message = typeof err?.message === "string" ? err.message : "Simulation failed. Please retry with a clear smile photo.";
+      setError(message);
+      setStep("upload");
+    }
   };
 
   const normalizeImage = async (imageSrc, maxWidth = 1024) => {
@@ -401,12 +387,10 @@ const SmileSimulatorAI = () => {
   };
 
   useEffect(() => () => stopCamera(), []);
-
   useEffect(() => {
     if (step !== "camera" || !streamRef.current || !videoRef.current) return;
-    const video = videoRef.current;
-    video.srcObject = streamRef.current;
-    video.play().catch(() => {});
+    videoRef.current.srcObject = streamRef.current;
+    videoRef.current.play().catch(() => {});
   }, [step]);
 
   return (
@@ -415,26 +399,24 @@ const SmileSimulatorAI = () => {
         <AnimatedSection className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-serif text-zinc-900 mb-6">AI Smile Simulation</h2>
           <p className="text-zinc-500 max-w-2xl mx-auto text-lg leading-relaxed">
-            Teeth-only AI preview with strict identity preservation.
+            Hybrid dental preview: canvas enhancement + AI polish for realistic teeth-only results.
           </p>
         </AnimatedSection>
 
         <AnimatedSection className="max-w-4xl mx-auto mb-12">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {TREATMENTS.map((treatment) => {
-              const Icon = treatment.icon;
-              const active = selectedTreatment === treatment.id;
+            {TREATMENTS.map((t) => {
+              const Icon = t.icon;
+              const active = selectedTreatment === t.id;
               return (
                 <button
-                  key={treatment.id}
+                  key={t.id}
                   type="button"
-                  onClick={() => setSelectedTreatment(treatment.id)}
+                  onClick={() => setSelectedTreatment(t.id)}
                   disabled={step === "processing" || step === "result"}
                   className={cn(
                     "rounded-2xl border p-5 text-left transition-all duration-300 bg-white",
-                    active
-                      ? "border-brand-gold shadow-md ring-1 ring-brand-gold/20 scale-[1.02]"
-                      : "border-zinc-200 hover:border-zinc-300 hover:shadow-sm",
+                    active ? "border-brand-gold shadow-md ring-1 ring-brand-gold/20 scale-[1.02]" : "border-zinc-200 hover:border-zinc-300 hover:shadow-sm",
                     (step === "processing" || step === "result") && "opacity-60 cursor-not-allowed"
                   )}
                 >
@@ -442,9 +424,9 @@ const SmileSimulatorAI = () => {
                     <span className={cn("p-3 rounded-xl", active ? "bg-brand-blue" : "bg-zinc-100")}>
                       <Icon size={20} className={active ? "text-zinc-800" : "text-zinc-500"} />
                     </span>
-                    <span className="text-base font-semibold text-zinc-800">{treatment.label}</span>
+                    <span className="text-base font-semibold text-zinc-800">{t.label}</span>
                   </div>
-                  <p className="text-xs text-zinc-500 leading-relaxed">{treatment.desc}</p>
+                  <p className="text-xs text-zinc-500 leading-relaxed">{t.desc}</p>
                 </button>
               );
             })}
@@ -454,13 +436,7 @@ const SmileSimulatorAI = () => {
         <div className="max-w-4xl mx-auto">
           <AnimatePresence mode="wait">
             {step === "upload" && (
-              <motion.div
-                key="upload"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="bg-white p-12 rounded-3xl border border-zinc-100 shadow-xl text-center"
-              >
+              <motion.div key="upload" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="bg-white p-12 rounded-3xl border border-zinc-100 shadow-xl text-center">
                 <div className="mb-10 flex justify-center">
                   <div className="w-20 h-20 bg-brand-blue/30 rounded-full flex items-center justify-center text-zinc-600">
                     <Upload size={32} />
@@ -469,21 +445,15 @@ const SmileSimulatorAI = () => {
                 <h3 className="text-2xl font-serif mb-4">Upload or Capture Smile</h3>
                 <p className="text-zinc-400 mb-10 max-w-sm mx-auto">Keep teeth visible and centered for best mouth detection.</p>
 
-                {error && (
-                  <div className="mb-8 p-4 bg-red-50 text-red-500 text-sm rounded-xl border border-red-100">{error}</div>
-                )}
-                {cameraError && !error && (
-                  <div className="mb-8 p-4 bg-amber-50 text-amber-800 text-sm rounded-xl border border-amber-100">{cameraError}</div>
-                )}
+                {error && <div className="mb-8 p-4 bg-red-50 text-red-500 text-sm rounded-xl border border-red-100">{error}</div>}
+                {cameraError && !error && <div className="mb-8 p-4 bg-amber-50 text-amber-800 text-sm rounded-xl border border-amber-100">{cameraError}</div>}
 
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <PremiumButton onClick={() => fileInputRef.current?.click()} className="flex items-center justify-center gap-2">
-                    <Upload size={18} />
-                    Choose File
+                    <Upload size={18} /> Choose File
                   </PremiumButton>
                   <PremiumButton variant="secondary" onClick={startCamera} className="flex items-center justify-center gap-2">
-                    <Camera size={18} />
-                    Take Photo
+                    <Camera size={18} /> Take Photo
                   </PremiumButton>
                 </div>
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
@@ -504,22 +474,9 @@ const SmileSimulatorAI = () => {
                   <div className="h-24 w-60 rounded-[999px] border-2 border-brand-gold/80 bg-white/10" />
                 </div>
                 <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-4 p-6">
-                  <button type="button" onClick={reset} className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-white">
-                    <X size={22} />
-                  </button>
-                  <button type="button" onClick={takePhoto} className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full bg-white">
-                    <span className="h-12 w-12 rounded-full bg-zinc-900" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      stopCamera();
-                      startCamera();
-                    }}
-                    className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-white"
-                  >
-                    <RefreshCw size={20} />
-                  </button>
+                  <button type="button" onClick={reset} className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-white"><X size={22} /></button>
+                  <button type="button" onClick={takePhoto} className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full bg-white"><span className="h-12 w-12 rounded-full bg-zinc-900" /></button>
+                  <button type="button" onClick={() => { stopCamera(); startCamera(); }} className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-white"><RefreshCw size={20} /></button>
                 </div>
                 <canvas ref={canvasRef} className="hidden" />
               </motion.div>
@@ -529,9 +486,7 @@ const SmileSimulatorAI = () => {
               <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="bg-white p-20 rounded-3xl border border-zinc-100 shadow-xl text-center">
                 <div className="relative w-24 h-24 mx-auto mb-12">
                   <motion.div animate={{ rotate: 360 }} transition={{ duration: 3, repeat: Infinity, ease: "linear" }} className="absolute inset-0 border-t-2 border-brand-gold rounded-full" />
-                  <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-4 bg-brand-blue/30 rounded-full flex items-center justify-center">
-                    <Sparkles size={24} className="text-brand-gold" />
-                  </motion.div>
+                  <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-4 bg-brand-blue/30 rounded-full flex items-center justify-center"><Sparkles size={24} className="text-brand-gold" /></motion.div>
                 </div>
                 <h3 className="text-2xl font-serif text-zinc-800 mb-4">Designing your future smile...</h3>
                 <p className="text-zinc-500 text-sm mt-3 capitalize">{activeTreatment} mode in progress</p>
@@ -541,27 +496,17 @@ const SmileSimulatorAI = () => {
             {step === "result" && (
               <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="space-y-8">
                 <div className="rounded-3xl overflow-hidden shadow-2xl border border-white/20 bg-black aspect-video md:aspect-[16/9]">
-                  <ReactCompareImage
-                    leftImage={beforeImage}
-                    rightImage={afterImage}
-                    rightImageCss={{ filter: "brightness(1.08) contrast(1.12)" }}
-                    sliderLineWidth={2}
-                    sliderLineColor="#D4AF37"
-                    handleSize={40}
-                  />
+                  <ReactCompareImage leftImage={beforeImage} rightImage={afterImage} rightImageCss={{ filter: "brightness(1.06) contrast(1.08)" }} sliderLineWidth={2} sliderLineColor="#D4AF37" handleSize={40} />
                 </div>
 
                 <div className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-lg flex flex-col md:flex-row items-center justify-between gap-8">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-green-50 text-green-500 rounded-full flex items-center justify-center">
-                      <CheckCircle2 size={24} />
-                    </div>
+                    <div className="w-12 h-12 bg-green-50 text-green-500 rounded-full flex items-center justify-center"><CheckCircle2 size={24} /></div>
                     <div>
                       <h4 className="font-serif text-xl">Simulation Complete</h4>
-                      <p className="text-zinc-400 text-sm capitalize">{activeTreatment} simulation with AI enhancement</p>
+                      <p className="text-zinc-400 text-sm capitalize">{activeTreatment} simulation with hybrid enhancement</p>
                     </div>
                   </div>
-
                   <div className="flex gap-4">
                     <PremiumButton variant="outline" onClick={reset}>Try Another</PremiumButton>
                     <PremiumButton variant="gold" className="shadow-lg shadow-brand-gold/20">Book Consultation</PremiumButton>
@@ -581,5 +526,3 @@ const SmileSimulatorAI = () => {
 };
 
 export default SmileSimulatorAI;
-
-
