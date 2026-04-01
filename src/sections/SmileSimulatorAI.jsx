@@ -662,63 +662,112 @@ const SmileSimulatorAI = () => {
     });
   };
 
-  const applyTeethWhitening = async (imageSrc, oval) => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.src = imageSrc;
+  /** CSS-style soft-light: backdrop Cb, blend layer Cs (0–1). */
+  const softLightChannel = (cb, cs) => {
+    if (cs <= 0.5) {
+      return cb - (1 - 2 * cs) * cb * (1 - cb);
+    }
+    const D = cb < 0.25 ? ((16 * cb - 12) * cb + 4) * cb : Math.sqrt(cb);
+    return cb + (2 * cs - 1) * (D - cb);
+  };
 
+  /**
+   * Photorealistic whitening: blurred mask, BC lift, ivory soft-light tint, max 40% blend, highlights preserved.
+   */
+  const applyTeethWhitening = async (imageSrc, oval) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
       img.onload = () => {
+        const w = img.width;
+        const h = img.height;
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-
-        canvas.width = img.width;
-        canvas.height = img.height;
-
+        canvas.width = w;
+        canvas.height = h;
         ctx.drawImage(img, 0, 0);
 
-        const pad = OVAL_FEATHER_PX + 6;
-        const x0 = clamp(Math.floor(oval.cx - oval.rx - pad), 0, canvas.width - 1);
-        const x1 = clamp(Math.ceil(oval.cx + oval.rx + pad), 0, canvas.width);
-        const y0 = clamp(Math.floor(oval.cy - oval.ry - pad), 0, canvas.height - 1);
-        const y1 = clamp(Math.ceil(oval.cy + oval.ry + pad), 0, canvas.height);
+        const BLUR_MASK_PX = 4;
+        const WHITEN_MAX_OPACITY = 0.4;
+        const BRIGHTNESS_MULT = 1.125;
+        const CONTRAST_MULT = 1.05;
+        const IVORY = { r: 249 / 255, g: 249 / 255, b: 249 / 255 };
 
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const maskCanvas = document.createElement("canvas");
+        maskCanvas.width = w;
+        maskCanvas.height = h;
+        const mctx = maskCanvas.getContext("2d");
+        mctx.fillStyle = "#000";
+        mctx.fillRect(0, 0, w, h);
+        mctx.fillStyle = "#fff";
+        mctx.beginPath();
+        mctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2);
+        mctx.fill();
+
+        const blurCanvas = document.createElement("canvas");
+        blurCanvas.width = w;
+        blurCanvas.height = h;
+        const bctx = blurCanvas.getContext("2d");
+        bctx.filter = `blur(${BLUR_MASK_PX}px)`;
+        bctx.drawImage(maskCanvas, 0, 0);
+        bctx.filter = "none";
+        const blurredMask = bctx.getImageData(0, 0, w, h).data;
+
+        const margin = Math.ceil(BLUR_MASK_PX * 2 + 8);
+        const x0 = clamp(Math.floor(oval.cx - oval.rx - margin), 0, w - 1);
+        const y0 = clamp(Math.floor(oval.cy - oval.ry - margin), 0, h - 1);
+        const x1 = clamp(Math.ceil(oval.cx + oval.rx + margin), 0, w);
+        const y1 = clamp(Math.ceil(oval.cy + oval.ry + margin), 0, h);
+
+        const imageData = ctx.getImageData(0, 0, w, h);
         const data = imageData.data;
 
         for (let py = y0; py < y1; py++) {
           for (let px = x0; px < x1; px++) {
-            const wMouth = ellipseFeatherWeight(px, py, oval, OVAL_FEATHER_PX);
-            if (wMouth <= 0) continue;
+            const mi = (py * w + px) * 4;
+            const mStrength = blurredMask[mi] / 255;
+            if (mStrength < 0.002) continue;
 
-            const idx = (py * canvas.width + px) * 4;
-            let r = data[idx];
-            let g = data[idx + 1];
-            let b = data[idx + 2];
+            const idx = mi;
+            const r0 = data[idx];
+            const g0 = data[idx + 1];
+            const b0 = data[idx + 2];
 
-            const brightness = (r + g + b) / 3;
-            const yellowBias = r - b;
-            const isToothLike = brightness > 65 && brightness < 245 && yellowBias > -22;
-            if (!isToothLike) continue;
+            let r = (r0 - 128) * CONTRAST_MULT + 128;
+            let g = (g0 - 128) * CONTRAST_MULT + 128;
+            let b = (b0 - 128) * CONTRAST_MULT + 128;
+            r = clamp(r * BRIGHTNESS_MULT, 0, 255);
+            g = clamp(g * BRIGHTNESS_MULT, 0, 255);
+            b = clamp(b * BRIGHTNESS_MULT, 0, 255);
 
-            const w = wMouth;
-            r = r * (1 - w) + w * (r * 0.84 + 6);
-            g = g * (1 - w) + w * (g * 1.14 + 10);
-            b = b * (1 - w) + w * (b * 1.2 + 14);
+            const rb = r / 255;
+            const gb = g / 255;
+            const bb = b / 255;
+            let tr = softLightChannel(rb, IVORY.r) * 255;
+            let tg = softLightChannel(gb, IVORY.g) * 255;
+            let tb = softLightChannel(bb, IVORY.b) * 255;
 
-            const contrast = 1.06;
-            r = (r - 128) * contrast + 128;
-            g = (g - 128) * contrast + 128;
-            b = (b - 128) * contrast + 128;
+            let t = mStrength * WHITEN_MAX_OPACITY;
+            const peak = Math.max(r0, g0, b0);
+            if (peak > 250) t *= 0.42;
+            else if (peak > 242) t *= 0.65;
+            else if (peak > 232) t *= 0.82;
 
-            data[idx] = Math.min(255, Math.max(0, Math.round(r)));
-            data[idx + 1] = Math.min(255, Math.max(0, Math.round(g)));
-            data[idx + 2] = Math.min(255, Math.max(0, Math.round(b)));
+            const outR = r0 + (tr - r0) * t;
+            const outG = g0 + (tg - g0) * t;
+            const outB = b0 + (tb - b0) * t;
+
+            data[idx] = Math.round(clamp(outR, 0, 255));
+            data[idx + 1] = Math.round(clamp(outG, 0, 255));
+            data[idx + 2] = Math.round(clamp(outB, 0, 255));
           }
         }
 
         ctx.putImageData(imageData, 0, 0);
         resolve(canvas.toDataURL("image/jpeg", 0.95));
       };
+      img.onerror = () => reject(new Error("Could not load image for whitening"));
+      img.src = imageSrc;
     });
   };
 
