@@ -17,12 +17,12 @@ const TREATMENTS = [
   { id: "transformation", label: "Full Smile", icon: ShieldPlus, desc: "Whitening + alignment" },
 ];
 
-/** Lip / mouth perimeter only — do not use eye indices for mouth geometry */
-const MOUTH_PERIMETER_INDICES = [61, 291, 0, 17, 13, 14, 78, 308];
+/** Lip / mouth perimeter — note: landmark 0 is NOT on the mouth in FaceMesh (it skews the box); use lip/chin points only */
+const MOUTH_PERIMETER_INDICES = [61, 291, 17, 13, 14, 78, 308, 181];
+/** Fallback if any of the above are missing (minimal mouth hull) */
+const MOUTH_FALLBACK_INDICES = [61, 291, 13, 14, 78, 308];
 /** Used only for sanity (eyes should sit above the mouth), not for mouth box math */
 const EYE_SANITY_INDICES = [33, 133, 362, 263];
-/** Tuned so real smiles pass; still rejects empty/weird detections */
-const MOUTH_CONFIDENCE_MIN = 0.62;
 const OVAL_FEATHER_PX = 16;
 
 /** Upper dental arch (left → right) — follows lip/teeth row in FaceMesh topology */
@@ -170,11 +170,11 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Mouth geometry from mouth-only landmarks. Eyes are not used for the box;
-   * optional sanity: eyes above mouth.
+   * Mouth geometry from lip/chin landmarks only (no nose/forehead indices).
+   * Tries primary index set, then a smaller fallback set.
    */
-  const analyzeMouthFromLandmarks = (landmarks, iw, ih) => {
-    for (const i of MOUTH_PERIMETER_INDICES) {
+  const buildMouthAnalysis = (landmarks, iw, ih, indices) => {
+    for (const i of indices) {
       const p = landmarks[i];
       if (!p || typeof p.x !== "number" || typeof p.y !== "number") return null;
     }
@@ -184,7 +184,7 @@ const SmileSimulatorAI = () => {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
-    MOUTH_PERIMETER_INDICES.forEach((i) => {
+    indices.forEach((i) => {
       const p = landmarks[i];
       const x = p.x * iw;
       const y = p.y * ih;
@@ -220,14 +220,12 @@ const SmileSimulatorAI = () => {
 
     const eyeYs = EYE_SANITY_INDICES.map((ei) => landmarks[ei]?.y).filter((v) => typeof v === "number");
     const avgEyeY = eyeYs.length ? eyeYs.reduce((a, b) => a + b, 0) / eyeYs.length : 0.35;
-    // Soft penalty only when eyes are clearly below the mouth (bad pose); mild tilt/3-4 view OK
     let eyeFactor = 1;
     if (avgEyeY >= mouthCenterY + 0.04) eyeFactor = 0.45;
     else if (avgEyeY >= mouthCenterY - 0.005) eyeFactor = 0.88;
 
     const wScore = mouthWidthNorm > 0.08 && mouthWidthNorm < 0.58 ? 1 : Math.max(0.15, 1 - Math.abs(mouthWidthNorm - 0.28) * 4);
     const yScore = mouthCenterY > 0.3 && mouthCenterY < 0.94 ? 1 : 0.45;
-    // Closed or relaxed mouth: small lip gap is normal
     const hScore = lipSep > 0.002 ? 1 : 0.78;
     const posScore = cy / ih > 0.3 && cy / ih < 0.92 ? 1 : 0.5;
 
@@ -244,6 +242,10 @@ const SmileSimulatorAI = () => {
     };
   };
 
+  const analyzeMouthFromLandmarks = (landmarks, iw, ih) =>
+    buildMouthAnalysis(landmarks, iw, ih, MOUTH_PERIMETER_INDICES) ||
+    buildMouthAnalysis(landmarks, iw, ih, MOUTH_FALLBACK_INDICES);
+
   /**
    * @returns {Promise<{ ok: boolean, confidence?: number, bounds?: object, oval?: object }>}
    */
@@ -256,9 +258,17 @@ const SmileSimulatorAI = () => {
 
     return new Promise((resolve) => {
       let settled = false;
+      const timer = window.setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve(fail);
+        }
+      }, 15000);
+
       const finish = (payload) => {
         if (settled) return;
         settled = true;
+        window.clearTimeout(timer);
         resolve(payload);
       };
 
@@ -273,8 +283,8 @@ const SmileSimulatorAI = () => {
           finish(fail);
           return;
         }
-        const ok = analysis.confidence >= MOUTH_CONFIDENCE_MIN;
-        finish({ ok, ...analysis, landmarks });
+        // Any successful landmark analysis runs the sim; confidence is informational only
+        finish({ ok: true, ...analysis, landmarks });
       });
 
       faceMesh.send({ image: img }).catch(() => finish(fail));
@@ -639,10 +649,12 @@ const SmileSimulatorAI = () => {
       const normalized = await normalizeImage(baseImage, 1024);
       const mouth = await detectMouth(normalized);
 
-      if (!mouth.ok || !mouth.bounds || !mouth.oval) {
+      if (!mouth.bounds || !mouth.oval) {
         setBeforeImage(null);
         setAfterImage(null);
-        setError("Please center your smile in the frame");
+        setError(
+          "We couldn’t detect a face clearly. Use a well-lit photo, face the camera, and ensure your mouth and teeth are visible."
+        );
         setStep("upload");
         return;
       }
@@ -651,7 +663,9 @@ const SmileSimulatorAI = () => {
       if (!landmarks) {
         setBeforeImage(null);
         setAfterImage(null);
-        setError("Please center your smile in the frame");
+        setError(
+          "We couldn’t detect a face clearly. Use a well-lit photo, face the camera, and ensure your mouth and teeth are visible."
+        );
         setStep("upload");
         return;
       }
