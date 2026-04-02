@@ -27,9 +27,13 @@ const OVAL_FEATHER_PX = 16;
 
 /** Closed polygon around inner lip / visible teeth (Face Mesh indices). Order: corners → upper center → lower → chin band. */
 const TEETH_WHITEN_MASK_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+/** Upper-arch specular dots for enamel gloss (overlay radials). */
+const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
 /** Mouth-only fallback (user-specified). If ≥4 land inside the guide oval, we still run the sim. */
 const MOUTH_FIRST_INDICES = [0, 13, 14, 17, 37, 267];
+/** Last resort for tight mouth crops: hull from lip corners + commissures (no oval / eye checks). */
+const MINIMAL_MOUTH_HULL_INDICES = [78, 308, 13, 14, 61, 291, 17];
 /**
  * Normalized guide ellipse (matches enlarged camera overlay). Radii are 20% larger than a typical base so landmarks near the frame still count.
  */
@@ -56,6 +60,8 @@ const initFaceLandmarker = async () => {
       },
       runningMode: "IMAGE",
       numFaces: 1,
+      minFaceDetectionConfidence: 0.2,
+      minFacePresenceConfidence: 0.2,
     });
     return faceLandmarkerInstance;
   } catch {
@@ -77,8 +83,8 @@ const initFaceMesh = async () => {
     faceMesh.setOptions({
       maxNumFaces: 1,
       refineLandmarks: true,
-      minDetectionConfidence: 0.3,
-      minTrackingConfidence: 0.3,
+      minDetectionConfidence: 0.2,
+      minTrackingConfidence: 0.2,
     });
 
     faceMeshInstance = faceMesh;
@@ -336,8 +342,59 @@ const SmileSimulatorAI = () => {
     };
   };
 
+  /** When full mouth hull / oval gate fails (e.g. extreme close-up), still derive bounds from core mouth indices. */
+  const buildAnalysisFromMinimalMouthHull = (landmarks, iw, ih) => {
+    for (const i of MINIMAL_MOUTH_HULL_INDICES) {
+      const p = landmarks[i];
+      if (!p || typeof p.x !== "number" || typeof p.y !== "number") return null;
+    }
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    MINIMAL_MOUTH_HULL_INDICES.forEach((i) => {
+      const p = landmarks[i];
+      const x = p.x * iw;
+      const y = p.y * ih;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    });
+
+    if (!(maxX > minX && maxY > minY)) return null;
+
+    const padX = (maxX - minX) * 0.2 + 8;
+    const padY = (maxY - minY) * 0.24 + 10;
+
+    let x = Math.floor(minX - padX);
+    let y = Math.floor(minY - padY);
+    let width = Math.ceil(maxX - minX + padX * 2);
+    let height = Math.ceil(maxY - minY + padY * 2);
+
+    x = clamp(x, 0, iw - 1);
+    y = clamp(y, 0, ih - 1);
+    width = clamp(width, 24, iw - x);
+    height = clamp(height, 24, ih - y);
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const rx = Math.max((maxX - minX) / 2 * 1.1, 12);
+    const ry = Math.max((maxY - minY) / 2 * 1.15, 10);
+
+    return {
+      confidence: 0.42,
+      bounds: { x, y, width, height },
+      oval: { cx, cy, rx, ry },
+    };
+  };
+
   const tryAnalyzeLandmarksFullOrMouthFirst = (landmarks, iw, ih) =>
-    analyzeMouthFromLandmarks(landmarks, iw, ih) || buildAnalysisFromMouthFirstIndices(landmarks, iw, ih);
+    analyzeMouthFromLandmarks(landmarks, iw, ih) ||
+    buildAnalysisFromMouthFirstIndices(landmarks, iw, ih) ||
+    buildAnalysisFromMinimalMouthHull(landmarks, iw, ih);
 
   /** Brightness/contrast lift on guide ellipse bbox to help detectors in shadows */
   const boostMouthGuideRegion = (ctx, iw, ih) => {
@@ -583,8 +640,64 @@ const SmileSimulatorAI = () => {
     return Math.atan2(dy, dx);
   };
 
-  /** Metallic bracket with horizontal skew for pseudo-3D curvature. */
-  const drawBracketStudPerspective = (ctx, x, y, tangentRad, w, h, skewX) => {
+  /**
+   * Gum-line occlusion + wet-enamel speculars (caller must have active teeth or oval clip).
+   * Order: inner shadow band → overlay highlights.
+   */
+  const applyEnamelGlossAndGumOcclusion = (ctx, iw, ih, landmarks, oval) => {
+    let yTop;
+    let yBandEnd;
+
+    if (landmarks) {
+      const ys = TEETH_WHITEN_MASK_INDICES.map((i) => landmarks[i]?.y).filter((v) => typeof v === "number");
+      if (ys.length >= 2) {
+        const minY = Math.min(...ys.map((ny) => ny * ih));
+        const maxY = Math.max(...ys.map((ny) => ny * ih));
+        const span = maxY - minY;
+        yTop = minY;
+        yBandEnd = minY + span * 0.1;
+      }
+    }
+    if (yTop === undefined && oval) {
+      const span = oval.ry * 2;
+      yTop = oval.cy - oval.ry;
+      yBandEnd = yTop + span * 0.1;
+    }
+    if (yTop !== undefined && yBandEnd > yTop) {
+      ctx.save();
+      const g = ctx.createLinearGradient(0, yTop, 0, yBandEnd);
+      g.addColorStop(0, "rgba(0,0,0,0.2)");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = g;
+      ctx.fillRect(0, yTop, iw, yBandEnd - yTop);
+      ctx.restore();
+    }
+
+    if (!landmarks) return;
+    const specIdx = ENAMEL_SPECULAR_INDICES.filter((i) => landmarks[i]);
+    if (!specIdx.length) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "overlay";
+    specIdx.slice(0, 3).forEach((i) => {
+      const px = landmarks[i].x * iw;
+      const py = landmarks[i].y * ih;
+      const rad = 5;
+      const rg = ctx.createRadialGradient(px, py, 0, px, py, rad);
+      rg.addColorStop(0, "rgba(255,255,255,0.7)");
+      rg.addColorStop(0.55, "rgba(255,255,255,0.15)");
+      rg.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = rg;
+      ctx.beginPath();
+      ctx.arc(px, py, rad, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  };
+
+  /** Metallic bracket with horizontal skew for pseudo-3D curvature. Optional hero star flare (dentist-commercial sparkle). */
+  const drawBracketStudPerspective = (ctx, x, y, tangentRad, w, h, skewX, starFlare = false) => {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
@@ -648,21 +761,36 @@ const SmileSimulatorAI = () => {
     ctx.moveTo(w * 0.5, h * 0.5);
     ctx.lineTo(w * 0.5, h * 0.5 - Math.min(h * 0.42, 8));
     ctx.stroke();
+    if (starFlare) {
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = Math.max(0.65, w * 0.12);
+      ctx.lineCap = "round";
+      const sx = -w * 0.28;
+      const sy = -h * 0.28;
+      const L = Math.min(w, h) * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - L);
+      ctx.lineTo(sx, sy + L);
+      ctx.moveTo(sx - L, sy);
+      ctx.lineTo(sx + L, sy);
+      ctx.stroke();
+    }
     ctx.restore();
   };
 
   /**
-   * Upper-arch braces: quadratic archwire (78 → control at 13 → 308), five brackets with edge scaling + skew.
+   * Upper-arch braces: quadratic archwire 78 → 308 with control at midpoint(13,14)+10px; brackets along t∈{0.2…0.8}, rotated ⊥ to wire tangent.
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval) => {
-    if (!landmarks[78] || !landmarks[13] || !landmarks[308]) return;
+    if (!landmarks[78] || !landmarks[13] || !landmarks[14] || !landmarks[308]) return;
     const p78 = { x: landmarks[78].x * iw, y: landmarks[78].y * ih };
-    /* Nudge control below gum line so archwire sits on incisal / tooth body */
-    const p13 = {
-      x: landmarks[13].x * iw,
-      y: landmarks[13].y * ih + ih * 0.02,
-    };
     const p308 = { x: landmarks[308].x * iw, y: landmarks[308].y * ih };
+    const midX = ((landmarks[13].x + landmarks[14].x) / 2) * iw;
+    const midY = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
+    /* +10px canvas-Y pulls the arch toward the tooth band (smile curve) vs flat gum line */
+    const pCtrl = { x: midX, y: midY + 10 };
 
     const scale = Math.max(iw, ih);
     const wireDarkW = 2;
@@ -678,26 +806,40 @@ const SmileSimulatorAI = () => {
     const strokeWire = () => {
       ctx.beginPath();
       ctx.moveTo(p78.x, p78.y);
-      ctx.quadraticCurveTo(p13.x, p13.y, p308.x, p308.y);
+      ctx.quadraticCurveTo(pCtrl.x, pCtrl.y, p308.x, p308.y);
     };
+
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 2;
     strokeWire();
     ctx.strokeStyle = "rgba(60, 60, 60, 0.95)";
     ctx.lineWidth = wireDarkW;
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
     strokeWire();
     ctx.strokeStyle = "rgba(255, 255, 255, 1)";
     ctx.lineWidth = wireWhiteW;
     ctx.stroke();
+    ctx.restore();
 
-    const bracketTs = [0, 0.25, 0.5, 0.75, 1];
+    const bracketTs = [0.2, 0.4, 0.6, 0.8];
     bracketTs.forEach((t) => {
-      const p = quadBezierPoint(p78, p13, p308, t);
-      const ang = quadBezierTangentAngle(p78, p13, p308, t);
+      const p = quadBezierPoint(p78, pCtrl, p308, t);
+      const ang = quadBezierTangentAngle(p78, pCtrl, p308, t);
       const edge = Math.abs(t - 0.5) * 2;
       const scaleBr = 0.7 + 0.3 * (1 - edge * edge);
       const skewX = (t - 0.5) * 0.32;
-      drawBracketStudPerspective(ctx, p.x, p.y, ang, baseW * scaleBr, baseH * scaleBr, skewX);
+      drawBracketStudPerspective(ctx, p.x, p.y, ang, baseW * scaleBr, baseH * scaleBr, skewX, t === 0.4);
     });
 
     ctx.restore();
@@ -739,6 +881,7 @@ const SmileSimulatorAI = () => {
             ctx.fillRect(0, 0, iw, ih);
             ctx.globalAlpha = 1;
             ctx.globalCompositeOperation = "source-over";
+            applyEnamelGlossAndGumOcclusion(ctx, iw, ih, landmarks, oval);
           }
           ctx.restore();
         };
@@ -814,6 +957,7 @@ const SmileSimulatorAI = () => {
         ctx.fillRect(0, 0, w, h);
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = "source-over";
+        applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks, oval);
         ctx.restore();
 
         if (bounds) applyMouthPopFilter(ctx, bounds);
@@ -1124,8 +1268,13 @@ const SmileSimulatorAI = () => {
 
             {step === "result" && (
               <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="space-y-8">
-                {/* 1:1 mouth-centered crops — teeth stay the hero on all screen sizes */}
-                <div className="rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-white/20 bg-black w-full max-w-lg mx-auto aspect-square max-h-[min(92vw,560px)]">
+                {/* Clinic-style settle: subtle zoom from slightly wide to framed mouth (0.8s ease) */}
+                <motion.div
+                  className="rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-white/20 bg-black w-full max-w-lg mx-auto aspect-square max-h-[min(92vw,560px)] origin-center"
+                  initial={{ scale: 1.08, y: 6 }}
+                  animate={{ scale: 1, y: 0 }}
+                  transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
+                >
                   <ReactCompareImage
                     key={afterImage || "compare"}
                     leftImage={beforeImage}
@@ -1144,20 +1293,38 @@ const SmileSimulatorAI = () => {
                       objectPosition: "center center",
                     }}
                   />
-                </div>
+                </motion.div>
                 <p className="text-center text-xs text-zinc-500 md:hidden">Drag the gold line to compare — preview is zoomed on your smile.</p>
 
                 <div className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-lg flex flex-col md:flex-row items-center justify-between gap-8">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-green-50 text-green-500 rounded-full flex items-center justify-center"><CheckCircle2 size={24} /></div>
+                    <motion.div
+                      className="w-12 h-12 bg-green-50 text-green-500 rounded-full flex items-center justify-center"
+                      animate={{ scale: [1, 1.06, 1] }}
+                      transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut", repeatDelay: 3 }}
+                    >
+                      <CheckCircle2 size={24} />
+                    </motion.div>
                     <div>
                       <h4 className="font-serif text-xl">Simulation Complete</h4>
                       <p className="text-zinc-400 text-sm capitalize">{activeTreatment} simulation with hybrid enhancement</p>
                     </div>
                   </div>
-                  <div className="flex gap-4">
+                  <div className="flex gap-4 flex-wrap justify-center">
                     <PremiumButton variant="outline" onClick={reset}>Try Another</PremiumButton>
-                    <PremiumButton className="text-black" style={{ background: "linear-gradient(135deg, #D4AF37, #F5E6C5)" }}>Book Consultation</PremiumButton>
+                    <motion.div
+                      animate={{
+                        boxShadow: [
+                          "0 0 0 0 rgba(212, 175, 55, 0)",
+                          "0 0 22px 6px rgba(212, 175, 55, 0.35)",
+                          "0 0 0 0 rgba(212, 175, 55, 0)",
+                        ],
+                      }}
+                      transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut", repeatDelay: 1.2 }}
+                      className="rounded-xl"
+                    >
+                      <PremiumButton className="text-black" style={{ background: "linear-gradient(135deg, #D4AF37, #F5E6C5)" }}>Book Consultation</PremiumButton>
+                    </motion.div>
                   </div>
                 </div>
 
