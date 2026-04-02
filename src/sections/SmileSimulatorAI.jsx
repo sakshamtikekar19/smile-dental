@@ -24,15 +24,22 @@ const MOUTH_FALLBACK_INDICES = [61, 291, 13, 14, 78, 308];
 /** Used only for sanity (eyes should sit above the mouth), not for mouth box math */
 const EYE_SANITY_INDICES = [33, 133, 362, 263];
 const OVAL_FEATHER_PX = 16;
+/** Ivory-layer edge soften (px); pairs with source-atop so whitening doesn’t cut hard against lips. */
+const MASK_CLIP_FEATHER_PX = 1;
 
-/** Closed polygon around inner lip / visible teeth (Face Mesh indices). Order: corners → upper center → lower → chin band. */
-const TEETH_WHITEN_MASK_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+/** Inner-only teeth loop — tissue-safe whitening (tighter than lip line). */
+const TEETH_WHITEN_MASK_INDICES = [13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
+/** Bracket centers — one per front tooth; wires span first→last per arch. */
+const UPPER_BRACKET_LANDMARKS = [191, 80, 81, 13, 311, 310, 415];
+const LOWER_BRACKET_LANDMARKS = [95, 88, 178, 14, 402, 318, 324];
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
-/** Dual-arch wires: upper cubic 61→291 via CP 80, 310; lower cubic 91→321 via CP 87, 317 (fallback lerp toward 14). */
-const UPPER_ARCH_WIRE = { start: 61, cp1: 80, cp2: 310, end: 291, peak: 13 };
-const LOWER_ARCH_WIRE = { start: 91, cp1: 87, cp2: 317, end: 321, peak: 14 };
+/**
+ * Cubic archwires: endpoints = first/last bracket (shortened from commissures); CP 80/310 & 87/317 for smile bend.
+ */
+const UPPER_ARCH_WIRE = { start: 191, cp1: 80, cp2: 310, end: 415, peak: 13 };
+const LOWER_ARCH_WIRE = { start: 95, cp1: 87, cp2: 317, end: 324, peak: 14 };
 
 /** Mouth-only fallback (user-specified). If ≥4 land inside the guide oval, we still run the sim. */
 const MOUTH_FIRST_INDICES = [0, 13, 14, 17, 37, 267];
@@ -586,7 +593,7 @@ const SmileSimulatorAI = () => {
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
     ctx.closePath();
-    // Soft corners in the path before clipping (improves perceived edge quality).
+    // Soft corners before clip (no pre-stroke — avoids painting on the base image).
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.clip();
@@ -653,6 +660,22 @@ const SmileSimulatorAI = () => {
     const dy =
       3 * u * u * (p1.y - p0.y) + 6 * u * t * (p2.y - p1.y) + 3 * t * t * (p3.y - p2.y);
     return Math.atan2(dy, dx);
+  };
+
+  /** Find t on cubic closest to (lx,ly) for bracket orientation / perspective. */
+  const nearestTOnCubic = (p0, p1, p2, p3, lx, ly) => {
+    let bestT = 0.5;
+    let bestD = Infinity;
+    for (let i = 0; i <= 128; i++) {
+      const t = i / 128;
+      const p = cubicBezierPoint(p0, p1, p2, p3, t);
+      const d = (p.x - lx) ** 2 + (p.y - ly) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        bestT = t;
+      }
+    }
+    return bestT;
   };
 
   /** Ray-cast point-in-polygon for inner-lip / teeth mask (occlusion rule for brackets). */
@@ -818,7 +841,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Dual-arch braces: upper cubic (61→291, CP 80 & 310, peak @13); lower cubic (91→321, CP 87 & 317, peak @14).
+   * Dual-arch braces: cubic wires from first→last bracket; CPs shape smile; studs at tooth centers.
    * Clip: TEETH_WHITEN_MASK; brackets culled if outside inner polygon.
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval) => {
@@ -857,23 +880,24 @@ const SmileSimulatorAI = () => {
     u1 = lerp2d(u1, p13u, 0.22);
     u2 = lerp2d(u2, p13u, 0.22);
 
-    const p91 = toPx(L.start, lowerDy);
-    const p321 = toPx(L.end, lowerDy);
+    const pLoStart = toPx(L.start, lowerDy);
+    const pLoEnd = toPx(L.end, lowerDy);
     const p14l = toPx(L.peak, lowerDy);
 
     let l1 =
-      landmarks[L.cp1] != null ? toPx(L.cp1, lowerDy) : lerp2d(p91, p14l, 0.42);
+      landmarks[L.cp1] != null ? toPx(L.cp1, lowerDy) : lerp2d(pLoStart, p14l, 0.42);
     let l2 =
-      landmarks[L.cp2] != null ? toPx(L.cp2, lowerDy) : lerp2d(p321, p14l, 0.42);
+      landmarks[L.cp2] != null ? toPx(L.cp2, lowerDy) : lerp2d(pLoEnd, p14l, 0.42);
     l1 = lerp2d(l1, p14l, 0.22);
     l2 = lerp2d(l2, p14l, 0.22);
 
-    const l0 = p91;
-    const l3 = p321;
+    const l0 = pLoStart;
+    const l3 = pLoEnd;
 
     const scale = Math.max(iw, ih);
     const wireDarkW = 2;
-    const wireWhiteW = 0.5;
+    /** Cylindrical metal highlight */
+    const wireShimmerW = 0.5;
     const baseW = clamp(scale * 0.0046, 1.8, 3.8);
     const baseH = clamp(scale * 0.0078, 2.6, 5.2);
 
@@ -913,27 +937,32 @@ const SmileSimulatorAI = () => {
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
     strokeDualArch();
-    ctx.strokeStyle = "rgba(255, 255, 255, 1)";
-    ctx.lineWidth = wireWhiteW;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.98)";
+    ctx.lineWidth = wireShimmerW;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.stroke();
     ctx.restore();
 
-    const bracketTs = [0.2, 0.4, 0.6, 0.8];
-    const placeBrackets = (p0, p1, p2, p3, isUpper) => {
-      bracketTs.forEach((t) => {
-        const p = cubicBezierPoint(p0, p1, p2, p3, t);
-        if (teethPoly.length >= 3 && !pointInPolygon(p.x, p.y, teethPoly)) return;
+    const placeBracketsAtLandmarks = (indices, p0, p1, p2, p3, isUpper) => {
+      indices.forEach((idx) => {
+        const lm = landmarks[idx];
+        if (!lm || typeof lm.x !== "number") return;
+        const lx = lm.x * iw;
+        const ly = lm.y * ih;
+        if (teethPoly.length >= 3 && !pointInPolygon(lx, ly, teethPoly)) return;
+        const t = nearestTOnCubic(p0, p1, p2, p3, lx, ly);
         const ang = cubicBezierTangentAngle(p0, p1, p2, p3, t);
         const edge = Math.abs(t - 0.5) * 2;
         const wMult = 0.6 + 0.4 * (1 - edge);
         const skewX = (t - 0.5) * (0.38 + 0.48 * edge);
-        const star = isUpper && t === 0.4;
-        drawBracketStudPerspective(ctx, p.x, p.y, ang, baseW * wMult, baseH * wMult, skewX, star);
+        const star = isUpper && idx === 13;
+        drawBracketStudPerspective(ctx, lx, ly, ang, baseW * wMult, baseH * wMult, skewX, star);
       });
     };
 
-    placeBrackets(u0, u1, u2, u3, true);
-    placeBrackets(l0, l1, l2, l3, false);
+    placeBracketsAtLandmarks(UPPER_BRACKET_LANDMARKS, u0, u1, u2, u3, true);
+    placeBracketsAtLandmarks(LOWER_BRACKET_LANDMARKS, l0, l1, l2, l3, false);
 
     ctx.restore();
   };
@@ -968,10 +997,12 @@ const SmileSimulatorAI = () => {
             ctx.filter = "brightness(1.05)";
             ctx.drawImage(canvas, 0, 0, iw, ih, 0, 0, iw, ih);
             ctx.filter = "none";
-            ctx.globalCompositeOperation = "soft-light";
+            ctx.globalCompositeOperation = "source-atop";
+            ctx.filter = `blur(${MASK_CLIP_FEATHER_PX}px)`;
             ctx.globalAlpha = 0.4;
             ctx.fillStyle = "#FCF9F1";
-            ctx.fillRect(0, 0, iw, ih);
+            ctx.fillRect(-2, -2, iw + 4, ih + 4);
+            ctx.filter = "none";
             ctx.globalAlpha = 1;
             ctx.globalCompositeOperation = "source-over";
             applyEnamelGlossAndGumOcclusion(ctx, iw, ih, landmarks, oval);
@@ -1017,7 +1048,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Whitening: anatomical clip from landmarks (generateTeethMask) + canvas soft-light + ivory #FCF9F1 @ 40%.
+   * Whitening: anatomical clip (generateTeethMask) + brightness + source-atop ivory @ 40% (+ 1px blur).
    * Fallback: mouth oval clip when landmarks missing. Finishes with mouth pop filter for mobile clarity.
    */
   const applyTeethWhitening = async (imageSrc, oval, landmarks, bounds) => {
@@ -1044,10 +1075,12 @@ const SmileSimulatorAI = () => {
         ctx.filter = "brightness(1.05)";
         ctx.drawImage(canvas, 0, 0, w, h, 0, 0, w, h);
         ctx.filter = "none";
-        ctx.globalCompositeOperation = "soft-light";
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.filter = `blur(${MASK_CLIP_FEATHER_PX}px)`;
         ctx.globalAlpha = 0.4;
         ctx.fillStyle = "#FCF9F1";
-        ctx.fillRect(0, 0, w, h);
+        ctx.fillRect(-2, -2, w + 4, h + 4);
+        ctx.filter = "none";
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = "source-over";
         applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks, oval);
