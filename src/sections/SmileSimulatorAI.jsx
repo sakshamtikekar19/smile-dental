@@ -30,6 +30,10 @@ const TEETH_WHITEN_MASK_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
+/** Dual-arch wires: upper cubic 61→291 via CP 80, 310; lower cubic 91→321 via CP 87, 317 (fallback lerp toward 14). */
+const UPPER_ARCH_WIRE = { start: 61, cp1: 80, cp2: 310, end: 291, peak: 13 };
+const LOWER_ARCH_WIRE = { start: 91, cp1: 87, cp2: 317, end: 321, peak: 14 };
+
 /** Mouth-only fallback (user-specified). If ≥4 land inside the guide oval, we still run the sim. */
 const MOUTH_FIRST_INDICES = [0, 13, 14, 17, 37, 267];
 /** Last resort for tight mouth crops: hull from lip corners + commissures (no oval / eye checks). */
@@ -625,20 +629,53 @@ const SmileSimulatorAI = () => {
     }
   };
 
-  const quadBezierPoint = (p0, p1, p2, t) => {
+  const lerp2d = (a, b, t) => ({
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+  });
+
+  const cubicBezierPoint = (p0, p1, p2, p3, t) => {
     const u = 1 - t;
+    const u2 = u * u;
+    const u3 = u2 * u;
+    const t2 = t * t;
+    const t3 = t2 * t;
     return {
-      x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
-      y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
+      x: u3 * p0.x + 3 * u2 * t * p1.x + 3 * u * t2 * p2.x + t3 * p3.x,
+      y: u3 * p0.y + 3 * u2 * t * p1.y + 3 * u * t2 * p2.y + t3 * p3.y,
     };
   };
 
-  const quadBezierTangentAngle = (p0, p1, p2, t) => {
+  const cubicBezierTangentAngle = (p0, p1, p2, p3, t) => {
     const u = 1 - t;
-    const dx = 2 * u * (p1.x - p0.x) + 2 * t * (p2.x - p1.x);
-    const dy = 2 * u * (p1.y - p0.y) + 2 * t * (p2.y - p1.y);
+    const dx =
+      3 * u * u * (p1.x - p0.x) + 6 * u * t * (p2.x - p1.x) + 3 * t * t * (p3.x - p2.x);
+    const dy =
+      3 * u * u * (p1.y - p0.y) + 6 * u * t * (p2.y - p1.y) + 3 * t * t * (p3.y - p2.y);
     return Math.atan2(dy, dx);
   };
+
+  /** Ray-cast point-in-polygon for inner-lip / teeth mask (occlusion rule for brackets). */
+  const pointInPolygon = (x, y, poly) => {
+    if (poly.length < 3) return true;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x;
+      const yi = poly[i].y;
+      const xj = poly[j].x;
+      const yj = poly[j].y;
+      const cross = (yi > y) !== (yj > y);
+      if (cross && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-9) + xi) inside = !inside;
+    }
+    return inside;
+  };
+
+  const buildTeethPolygonPx = (landmarks, iw, ih) =>
+    TEETH_WHITEN_MASK_INDICES.map((idx) => {
+      const p = landmarks[idx];
+      if (!p || typeof p.x !== "number") return null;
+      return { x: p.x * iw, y: p.y * ih };
+    }).filter(Boolean);
 
   /**
    * Gum-line occlusion + wet-enamel speculars (caller must have active teeth or oval clip).
@@ -781,16 +818,58 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Upper-arch braces: quadratic archwire 78 → 308 with control at midpoint(13,14)+10px; brackets along t∈{0.2…0.8}, rotated ⊥ to wire tangent.
+   * Dual-arch braces: upper cubic (61→291, CP 80 & 310, peak @13); lower cubic (91→321, CP 87 & 317, peak @14).
+   * Clip: TEETH_WHITEN_MASK; brackets culled if outside inner polygon.
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval) => {
-    if (!landmarks[78] || !landmarks[13] || !landmarks[14] || !landmarks[308]) return;
-    const p78 = { x: landmarks[78].x * iw, y: landmarks[78].y * ih };
-    const p308 = { x: landmarks[308].x * iw, y: landmarks[308].y * ih };
-    const midX = ((landmarks[13].x + landmarks[14].x) / 2) * iw;
-    const midY = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
-    /* +10px canvas-Y pulls the arch toward the tooth band (smile curve) vs flat gum line */
-    const pCtrl = { x: midX, y: midY + 10 };
+    const U = UPPER_ARCH_WIRE;
+    const L = LOWER_ARCH_WIRE;
+    if (
+      !landmarks[U.start] ||
+      !landmarks[U.cp1] ||
+      !landmarks[U.cp2] ||
+      !landmarks[U.end] ||
+      !landmarks[U.peak] ||
+      !landmarks[L.start] ||
+      !landmarks[L.end] ||
+      !landmarks[L.peak]
+    ) {
+      return;
+    }
+
+    const mouthHPx = Math.max(
+      Math.abs(landmarks[14].y - landmarks[13].y) * ih,
+      Math.max(24, ih * 0.035)
+    );
+    const upperDy = mouthHPx * 0.15;
+    const lowerDy = -mouthHPx * 0.1;
+
+    const toPx = (idx, dy) => ({
+      x: landmarks[idx].x * iw,
+      y: landmarks[idx].y * ih + dy,
+    });
+
+    let u0 = toPx(U.start, upperDy);
+    let u1 = toPx(U.cp1, upperDy);
+    let u2 = toPx(U.cp2, upperDy);
+    let u3 = toPx(U.end, upperDy);
+    const p13u = toPx(U.peak, upperDy);
+    u1 = lerp2d(u1, p13u, 0.22);
+    u2 = lerp2d(u2, p13u, 0.22);
+
+    const p91 = toPx(L.start, lowerDy);
+    const p321 = toPx(L.end, lowerDy);
+    const p14l = toPx(L.peak, lowerDy);
+
+    let l1 =
+      landmarks[L.cp1] != null ? toPx(L.cp1, lowerDy) : lerp2d(p91, p14l, 0.42);
+    let l2 =
+      landmarks[L.cp2] != null ? toPx(L.cp2, lowerDy) : lerp2d(p321, p14l, 0.42);
+    l1 = lerp2d(l1, p14l, 0.22);
+    l2 = lerp2d(l2, p14l, 0.22);
+
+    const l0 = p91;
+    const l3 = p321;
 
     const scale = Math.max(iw, ih);
     const wireDarkW = 2;
@@ -798,15 +877,22 @@ const SmileSimulatorAI = () => {
     const baseW = clamp(scale * 0.0046, 1.8, 3.8);
     const baseH = clamp(scale * 0.0078, 2.6, 5.2);
 
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(oval.cx, oval.cy + oval.ry * 0.04, oval.rx * 0.82, oval.ry * 0.66, 0, 0, Math.PI * 2);
-    ctx.clip();
+    const teethPoly = buildTeethPolygonPx(landmarks, iw, ih);
 
-    const strokeWire = () => {
+    ctx.save();
+    const maskOk = generateTeethMask(landmarks, ctx, iw, ih);
+    if (!maskOk) {
       ctx.beginPath();
-      ctx.moveTo(p78.x, p78.y);
-      ctx.quadraticCurveTo(pCtrl.x, pCtrl.y, p308.x, p308.y);
+      ctx.ellipse(oval.cx, oval.cy + oval.ry * 0.04, oval.rx * 0.82, oval.ry * 0.66, 0, 0, Math.PI * 2);
+      ctx.clip();
+    }
+
+    const strokeDualArch = () => {
+      ctx.beginPath();
+      ctx.moveTo(u0.x, u0.y);
+      ctx.bezierCurveTo(u1.x, u1.y, u2.x, u2.y, u3.x, u3.y);
+      ctx.moveTo(l0.x, l0.y);
+      ctx.bezierCurveTo(l1.x, l1.y, l2.x, l2.y, l3.x, l3.y);
     };
 
     ctx.save();
@@ -814,7 +900,7 @@ const SmileSimulatorAI = () => {
     ctx.shadowBlur = 3;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 2;
-    strokeWire();
+    strokeDualArch();
     ctx.strokeStyle = "rgba(60, 60, 60, 0.95)";
     ctx.lineWidth = wireDarkW;
     ctx.lineCap = "round";
@@ -826,21 +912,28 @@ const SmileSimulatorAI = () => {
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
-    strokeWire();
+    strokeDualArch();
     ctx.strokeStyle = "rgba(255, 255, 255, 1)";
     ctx.lineWidth = wireWhiteW;
     ctx.stroke();
     ctx.restore();
 
     const bracketTs = [0.2, 0.4, 0.6, 0.8];
-    bracketTs.forEach((t) => {
-      const p = quadBezierPoint(p78, pCtrl, p308, t);
-      const ang = quadBezierTangentAngle(p78, pCtrl, p308, t);
-      const edge = Math.abs(t - 0.5) * 2;
-      const scaleBr = 0.7 + 0.3 * (1 - edge * edge);
-      const skewX = (t - 0.5) * 0.32;
-      drawBracketStudPerspective(ctx, p.x, p.y, ang, baseW * scaleBr, baseH * scaleBr, skewX, t === 0.4);
-    });
+    const placeBrackets = (p0, p1, p2, p3, isUpper) => {
+      bracketTs.forEach((t) => {
+        const p = cubicBezierPoint(p0, p1, p2, p3, t);
+        if (teethPoly.length >= 3 && !pointInPolygon(p.x, p.y, teethPoly)) return;
+        const ang = cubicBezierTangentAngle(p0, p1, p2, p3, t);
+        const edge = Math.abs(t - 0.5) * 2;
+        const wMult = 0.6 + 0.4 * (1 - edge);
+        const skewX = (t - 0.5) * (0.38 + 0.48 * edge);
+        const star = isUpper && t === 0.4;
+        drawBracketStudPerspective(ctx, p.x, p.y, ang, baseW * wMult, baseH * wMult, skewX, star);
+      });
+    };
+
+    placeBrackets(u0, u1, u2, u3, true);
+    placeBrackets(l0, l1, l2, l3, false);
 
     ctx.restore();
   };
