@@ -26,7 +26,7 @@ const EYE_SANITY_INDICES = [33, 133, 362, 263];
 const OVAL_FEATHER_PX = 16;
 
 /** Closed polygon around inner lip / visible teeth (Face Mesh indices). Order: corners → upper center → lower → chin band. */
-const TEETH_WHITEN_MASK_INDICES = [78, 13, 308, 14, 17, 16];
+const TEETH_WHITEN_MASK_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
 
 /** Mouth-only fallback (user-specified). If ≥4 land inside the guide oval, we still run the sim. */
 const MOUTH_FIRST_INDICES = [0, 13, 14, 17, 37, 267];
@@ -525,6 +525,9 @@ const SmileSimulatorAI = () => {
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
     ctx.closePath();
+    // Soft corners in the path before clipping (improves perceived edge quality).
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     ctx.clip();
     return true;
   };
@@ -586,6 +589,11 @@ const SmileSimulatorAI = () => {
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
     ctx.transform(1, 0, skewX, 1, 0, 0);
+    // 3D depth: subtle drop shadow to pop the bracket off the tooth.
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
     const g = ctx.createLinearGradient(-w, -h * 0.5, w * 0.85, h * 0.4);
     g.addColorStop(0, "#d8dce4");
     g.addColorStop(0.4, "#949aa6");
@@ -600,6 +608,13 @@ const SmileSimulatorAI = () => {
       ctx.rect(-w * 0.5, -h * 0.5, w, h);
     }
     ctx.fill();
+    ctx.stroke();
+    // Specular Highlight (the 'Metallic Glint')
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.4, -h * 0.3);
+    ctx.lineTo(-w * 0.2, -h * 0.3);
     ctx.stroke();
     ctx.strokeStyle = "rgba(255,255,255,0.2)";
     ctx.lineWidth = Math.max(0.2, w * 0.06);
@@ -650,7 +665,8 @@ const SmileSimulatorAI = () => {
     const p308 = { x: landmarks[308].x * iw, y: landmarks[308].y * ih };
 
     const scale = Math.max(iw, ih);
-    const lineW = clamp(scale * 0.001, 0.5, 1.05);
+    const wireDarkW = 2;
+    const wireWhiteW = 0.5;
     const baseW = clamp(scale * 0.0046, 1.8, 3.8);
     const baseH = clamp(scale * 0.0078, 2.6, 5.2);
 
@@ -665,13 +681,13 @@ const SmileSimulatorAI = () => {
       ctx.quadraticCurveTo(p13.x, p13.y, p308.x, p308.y);
     };
     strokeWire();
-    ctx.strokeStyle = "rgba(92, 98, 110, 0.96)";
-    ctx.lineWidth = lineW;
+    ctx.strokeStyle = "rgba(60, 60, 60, 0.95)";
+    ctx.lineWidth = wireDarkW;
     ctx.lineCap = "round";
     ctx.stroke();
     strokeWire();
-    ctx.strokeStyle = "rgba(215, 220, 230, 0.45)";
-    ctx.lineWidth = Math.max(0.35, lineW * 0.4);
+    ctx.strokeStyle = "rgba(255, 255, 255, 1)";
+    ctx.lineWidth = wireWhiteW;
     ctx.stroke();
 
     const bracketTs = [0, 0.25, 0.5, 0.75, 1];
