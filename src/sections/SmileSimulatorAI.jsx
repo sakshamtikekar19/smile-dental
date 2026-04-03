@@ -941,10 +941,10 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1;
     }
-    const body = ctx.createRadialGradient(-hw * 0.35, -hw * 0.35, side * 0.08, 0, 0, hw * 1.15);
-    body.addColorStop(0, "#6a6e78");
-    body.addColorStop(0.35, "#2e3138");
-    body.addColorStop(0.65, "#0a0a0a");
+    const body = ctx.createRadialGradient(-hw * 0.38, -hw * 0.38, side * 0.06, 0, 0, hw * 1.18);
+    body.addColorStop(0, "#5c6068");
+    body.addColorStop(0.4, "#2a2d32");
+    body.addColorStop(0.72, "#0a0a0a");
     body.addColorStop(1, "#000000");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
@@ -958,20 +958,20 @@ const SmileSimulatorAI = () => {
     ctx.strokeStyle = "rgba(255,255,255,0.12)";
     ctx.lineWidth = Math.max(0.2, side * 0.05);
     ctx.stroke();
-    const spec = ctx.createRadialGradient(-hw * 0.45, -hw * 0.45, 0, -hw * 0.38, -hw * 0.38, side * 0.28);
+    const spec = ctx.createRadialGradient(-hw * 0.48, -hw * 0.48, 0, -hw * 0.4, -hw * 0.4, side * 0.26);
     spec.addColorStop(0, "#ffffff");
-    spec.addColorStop(0.45, "rgba(255,255,255,0.35)");
+    spec.addColorStop(0.4, "rgba(255,255,255,0.4)");
     spec.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = spec;
     ctx.beginPath();
     ctx.ellipse(-hw * 0.32, -hw * 0.32, side * 0.14, side * 0.14, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,0.88)";
+    ctx.strokeStyle = "#5a5e66";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.4, 0);
-    ctx.lineTo(hw * 0.4, 0);
+    ctx.moveTo(-hw * 0.42, 0);
+    ctx.lineTo(hw * 0.42, 0);
     ctx.stroke();
     if (starFlare) {
       ctx.strokeStyle = "rgba(255,255,255,0.5)";
@@ -1009,9 +1009,9 @@ const SmileSimulatorAI = () => {
     if (archSpanPx == null || archSpanPx < 40) {
       archSpanPx = Math.max(oval.rx * 1.75, 140);
     }
-    let nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 6, 14);
+    let nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 7, 13);
     if (nTarget % 2 === 0) {
-      nTarget = nTarget < 14 ? nTarget + 1 : nTarget - 1;
+      nTarget = nTarget < 13 ? nTarget + 1 : nTarget - 1;
     }
 
     const leftPx =
@@ -1024,8 +1024,9 @@ const SmileSimulatorAI = () => {
     const midY = p13 && p14 ? ((p13.y + p14.y) / 2) * ih : oval.cy;
     const upperBaseY = clamp(midY - Math.max(10, oval.ry * 0.24), 4, ih - 4);
     const lowerBaseY = clamp(midY + Math.max(12, oval.ry * 0.28), 4, ih - 4);
-    const upperBulge = Math.max(6, oval.ry * 0.24);
-    const lowerBulge = Math.max(7, oval.ry * 0.26);
+    /** Parabolic labial bow: cy = baseY ± bulge × (1 − t²); stronger bow = clearer U-arch vs straight wire. */
+    const upperBulge = Math.max(11, oval.ry * 0.38);
+    const lowerBulge = Math.max(12, oval.ry * 0.42);
 
     const makeRow = (baseY, isUpper) => {
       const row = [];
@@ -1144,11 +1145,11 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * drawSplineWire + renderBrackets: Catmull-Rom U-arch through every stud; charcoal wire; last pixels on canvas.
-   * @param {{ omitStudShadow?: boolean, omitWireShadow?: boolean }} opts
+   * Parabolic-arch wire + studs. `layers`: 'wire' | 'studs' | 'both' (overlay can paint wire → flush → studs).
+   * @param {{ omitStudShadow?: boolean, omitWireShadow?: boolean, layers?: 'wire' | 'studs' | 'both' }} opts
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
-    const { omitStudShadow = false, omitWireShadow = false } = opts;
+    const { omitStudShadow = false, omitWireShadow = false, layers = "both" } = opts;
     const wireDarkW = 2.5;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
@@ -1162,7 +1163,7 @@ const SmileSimulatorAI = () => {
       ctx.clip();
     }
 
-    /** Catmull–Rom spline through 3D-laid-out centers — labial bow + symmetric midline bracket (odd count). */
+    /** Catmull–Rom through parabolic labial bow centers (U-shaped vs straight segment). */
     const strokeCatmullRomArchWire = (anchors) => {
       if (anchors.length < 2) return;
       const pts = anchors.map((a) => ({ x: a.x, y: a.y }));
@@ -1188,24 +1189,26 @@ const SmileSimulatorAI = () => {
     };
 
     const charcoalWire = ctx.createLinearGradient(0, oval.cy - oval.ry, 0, oval.cy + oval.ry);
-    charcoalWire.addColorStop(0, "#3d3d3d");
-    charcoalWire.addColorStop(0.45, "#2a2a2a");
-    charcoalWire.addColorStop(1, "#000000");
+    charcoalWire.addColorStop(0, "#4a4a4a");
+    charcoalWire.addColorStop(0.5, "#2c2c2c");
+    charcoalWire.addColorStop(1, "#0a0a0a");
 
-    ctx.save();
-    if (!omitWireShadow) {
-      ctx.shadowColor = "black";
-      ctx.shadowBlur = 5;
-      ctx.shadowOffsetY = 0;
-    }
-    strokeCatmullRomArchWire(upperAnchors);
-    strokeCatmullRomArchWire(lowerAnchors);
-    ctx.strokeStyle = charcoalWire;
-    ctx.lineWidth = wireDarkW;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.stroke();
-    ctx.restore();
+    const drawWire = () => {
+      ctx.save();
+      if (!omitWireShadow) {
+        ctx.shadowColor = "black";
+        ctx.shadowBlur = 5;
+        ctx.shadowOffsetY = 0;
+      }
+      strokeCatmullRomArchWire(upperAnchors);
+      strokeCatmullRomArchWire(lowerAnchors);
+      ctx.strokeStyle = charcoalWire;
+      ctx.lineWidth = wireDarkW;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.stroke();
+      ctx.restore();
+    };
 
     const drawAnchors = (anchors) => {
       anchors.forEach(({ x, y, ang, wMult, star }) => {
@@ -1213,8 +1216,13 @@ const SmileSimulatorAI = () => {
       });
     };
 
-    drawAnchors(upperAnchors);
-    drawAnchors(lowerAnchors);
+    if (layers === "wire" || layers === "both") {
+      drawWire();
+    }
+    if (layers === "studs" || layers === "both") {
+      drawAnchors(upperAnchors);
+      drawAnchors(lowerAnchors);
+    }
     ctx.restore();
   };
 
@@ -1266,17 +1274,19 @@ const SmileSimulatorAI = () => {
     };
   };
 
-  /** Double rAF so the whitened bitmap is committed before vector hardware (anatomical compositing). */
+  /** Triple rAF: enamel + pop committed before charcoal hardware (top-most layer guarantee). */
   const flushPaintBeforeVectorHardware = () =>
     new Promise((resolve) => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve());
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
       });
     });
 
   /**
-   * await finalImageSrc → paint base → pop on enamel only → flush → renderBrackets last (source-over).
-   * fallbackGeometry: pre–AI-pass landmarks/oval/bounds so braces render if post-AI detectMouth fails.
+   * AI enamel → mouth pop → triple-flush → parabolic Catmull-Rom wire → flush → contact shadows → charcoal studs (source-over).
+   * fallbackGeometry: pre–AI-pass landmarks/oval/bounds if post-AI detectMouth fails.
    */
   const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds, fallbackGeometry = null) => {
     const lm =
@@ -1316,11 +1326,13 @@ const SmileSimulatorAI = () => {
     if (!octx) throw new Error("Could not get overlay context for braces");
 
     await flushPaintBeforeVectorHardware();
-    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: true });
+    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: true, layers: "wire" });
+    await flushPaintBeforeVectorHardware();
     octx.save();
     octx.globalCompositeOperation = "destination-over";
     drawBracesContactShadows(lm, octx, iw, ih, ov);
     octx.restore();
+    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: true, layers: "studs" });
 
     bctx.save();
     bctx.globalCompositeOperation = "source-over";
