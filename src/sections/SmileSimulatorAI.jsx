@@ -46,17 +46,13 @@ const ENAMEL_SAT_MAX = 0.58;
 const TEETH_WHITEN_MASK_INDICES = [13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
 /** Inner mouth cluster used for adaptive biometric tooth scan. */
 const MOUTH_LANDMARKS = TEETH_WHITEN_MASK_INDICES;
-/** Extra Face Mesh points along the inner arch for finer peak detection (deduped at runtime). */
-const BRACES_ARCH_EXTRA_INDICES = [
-  12, 15, 16, 17, 18, 61, 291, 306, 292, 407, 408, 409, 314, 405, 321, 375, 307, 304, 303,
-];
-/** All landmark indices used to scan for per-tooth vertical peaks (not a fixed bracket count). */
-const BRACES_LANDMARK_SCAN_INDICES = [...new Set([...TEETH_WHITEN_MASK_INDICES, ...BRACES_ARCH_EXTRA_INDICES])];
-/** Mouth corners — arch span for universal bracket count (px / standard tooth width). */
+/** Mouth corners — commissure span for bracket count along midline grid. */
 const COMMISSURE_LEFT_IDX = 61;
 const COMMISSURE_RIGHT_IDX = 291;
-/** Midpoint of 22–26px; drives how many brackets vs. smile width. */
-const STANDARD_TOOTH_WIDTH_PX = 24;
+/** Nose–chin axis (facial midline X); bracket columns spread ±n×this from center. */
+const NOSE_MIDLINE_IDX = 4;
+const CHIN_MIDLINE_IDX = 152;
+const MIDLINE_BRACKET_SPACING_PX = 28;
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -930,8 +926,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Charcoal bracket: 1:1 rounded rect, dark body, #ffffff corner glint, center cross-slot (medical hardware).
-   * renderBrackets — last compositing pass only.
+   * Jet-black bracket body + specular glint + cross-slot. Gum tint unchanged (hardware layer only).
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -941,16 +936,16 @@ const SmileSimulatorAI = () => {
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
     if (!omitDropShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.55)";
-      ctx.shadowBlur = 2;
+      ctx.shadowColor = "black";
+      ctx.shadowBlur = 5;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1;
     }
     const body = ctx.createLinearGradient(-hw, -hw, hw, hw);
-    body.addColorStop(0, "#5c6068");
-    body.addColorStop(0.35, "#35383f");
-    body.addColorStop(0.75, "#181a1e");
-    body.addColorStop(1, "#050506");
+    body.addColorStop(0, "#2a2c30");
+    body.addColorStop(0.4, "#0a0a0a");
+    body.addColorStop(0.85, "#0a0a0a");
+    body.addColorStop(1, "#000000");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
       ctx.roundRect(-hw, -hw, side, side, r);
@@ -1005,199 +1000,77 @@ const SmileSimulatorAI = () => {
     return Math.hypot((b.x - a.x) * iw, (b.y - a.y) * ih);
   };
 
-  /** Evenly spaced samples along the polyline arc length — one bracket center per sample. */
-  const resamplePolylineByArcLength = (pts, n) => {
-    if (n < 1 || pts.length < 2) return [];
-    if (n === 1) {
-      const mid = Math.floor(pts.length / 2);
-      return [{ x: pts[mid].x, y: pts[mid].y }];
-    }
-    const cum = [0];
-    for (let i = 1; i < pts.length; i++) {
-      cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
-    }
-    const total = cum[cum.length - 1];
-    if (total < 1e-6) return [];
-    const out = [];
-    for (let k = 0; k < n; k++) {
-      const d = (k / (n - 1)) * total;
-      let i = 0;
-      while (i < cum.length - 1 && cum[i + 1] < d) i += 1;
-      const segLen = cum[i + 1] - cum[i];
-      const u = segLen < 1e-6 ? 0 : (d - cum[i]) / segLen;
-      out.push({
-        x: pts[i].x + u * (pts[i + 1].x - pts[i].x),
-        y: pts[i].y + u * (pts[i + 1].y - pts[i].y),
-      });
-    }
-    return out;
+  /** Nose–chin axis → midline X in pixels (stable vs per-tooth blur). */
+  const getFacialMidlineXPx = (landmarks, iw) => {
+    const n = landmarks?.[NOSE_MIDLINE_IDX];
+    const c = landmarks?.[CHIN_MIDLINE_IDX];
+    if (!n || !c || typeof n.x !== "number" || typeof c.x !== "number") return null;
+    return ((n.x + c.x) / 2) * iw;
   };
-
-  /** computeDynamicArchSegmentation — smile width ÷ nominal tooth width → per-arch bracket count (6–14). */
-  const universalBracketCountFromArch = (archSpanPx) =>
-    clamp(Math.round(archSpanPx / STANDARD_TOOTH_WIDTH_PX), 6, 14);
 
   /**
-   * Universal arch: bracket count from commissure span; resampled centers along jaw polyline (upper + lower).
-   * Falls back to peak-based segmentation if the arch polyline is too short.
+   * Iron midline: bracket centers on horizontal lines through upper/lower arch Y, spaced 28px from facial midline.
    */
-  const getBiometricTeethCount = (landmarks, iw, ih) => {
+  const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
+    const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
+    let archSpanPx = getCommissureArchSpanPx(landmarks, iw, ih);
+    if (archSpanPx == null || archSpanPx < 40) {
+      archSpanPx = Math.max(oval.rx * 1.75, 140);
+    }
+    const nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 6, 14);
+
     const p13 = landmarks[13];
     const p14 = landmarks[14];
-    if (!p13 || !p14) return { upperTeeth: [], lowerTeeth: [], upperCount: 0, lowerCount: 0 };
+    const midY = p13 && p14 ? ((p13.y + p14.y) / 2) * ih : oval.cy;
+    const upperY = clamp(midY - Math.max(10, oval.ry * 0.24), 4, ih - 4);
+    const lowerY = clamp(midY + Math.max(12, oval.ry * 0.28), 4, ih - 4);
 
-    const midY = ((p13.y + p14.y) / 2) * ih;
-    const mouthPts = BRACES_LANDMARK_SCAN_INDICES.map((idx) => landmarks[idx])
-      .filter((p) => p && typeof p.x === "number" && typeof p.y === "number")
-      .map((p) => ({ x: p.x * iw, y: p.y * ih }));
-
-    let archSpanPx = getCommissureArchSpanPx(landmarks, iw, ih);
-    if (archSpanPx == null || archSpanPx < 24) {
-      const xs = mouthPts.map((p) => p.x);
-      if (xs.length >= 2) archSpanPx = Math.max(...xs) - Math.min(...xs);
-      else archSpanPx = 120;
-    }
-    const nTarget = universalBracketCountFromArch(archSpanPx);
-
-    const buildRowPolyline = (isUpper) =>
-      mouthPts.filter((p) => (isUpper ? p.y <= midY : p.y >= midY)).sort((a, b) => a.x - b.x);
-
-    const teethFromResampledArch = (rowPts) => {
-      if (rowPts.length < 2) return [];
-      const samples = resamplePolylineByArcLength(rowPts, nTarget);
-      if (!samples.length) return [];
-      const tw = Math.max(4, archSpanPx / nTarget * 0.92);
-      const th = Math.max(6, tw * 1.15);
-      return samples.map((center) => ({
-        peak: center,
-        bottom: center,
-        bbox: {
-          minX: center.x - tw * 0.45,
-          maxX: center.x + tw * 0.45,
-          minY: center.y - th * 0.45,
-          maxY: center.y + th * 0.45,
-        },
-        center: { x: center.x, y: center.y },
-        toothHeight: th,
-        toothWidth: tw,
-      }));
-    };
-
-    let upperTeeth = teethFromResampledArch(buildRowPolyline(true));
-    let lowerTeeth = teethFromResampledArch(buildRowPolyline(false));
-
-    const toothFromPeakIndices = (rowPts, peakIndices, isUpper) => {
-      if (!peakIndices.length) return [];
-      return peakIndices.map((pi, k) => {
-        const peak = rowPts[pi];
-        const lo = k > 0 ? peakIndices[k - 1] : 0;
-        const hi = k < peakIndices.length - 1 ? peakIndices[k + 1] : rowPts.length - 1;
-        const window = rowPts.slice(lo, hi + 1);
-        const bottom = window.reduce(
-          (best, p) => (isUpper ? (p.y > best.y ? p : best) : (p.y < best.y ? p : best)),
-          peak
-        );
-        const xs = window.map((p) => p.x);
-        const ys = window.map((p) => p.y);
-        const bbox = {
-          minX: Math.min(...xs),
-          maxX: Math.max(...xs),
-          minY: Math.min(...ys),
-          maxY: Math.max(...ys),
-        };
-        const cx = (bbox.minX + bbox.maxX) / 2;
-        const cy = (bbox.minY + bbox.maxY) / 2;
-        const toothHeight = Math.max(2, Math.abs(bottom.y - peak.y));
-        const toothWidth = Math.max(2, bbox.maxX - bbox.minX);
-        return {
-          peak,
-          bottom,
-          bbox,
+    const makeRow = (y) => {
+      const row = [];
+      for (let i = 0; i < nTarget; i++) {
+        const offset = (i - (nTarget - 1) / 2) * MIDLINE_BRACKET_SPACING_PX;
+        const cx = clamp(midX + offset, 4, iw - 4);
+        const cy = y;
+        row.push({
+          peak: { x: cx, y: cy },
+          bottom: { x: cx, y: cy },
+          bbox: {
+            minX: cx - MIDLINE_BRACKET_SPACING_PX * 0.48,
+            maxX: cx + MIDLINE_BRACKET_SPACING_PX * 0.48,
+            minY: cy - 12,
+            maxY: cy + 12,
+          },
           center: { x: cx, y: cy },
-          toothHeight,
-          toothWidth,
-        };
-      });
-    };
-
-    const buildRow = (isUpper) => {
-      const rowPts = mouthPts.filter((p) => (isUpper ? p.y <= midY : p.y >= midY)).sort((a, b) => a.x - b.x);
-      if (rowPts.length < 2) return [];
-      const span = rowPts[rowPts.length - 1].x - rowPts[0].x;
-      /** Slightly tighter X spacing on lower arch so up to ~10 mandibular peaks can resolve. */
-      const minPeakSep = Math.max(3, span * (isUpper ? 0.016 : 0.0125));
-
-      const peakIdx = [];
-      for (let i = 0; i < rowPts.length; i++) {
-        const y = rowPts[i].y;
-        const yl = i > 0 ? rowPts[i - 1].y : y;
-        const yr = i < rowPts.length - 1 ? rowPts[i + 1].y : y;
-        const isPeak = isUpper ? y <= yl && y <= yr : y >= yl && y >= yr;
-        if (isPeak) peakIdx.push(i);
-      }
-
-      let merged = [];
-      for (const i of peakIdx) {
-        if (!merged.length || rowPts[i].x - rowPts[merged[merged.length - 1]].x >= minPeakSep) {
-          merged.push(i);
-        } else {
-          const j = merged[merged.length - 1];
-          if (isUpper ? rowPts[i].y < rowPts[j].y : rowPts[i].y > rowPts[j].y) merged[merged.length - 1] = i;
-        }
-      }
-
-      if (merged.length === 0) {
-        const minSpacing = Math.max(3, span * 0.022);
-        const clusters = [];
-        let cur = [rowPts[0]];
-        for (let i = 1; i < rowPts.length; i++) {
-          if (Math.abs(rowPts[i].x - rowPts[i - 1].x) <= minSpacing) cur.push(rowPts[i]);
-          else {
-            clusters.push(cur);
-            cur = [rowPts[i]];
-          }
-        }
-        clusters.push(cur);
-        return clusters.map((c) => {
-          const peak = c.reduce((best, p) => (isUpper ? (p.y < best.y ? p : best) : (p.y > best.y ? p : best)), c[0]);
-          const bottom = c.reduce((best, p) => (isUpper ? (p.y > best.y ? p : best) : (p.y < best.y ? p : best)), c[0]);
-          const xs = c.map((p) => p.x);
-          const ys = c.map((p) => p.y);
-          const bbox = {
-            minX: Math.min(...xs),
-            maxX: Math.max(...xs),
-            minY: Math.min(...ys),
-            maxY: Math.max(...ys),
-          };
-          return {
-            peak,
-            bottom,
-            bbox,
-            center: { x: (bbox.minX + bbox.maxX) / 2, y: (bbox.minY + bbox.maxY) / 2 },
-            toothHeight: Math.max(2, Math.abs(bottom.y - peak.y)),
-            toothWidth: Math.max(2, bbox.maxX - bbox.minX),
-          };
+          toothHeight: 12,
+          toothWidth: MIDLINE_BRACKET_SPACING_PX,
         });
       }
-
-      return toothFromPeakIndices(rowPts, merged, isUpper);
+      return row;
     };
 
-    if (upperTeeth.length < 2) upperTeeth = buildRow(true).sort((a, b) => a.center.x - b.center.x);
-    if (lowerTeeth.length < 2) lowerTeeth = buildRow(false).sort((a, b) => a.center.x - b.center.x);
-    return { upperTeeth, lowerTeeth, upperCount: upperTeeth.length, lowerCount: lowerTeeth.length };
+    return {
+      upperTeeth: makeRow(upperY),
+      lowerTeeth: makeRow(lowerY),
+      upperCount: nTarget,
+      lowerCount: nTarget,
+    };
   };
 
-  /** Positions studs from computeDynamicArchSegmentation / tooth centers for drawSplineWire. */
+  /** Positions studs from nose–chin midline grid (drawSplineWire); oval clip only — no per-tooth cluster mask. */
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
     /** 1:1 bracket profile (square studs). */
     const baseS = clamp(scale * 0.0055, 1.8, 4);
     const baseW = baseS;
     const baseH = baseS;
-    const teethPoly = buildTeethPolygonPx(landmarks, iw, ih);
-    const biometric = getBiometricTeethCount(landmarks, iw, ih);
+    const biometric = getMidlineBracketRows(landmarks, iw, ih, oval);
     if (!biometric.upperCount && !biometric.lowerCount) return null;
+
+    const inOval = (cx, cy) => {
+      const nx = (cx - oval.cx) / Math.max(oval.rx, 1);
+      const ny = (cy - oval.cy) / Math.max(oval.ry, 1);
+      return nx * nx + ny * ny <= 1.4;
+    };
 
     const buildAnchors = (teeth) => {
       if (!teeth.length) return [];
@@ -1209,7 +1082,7 @@ const SmileSimulatorAI = () => {
         .map((tooth) => {
           const cx = tooth.center.x;
           const cy = tooth.center.y;
-          if (teethPoly.length >= 3 && !pointInPolygon(cx, cy, teethPoly)) return null;
+          if (!inOval(cx, cy)) return null;
           const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
           const perspective = 0.6 + 0.4 * (1 - edge);
           const sizeByTooth = clamp(((tooth.toothWidth / medianW) * 0.65 + (tooth.toothHeight / medianH) * 0.35) * 0.95, 0.7, 1.25);
@@ -1270,7 +1143,7 @@ const SmileSimulatorAI = () => {
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
     const { omitStudShadow = false, omitWireShadow = false } = opts;
-    const wireDarkW = 2.2;
+    const wireDarkW = 2.5;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW, baseH } = pack;
@@ -1309,14 +1182,14 @@ const SmileSimulatorAI = () => {
     };
 
     const charcoalWire = ctx.createLinearGradient(0, oval.cy - oval.ry, 0, oval.cy + oval.ry);
-    charcoalWire.addColorStop(0, "#1a1a1a");
-    charcoalWire.addColorStop(0.5, "#3a3a3a");
-    charcoalWire.addColorStop(1, "#161616");
+    charcoalWire.addColorStop(0, "#3d3d3d");
+    charcoalWire.addColorStop(0.45, "#2a2a2a");
+    charcoalWire.addColorStop(1, "#000000");
 
     ctx.save();
     if (!omitWireShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.6)";
-      ctx.shadowBlur = 3;
+      ctx.shadowColor = "black";
+      ctx.shadowBlur = 5;
       ctx.shadowOffsetY = 0;
     }
     strokeCatmullRomArchWire(upperAnchors);
@@ -1397,8 +1270,19 @@ const SmileSimulatorAI = () => {
 
   /**
    * await finalImageSrc → paint base → pop on enamel only → flush → renderBrackets last (source-over).
+   * fallbackGeometry: pre–AI-pass landmarks/oval/bounds so braces render if post-AI detectMouth fails.
    */
-  const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds) => {
+  const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds, fallbackGeometry = null) => {
+    const lm =
+      landmarks?.[NOSE_MIDLINE_IDX] && landmarks?.[CHIN_MIDLINE_IDX]
+        ? landmarks
+        : fallbackGeometry?.landmarks ?? landmarks;
+    const ov = oval ?? fallbackGeometry?.oval;
+    const mb = mouthBounds ?? fallbackGeometry?.bounds;
+    if (!lm || !ov) {
+      throw new Error("Braces overlay requires nose–chin midline geometry");
+    }
+
     const img = await loadImage(imageSrc);
     if (typeof img.decode === "function") {
       try {
@@ -1416,7 +1300,7 @@ const SmileSimulatorAI = () => {
     if (!bctx) throw new Error("Could not get canvas context for braces overlay");
 
     bctx.drawImage(img, 0, 0, iw, ih);
-    applyMouthPopFilter(bctx, mouthBounds);
+    applyMouthPopFilter(bctx, mb);
     await flushPaintBeforeVectorHardware();
 
     const overlay = document.createElement("canvas");
@@ -1425,10 +1309,10 @@ const SmileSimulatorAI = () => {
     const octx = overlay.getContext("2d");
     if (!octx) throw new Error("Could not get overlay context for braces");
 
-    renderBraces(landmarks, octx, iw, ih, oval, { omitStudShadow: true, omitWireShadow: true });
+    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: true });
     octx.save();
     octx.globalCompositeOperation = "destination-over";
-    drawBracesContactShadows(landmarks, octx, iw, ih, oval);
+    drawBracesContactShadows(lm, octx, iw, ih, ov);
     octx.restore();
 
     bctx.save();
@@ -1601,8 +1485,8 @@ const SmileSimulatorAI = () => {
 
   /** Nose (4) + chin (152) → vertical facial midline in normalized [0,1] x (MediaPipe / FaceMesh). */
   const getFacialMidlineXNorm = (landmarks) => {
-    const n = landmarks?.[4];
-    const c = landmarks?.[152];
+    const n = landmarks?.[NOSE_MIDLINE_IDX];
+    const c = landmarks?.[CHIN_MIDLINE_IDX];
     if (!n || !c || typeof n.x !== "number" || typeof c.x !== "number") return null;
     return (n.x + c.x) / 2;
   };
@@ -1681,6 +1565,8 @@ const SmileSimulatorAI = () => {
       }
 
       const { bounds, oval, landmarks } = mouth;
+      /** Stable geometry before Replicate/local enamel (fallback if post-merge detectMouth fails). */
+      const preAiBracesGeometry = { landmarks, oval, bounds };
 
       const fullFrame = await loadImage(normalized);
 
@@ -1739,23 +1625,35 @@ const SmileSimulatorAI = () => {
 
       const imgRef = fullFrame;
       /** Structure layer: braces/wire only after merged texture (Replicate + local enamel) — never in the AI pass. */
-      if (selectedTreatment === "braces" && landmarks) {
+      if (selectedTreatment === "braces") {
         await flushPaintBeforeVectorHardware();
-        // Braces "follow" any tooth-edge changes introduced by AI by re-detecting landmarks on the merged image.
-        let bracesLandmarks = landmarks;
-        let bracesOval = oval;
-        let bracesBounds = bounds;
+        let bracesLandmarks = preAiBracesGeometry.landmarks;
+        let bracesOval = preAiBracesGeometry.oval;
+        let bracesBounds = preAiBracesGeometry.bounds;
         try {
           const redetect = await detectMouth(merged);
-          if (redetect?.landmarks && redetect?.oval && redetect?.bounds) {
+          if (
+            redetect?.landmarks?.[NOSE_MIDLINE_IDX] != null &&
+            redetect?.landmarks?.[CHIN_MIDLINE_IDX] != null &&
+            redetect?.oval &&
+            redetect?.bounds
+          ) {
             bracesLandmarks = redetect.landmarks;
             bracesOval = redetect.oval;
             bracesBounds = redetect.bounds;
           }
         } catch {
-          /* fallback to original landmarks */
+          /* keep pre-AI nose–chin / oval */
         }
-        merged = await applyBracesOverlay(merged, bracesLandmarks, imgRef.width, imgRef.height, bracesOval, bracesBounds);
+        merged = await applyBracesOverlay(
+          merged,
+          bracesLandmarks,
+          imgRef.width,
+          imgRef.height,
+          bracesOval,
+          bracesBounds,
+          preAiBracesGeometry
+        );
       }
 
       const previewRect = squareCropRect(imgRef.width, imgRef.height, oval);
