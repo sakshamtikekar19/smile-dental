@@ -970,8 +970,15 @@ const SmileSimulatorAI = () => {
     ctx.moveTo(-hw * 0.72, 0);
     ctx.lineTo(hw * 0.72, 0);
     ctx.stroke();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = Math.max(0.4, side * 0.07);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-hw * 0.42, -hw * 0.38);
+    ctx.lineTo(-hw * 0.08, -hw * 0.08);
+    ctx.stroke();
     if (starFlare) {
-      ctx.strokeStyle = "rgba(255,255,255,0.75)";
+      ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = Math.max(0.35, side * 0.08);
       ctx.lineCap = "round";
       const L = side * 0.22;
@@ -1256,7 +1263,7 @@ const SmileSimulatorAI = () => {
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
     const { omitStudShadow = false, omitWireShadow = false } = opts;
-    const wireDarkW = 0.58;
+    const wireDarkW = 1.5;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW, baseH } = pack;
@@ -1304,7 +1311,7 @@ const SmileSimulatorAI = () => {
 
     ctx.save();
     if (!omitWireShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowColor = "rgba(0,0,0,0.8)";
       ctx.shadowBlur = 2;
       ctx.shadowOffsetY = 0;
     }
@@ -1365,49 +1372,57 @@ const SmileSimulatorAI = () => {
           runPop();
         } else if (type === "braces") {
           doWhitening();
-          if (landmarks) renderBraces(landmarks, ctx, iw, ih, oval);
           runPop();
+          if (landmarks) renderBraces(landmarks, ctx, iw, ih, oval);
         } else if (type === "whitening_braces") {
           doWhitening();
-          if (landmarks) renderBraces(landmarks, ctx, iw, ih, oval);
           runPop();
+          if (landmarks) renderBraces(landmarks, ctx, iw, ih, oval);
         }
       },
     };
   };
 
   /**
-   * Hybrid render: base = photo (after AI enamel pass); overlay = transparent canvas with wire + studs only.
-   * Keeps metal sharp and avoids blurring braces into the texture layer.
+   * Decode merged AI frame → paint base → mouth pop on photo only → vector hardware last (source-over).
    */
   const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds) => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        const base = document.createElement("canvas");
-        base.width = iw;
-        base.height = ih;
-        const bctx = base.getContext("2d");
-        bctx.drawImage(img, 0, 0, iw, ih);
+    const img = await loadImage(imageSrc);
+    if (typeof img.decode === "function") {
+      try {
+        await img.decode();
+      } catch {
+        /* optional */
+      }
+    }
 
-        const overlay = document.createElement("canvas");
-        overlay.width = iw;
-        overlay.height = ih;
-        const octx = overlay.getContext("2d");
-        renderBraces(landmarks, octx, iw, ih, oval, { omitStudShadow: true, omitWireShadow: true });
-        octx.save();
-        octx.globalCompositeOperation = "destination-over";
-        drawBracesContactShadows(landmarks, octx, iw, ih, oval);
-        octx.restore();
+    const base = document.createElement("canvas");
+    base.width = iw;
+    base.height = ih;
+    const bctx = base.getContext("2d");
+    if (!bctx) throw new Error("Could not get canvas context for braces overlay");
 
-        bctx.drawImage(overlay, 0, 0);
-        applyMouthPopFilter(bctx, mouthBounds);
-        resolve(base.toDataURL("image/jpeg", 0.95));
-      };
-      img.onerror = () => reject(new Error("Could not load image for braces overlay"));
-      img.src = imageSrc;
-    });
+    bctx.drawImage(img, 0, 0, iw, ih);
+    applyMouthPopFilter(bctx, mouthBounds);
+
+    const overlay = document.createElement("canvas");
+    overlay.width = iw;
+    overlay.height = ih;
+    const octx = overlay.getContext("2d");
+    if (!octx) throw new Error("Could not get overlay context for braces");
+
+    renderBraces(landmarks, octx, iw, ih, oval, { omitStudShadow: true, omitWireShadow: true });
+    octx.save();
+    octx.globalCompositeOperation = "destination-over";
+    drawBracesContactShadows(landmarks, octx, iw, ih, oval);
+    octx.restore();
+
+    bctx.save();
+    bctx.globalCompositeOperation = "source-over";
+    bctx.drawImage(overlay, 0, 0);
+    bctx.restore();
+
+    return base.toDataURL("image/jpeg", 0.95);
   };
 
   /**
