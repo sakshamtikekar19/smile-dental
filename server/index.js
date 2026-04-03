@@ -63,8 +63,8 @@ app.post('/api/smile', async (req, res) => {
         'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter',
       num_inference_steps: 20,
       guidance_scale: 5,
-      /** Lower = preserve original alignment/shape; only subtle color/texture change in mask. */
-      prompt_strength: 0.65,
+      /** Minimal structural drift: color-only retouch inside mask. */
+      prompt_strength: 0.55,
     };
 
     const prediction = await replicate.predictions.create({
