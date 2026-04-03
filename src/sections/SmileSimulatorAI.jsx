@@ -1495,13 +1495,24 @@ const SmileSimulatorAI = () => {
     return canvas.toDataURL("image/png");
   };
 
-  const enhanceWithAI = async (mouthImage, mask, treatment) => {
+  /** Nose (4) + chin (152) → vertical facial midline in normalized [0,1] x (MediaPipe / FaceMesh). */
+  const getFacialMidlineXNorm = (landmarks) => {
+    const n = landmarks?.[4];
+    const c = landmarks?.[152];
+    if (!n || !c || typeof n.x !== "number" || typeof c.x !== "number") return null;
+    return (n.x + c.x) / 2;
+  };
+
+  const enhanceWithAI = async (mouthImage, mask, treatment, midlineXNorm = null) => {
     if (!AI_SMILE_API) throw new Error("Backend API is not configured.");
+
+    const payload = { image: mouthImage, mask, treatment };
+    if (midlineXNorm != null && Number.isFinite(midlineXNorm)) payload.midlineX = midlineXNorm;
 
     const response = await fetch(AI_SMILE_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: mouthImage, mask, treatment }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
@@ -1588,12 +1599,22 @@ const SmileSimulatorAI = () => {
 
       let aiPolishedCrop = null;
       if (useReplicatePolish && AI_SMILE_API) {
-        const ovalInCrop = {
+        const midlineXNorm = getFacialMidlineXNorm(landmarks);
+        const midlineFullX =
+          midlineXNorm != null ? midlineXNorm * fullFrame.width : null;
+        let ovalInCrop = {
           cx: oval.cx - bounds.x,
           cy: oval.cy - bounds.y,
           rx: oval.rx,
           ry: oval.ry,
         };
+        if (selectedTreatment === "alignment" && midlineFullX != null) {
+          const midCropX = midlineFullX - bounds.x;
+          ovalInCrop = {
+            ...ovalInCrop,
+            cx: ovalInCrop.cx * 0.55 + midCropX * 0.45,
+          };
+        }
         const mask = await createTeethMaskForCrop(mouthCrop, bounds.width, bounds.height, ovalInCrop, {
           landmarks,
           imageWidth: fullFrame.width,
@@ -1602,7 +1623,7 @@ const SmileSimulatorAI = () => {
           mode: selectedTreatment,
         });
         try {
-          aiPolishedCrop = await enhanceWithAI(mouthCrop, mask, selectedTreatment);
+          aiPolishedCrop = await enhanceWithAI(mouthCrop, mask, selectedTreatment, midlineXNorm);
         } catch {
           aiPolishedCrop = null;
         }

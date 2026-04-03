@@ -43,7 +43,7 @@ async function toDataUrlFromRemote(url) {
 
 app.post('/api/smile', async (req, res) => {
   try {
-    const { image, mask, treatment } = req.body;
+    const { image, mask, treatment, midlineX } = req.body;
 
     if (!image || !mask) {
       return res.status(400).json({ error: 'Image and mask are required' });
@@ -53,22 +53,46 @@ app.post('/api/smile', async (req, res) => {
     }
 
     const activeTreatment = typeof treatment === 'string' ? treatment : 'whitening';
-    const isAlignment = activeTreatment === 'alignment' || activeTreatment === 'transformation';
+
+    const baseNegative =
+      'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring';
+    const alignmentNegativeExtra =
+      'extra teeth, crowded teeth, overlapping enamel, double teeth, blurred gum-line, inverted teeth, downward tapering, v-shaped smile, jagged biting edges';
+
+    let prompt;
+    let negative_prompt;
+    let prompt_strength;
+
+    if (activeTreatment === 'alignment') {
+      prompt =
+        'Surgically straight dental alignment, perfectly level occlusal plane, horizontal biting edge, perpendicular midline (vertical line between central incisors, square to the occlusal plane), perfect midline symmetry, professionally straightened teeth, anatomical tooth separation, high-end orthodontic results, 8k dental photography.';
+      if (typeof midlineX === 'number' && Number.isFinite(midlineX)) {
+        prompt += ' Incisors centered on facial midline.';
+      }
+      negative_prompt = `${baseNegative}, ${alignmentNegativeExtra}`;
+      prompt_strength = 0.40;
+    } else if (activeTreatment === 'transformation') {
+      prompt =
+        'Subtle professional orthodontic alignment, original human tooth positions preserved, straightened natural edges, high-definition dental photography.';
+      negative_prompt = baseNegative;
+      prompt_strength = 0.35;
+    } else {
+      prompt =
+        'Individual human teeth, natural enamel translucency, professional dental cleaning, realistic tooth separation, high-contrast tooth edges, 8k dental photography.';
+      negative_prompt = baseNegative;
+      prompt_strength = 0.46;
+    }
 
     // sepal/sdxl-inpainting (aca001c8…): documented inputs are prompt, negative_prompt, image, mask,
     // num_inference_steps, guidance_scale, prompt_strength, seed — not content_weight/strength/mask_blur/width.
     const modelInput = {
       image,
       mask,
-      prompt: isAlignment
-        ? 'Subtle professional orthodontic alignment, original human tooth positions preserved, straightened natural edges, high-definition dental photography.'
-        : 'Individual human teeth, natural enamel translucency, professional dental cleaning, realistic tooth separation, high-contrast tooth edges, 8k dental photography.',
-      negative_prompt:
-        'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring',
+      prompt,
+      negative_prompt,
       num_inference_steps: 20,
       guidance_scale: 5,
-      /** Alignment: lower prompt_strength to preserve original geometry. */
-      prompt_strength: isAlignment ? 0.35 : 0.46,
+      prompt_strength,
     };
 
     const prediction = await replicate.predictions.create({
