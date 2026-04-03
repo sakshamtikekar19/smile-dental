@@ -30,10 +30,11 @@ const MASK_CLIP_FEATHER_PX = 5;
 const GUM_CLEARANCE_PX = 5;
 /** Extra buffer on the lower arch (more lip movement; stricter gum lock). */
 const LOWER_GUM_CLEARANCE_PX = 8;
-/** Pre-color luminance below this → treat as interdental shadow (slash whitening ~80%). */
-const INTERDENTAL_SHADOW_LUM_MAX = 62;
-/** Pull whitening paint away from lip / gum (centroid inset on the teeth polygon). */
+/** Pre-color luminance above this ends interdental gradient (tighter gaps, sharper tooth edges). */
+const INTERDENTAL_SHADOW_LUM_MAX = 45;
+/** Default centroid inset; commissures use WHITEN_MASK_LIP_INSET_CORNER_PX. */
 const WHITEN_MASK_LIP_INSET_PX = 5;
+const WHITEN_MASK_LIP_INSET_CORNER_PX = 6;
 /** Never place mask vertices closer than this to outer lip/gum landmark points. */
 const LIP_GUM_LANDMARK_GUARD_PX = 5;
 /** Inclusive enamel: include yellow + shadowed teeth in masks (higher sat cap, lower lum floor). */
@@ -636,8 +637,13 @@ const SmileSimulatorAI = () => {
     }
     const cx = out.reduce((s, p) => s + p.x, 0) / out.length;
     const cy = out.reduce((s, p) => s + p.y, 0) / out.length;
-    const inset = WHITEN_MASK_LIP_INSET_PX;
+    const xs = out.map((p) => p.x);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const cornerBand = Math.max(20, (maxX - minX) * 0.2);
     out.forEach((p) => {
+      const nearCorner = p.x <= minX + cornerBand || p.x >= maxX - cornerBand;
+      const inset = nearCorner ? WHITEN_MASK_LIP_INSET_CORNER_PX : WHITEN_MASK_LIP_INSET_PX;
       const dx = p.x - cx;
       const dy = p.y - cy;
       const len = Math.hypot(dx, dy) || 1;
@@ -737,8 +743,7 @@ const SmileSimulatorAI = () => {
     }).filter(Boolean);
 
   /**
-   * Ivory balancing: `color` composite strips yellow chroma (desat source), keeps luminance; then
-   * arch-adaptive soft-light whitening (full-arch override for shadowed molars).
+   * Ivory: `color` desat → arch-adaptive blend → interdental gradient → orig-lum translucency → soft-light.
    */
   const applyLuminosityWhiteningPass = (ctx, iw, ih, strength = 0.4, landmarks = null) => {
     ctx.filter = "contrast(1.1) brightness(1.03)";
@@ -824,7 +829,13 @@ const SmileSimulatorAI = () => {
         else adapt = 1 + clamp((archMeanLum - lum) / (archMeanLum * 0.42 + 8), 0, 1.6);
       }
       let w = clamp(baseW * adapt, 0, 1.28);
-      if (origLum < INTERDENTAL_SHADOW_LUM_MAX) w *= 0.2;
+      if (origLum < INTERDENTAL_SHADOW_LUM_MAX) {
+        const t = origLum / Math.max(INTERDENTAL_SHADOW_LUM_MAX, 1);
+        const gapFalloff = t * t;
+        w *= 0.05 + 0.22 * gapFalloff;
+      }
+      const translucency = 0.22 + 0.78 * (origLum / 255);
+      w *= translucency;
       d[i] = Math.round(r + (ivory.r - r) * w);
       d[i + 1] = Math.round(g + (ivory.g - g) * w);
       d[i + 2] = Math.round(b + (ivory.b - b) * w);

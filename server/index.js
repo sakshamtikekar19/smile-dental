@@ -58,13 +58,13 @@ app.post('/api/smile', async (req, res) => {
       image,
       mask,
       prompt:
-        'Individual human teeth, natural enamel translucency, professional dental cleaning, realistic tooth separation, 8k dental photography.',
+        'Individual human teeth, natural enamel translucency, professional dental cleaning, realistic tooth separation, high-contrast tooth edges, 8k dental photography.',
       negative_prompt:
         'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring',
       num_inference_steps: 20,
       guidance_scale: 5,
-      /** Preserve interdental edges and gum line; color-only inside mask. */
-      prompt_strength: 0.48,
+      /** Sharp tooth–gum boundary; minimal diffuse glow on gingiva. */
+      prompt_strength: 0.46,
     };
 
     const prediction = await replicate.predictions.create({
