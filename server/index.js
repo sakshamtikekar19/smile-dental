@@ -53,9 +53,9 @@ app.post('/api/smile', async (req, res) => {
     }
 
     const activeTreatment = typeof treatment === 'string' ? treatment : 'whitening';
-    /** Replicate whitening-only: no orthodontic vocabulary (metal is composited client-side). */
+    /** Whitening-only: no words implying hardware (client composites vectors). Describe exclusions without naming appliances. */
     const whiteningNegative =
-      'metal, stainless steel, orthodontic hardware, wire fixtures, facial structure change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring';
+      'facial structure change, new teeth, distorted mouth, unrealistic, plastic beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring, non-enamel surface attachments, stray specular blobs on enamel';
     const baseNegative =
       'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring';
     const alignmentNegativeExtra =

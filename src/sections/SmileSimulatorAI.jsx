@@ -57,8 +57,6 @@ const COMMISSURE_LEFT_IDX = 61;
 const COMMISSURE_RIGHT_IDX = 291;
 /** Midpoint of 22–26px; drives how many brackets vs. smile width. */
 const STANDARD_TOOTH_WIDTH_PX = 24;
-/** Cardinal spline tension for archwire (0.5 = smooth outward bow). */
-const ARCHWIRE_CARDINAL_TENSION = 0.5;
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -932,56 +930,64 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Square-profile bracket (1:1 rounded rect): 45° steel gradient + horizontal wire slot. Drawn after AI only.
+   * Charcoal bracket: 1:1 rounded rect, dark body, #ffffff corner glint, center cross-slot (medical hardware).
+   * renderBrackets — last compositing pass only.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
-    const r = Math.min(side * 0.18, side * 0.5);
+    const r = Math.min(side * 0.2, side * 0.45);
+    const hw = side * 0.5;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
     if (!omitDropShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowColor = "rgba(0,0,0,0.55)";
       ctx.shadowBlur = 2;
       ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
+      ctx.shadowOffsetY = 1;
     }
-    const hw = side * 0.5;
-    const g = ctx.createLinearGradient(-hw, -hw, hw, hw);
-    g.addColorStop(0, "#ffffff");
-    g.addColorStop(0.45, "#c5cad4");
-    g.addColorStop(1, "#2e323b");
+    const body = ctx.createLinearGradient(-hw, -hw, hw, hw);
+    body.addColorStop(0, "#5c6068");
+    body.addColorStop(0.35, "#35383f");
+    body.addColorStop(0.75, "#181a1e");
+    body.addColorStop(1, "#050506");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
       ctx.roundRect(-hw, -hw, side, side, r);
     } else {
       ctx.rect(-hw, -hw, side, side);
     }
-    ctx.fillStyle = g;
+    ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(40,44,52,0.45)";
-    ctx.lineWidth = Math.max(0.25, side * 0.06);
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.lineWidth = Math.max(0.2, side * 0.05);
     ctx.stroke();
-    ctx.strokeStyle = "#2a2d35";
+    const glint = ctx.createLinearGradient(-hw, -hw, -hw * 0.05, -hw * 0.05);
+    glint.addColorStop(0, "#ffffff");
+    glint.addColorStop(0.35, "rgba(255,255,255,0.35)");
+    glint.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = glint;
+    ctx.beginPath();
+    ctx.moveTo(-hw, -hw);
+    ctx.lineTo(-hw * 0.12, -hw);
+    ctx.lineTo(-hw, -hw * 0.12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#020203";
     ctx.lineWidth = 1;
-    ctx.lineCap = "butt";
+    ctx.lineCap = "square";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.72, 0);
-    ctx.lineTo(hw * 0.72, 0);
-    ctx.stroke();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = Math.max(0.4, side * 0.07);
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(-hw * 0.42, -hw * 0.38);
-    ctx.lineTo(-hw * 0.08, -hw * 0.08);
+    ctx.moveTo(-hw * 0.32, 0);
+    ctx.lineTo(hw * 0.32, 0);
+    ctx.moveTo(0, -hw * 0.32);
+    ctx.lineTo(0, hw * 0.32);
     ctx.stroke();
     if (starFlare) {
       ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = Math.max(0.35, side * 0.08);
+      ctx.lineWidth = Math.max(0.3, side * 0.07);
       ctx.lineCap = "round";
-      const L = side * 0.22;
+      const L = side * 0.18;
       ctx.beginPath();
       ctx.moveTo(-L, 0);
       ctx.lineTo(L, 0);
@@ -1027,11 +1033,12 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
+  /** computeDynamicArchSegmentation — smile width ÷ nominal tooth width → per-arch bracket count (6–14). */
   const universalBracketCountFromArch = (archSpanPx) =>
-    clamp(Math.round(archSpanPx / STANDARD_TOOTH_WIDTH_PX), 4, 12);
+    clamp(Math.round(archSpanPx / STANDARD_TOOTH_WIDTH_PX), 6, 14);
 
   /**
-   * Universal arch: bracket count from commissure span ÷ standard tooth width; positions from resampled landmarks.
+   * Universal arch: bracket count from commissure span; resampled centers along jaw polyline (upper + lower).
    * Falls back to peak-based segmentation if the arch polyline is too short.
    */
   const getBiometricTeethCount = (landmarks, iw, ih) => {
@@ -1181,6 +1188,7 @@ const SmileSimulatorAI = () => {
     return { upperTeeth, lowerTeeth, upperCount: upperTeeth.length, lowerCount: lowerTeeth.length };
   };
 
+  /** Positions studs from computeDynamicArchSegmentation / tooth centers for drawSplineWire. */
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
     /** 1:1 bracket profile (square studs). */
@@ -1224,7 +1232,6 @@ const SmileSimulatorAI = () => {
         const ang = Math.atan2(next.y - prev.y, next.x - prev.x);
         return { ...a, ang };
       });
-      if (isUpper && withAng.length) withAng[Math.floor(withAng.length / 2)].star = true;
       return withAng;
     };
 
@@ -1258,12 +1265,12 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Structure-only overlay: Cardinal-spline archwire + square-profile studs. Replicate never draws metal.
+   * drawSplineWire + renderBrackets: Catmull-Rom U-arch through every stud; charcoal wire; last pixels on canvas.
    * @param {{ omitStudShadow?: boolean, omitWireShadow?: boolean }} opts
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
     const { omitStudShadow = false, omitWireShadow = false } = opts;
-    const wireDarkW = 1.5;
+    const wireDarkW = 2.2;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW, baseH } = pack;
@@ -1276,48 +1283,45 @@ const SmileSimulatorAI = () => {
       ctx.clip();
     }
 
-    /** Cardinal spline (tension 0.5): wire passes through each bracket center with natural labial bow. */
-    const strokeCardinalArchWire = (anchors) => {
+    /** Uniform Catmull–Rom → cubic Béziers; curve passes through every bracket center (natural U-arch). */
+    const strokeCatmullRomArchWire = (anchors) => {
       if (anchors.length < 2) return;
       const pts = anchors.map((a) => ({ x: a.x, y: a.y }));
       const n = pts.length;
-      const c = ARCHWIRE_CARDINAL_TENSION;
-      const factor = (1 - c) / 2;
-      const tangentAt = (i) => {
-        const im1 = Math.max(0, i - 1);
-        const ip1 = Math.min(n - 1, i + 1);
-        return {
-          x: factor * (pts[ip1].x - pts[im1].x),
-          y: factor * (pts[ip1].y - pts[im1].y),
-        };
+      const get = (i) => {
+        if (i < 0) return pts[0];
+        if (i >= n) return pts[n - 1];
+        return pts[i];
       };
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
       for (let i = 0; i < n - 1; i++) {
-        const T0 = tangentAt(i);
-        const T1 = tangentAt(i + 1);
-        const cp1x = pts[i].x + T0.x / 3;
-        const cp1y = pts[i].y + T0.y / 3;
-        const cp2x = pts[i + 1].x - T1.x / 3;
-        const cp2y = pts[i + 1].y - T1.y / 3;
-        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, pts[i + 1].x, pts[i + 1].y);
+        const p0 = get(i - 1);
+        const p1 = get(i);
+        const p2 = get(i + 1);
+        const p3 = get(i + 2);
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2.y - (p3.y - p1.y) / 6;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
       }
     };
 
-    const metallicWire = ctx.createLinearGradient(0, oval.cy - oval.ry, 0, oval.cy + oval.ry);
-    metallicWire.addColorStop(0, "#222");
-    metallicWire.addColorStop(0.5, "#BBB");
-    metallicWire.addColorStop(1, "#222");
+    const charcoalWire = ctx.createLinearGradient(0, oval.cy - oval.ry, 0, oval.cy + oval.ry);
+    charcoalWire.addColorStop(0, "#1a1a1a");
+    charcoalWire.addColorStop(0.5, "#3a3a3a");
+    charcoalWire.addColorStop(1, "#161616");
 
     ctx.save();
     if (!omitWireShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.8)";
-      ctx.shadowBlur = 2;
+      ctx.shadowColor = "rgba(0,0,0,0.6)";
+      ctx.shadowBlur = 3;
       ctx.shadowOffsetY = 0;
     }
-    strokeCardinalArchWire(upperAnchors);
-    strokeCardinalArchWire(lowerAnchors);
-    ctx.strokeStyle = metallicWire;
+    strokeCatmullRomArchWire(upperAnchors);
+    strokeCatmullRomArchWire(lowerAnchors);
+    ctx.strokeStyle = charcoalWire;
     ctx.lineWidth = wireDarkW;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -1383,8 +1387,16 @@ const SmileSimulatorAI = () => {
     };
   };
 
+  /** Double rAF so the whitened bitmap is committed before vector hardware (anatomical compositing). */
+  const flushPaintBeforeVectorHardware = () =>
+    new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+
   /**
-   * Decode merged AI frame → paint base → mouth pop on photo only → vector hardware last (source-over).
+   * await finalImageSrc → paint base → pop on enamel only → flush → renderBrackets last (source-over).
    */
   const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds) => {
     const img = await loadImage(imageSrc);
@@ -1395,6 +1407,7 @@ const SmileSimulatorAI = () => {
         /* optional */
       }
     }
+    await flushPaintBeforeVectorHardware();
 
     const base = document.createElement("canvas");
     base.width = iw;
@@ -1404,6 +1417,7 @@ const SmileSimulatorAI = () => {
 
     bctx.drawImage(img, 0, 0, iw, ih);
     applyMouthPopFilter(bctx, mouthBounds);
+    await flushPaintBeforeVectorHardware();
 
     const overlay = document.createElement("canvas");
     overlay.width = iw;
@@ -1726,6 +1740,7 @@ const SmileSimulatorAI = () => {
       const imgRef = fullFrame;
       /** Structure layer: braces/wire only after merged texture (Replicate + local enamel) — never in the AI pass. */
       if (selectedTreatment === "braces" && landmarks) {
+        await flushPaintBeforeVectorHardware();
         // Braces "follow" any tooth-edge changes introduced by AI by re-detecting landmarks on the merged image.
         let bracesLandmarks = landmarks;
         let bracesOval = oval;
