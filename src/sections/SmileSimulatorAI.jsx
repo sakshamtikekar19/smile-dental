@@ -31,6 +31,12 @@ const MASK_CLIP_FEATHER_PX = 10;
 const TEETH_WHITEN_MASK_INDICES = [13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
 /** Inner mouth cluster used for adaptive biometric tooth scan. */
 const MOUTH_LANDMARKS = TEETH_WHITEN_MASK_INDICES;
+/** Extra Face Mesh points along the inner arch for finer peak detection (deduped at runtime). */
+const BRACES_ARCH_EXTRA_INDICES = [
+  12, 15, 16, 17, 18, 61, 291, 306, 292, 407, 408, 409, 314, 405, 321, 375, 307, 304, 303,
+];
+/** All landmark indices used to scan for per-tooth vertical peaks (not a fixed bracket count). */
+const BRACES_LANDMARK_SCAN_INDICES = [...new Set([...TEETH_WHITEN_MASK_INDICES, ...BRACES_ARCH_EXTRA_INDICES])];
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -652,10 +658,10 @@ const SmileSimulatorAI = () => {
     }).filter(Boolean);
 
   /**
-   * Pixel-aware whitening: preserves dark inter-tooth shadows by weighting by luminance,
-   * then blends with source-atop so soft whitening only affects already-masked enamel.
+   * Texture-only whitening: luminance-weighted ivory shift, optional teeth-only alpha mask,
+   * then soft-light composite with MASK_CLIP_FEATHER_PX Gaussian feather (reduces lip “fog”).
    */
-  const applyLuminosityWhiteningPass = (ctx, iw, ih, strength = 0.4) => {
+  const applyLuminosityWhiteningPass = (ctx, iw, ih, strength = 0.4, landmarks = null) => {
     ctx.filter = "contrast(1.1) brightness(1.03)";
     ctx.drawImage(ctx.canvas, 0, 0, iw, ih, 0, 0, iw, ih);
     ctx.filter = "none";
@@ -675,27 +681,41 @@ const SmileSimulatorAI = () => {
       const g = d[i + 1];
       const b = d[i + 2];
       const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      // Keep interdental shadows dark; favor bright enamel pixels only.
-      const w = clamp((lum - 78) / 165, 0, 1) * strength;
+      const w = clamp((lum - 78) / 165, 0, 1);
       d[i] = Math.round(r + (ivory.r - r) * w);
       d[i + 1] = Math.round(g + (ivory.g - g) * w);
       d[i + 2] = Math.round(b + (ivory.b - b) * w);
     }
     lctx.putImageData(img, 0, 0);
-    lctx.globalCompositeOperation = "screen";
-    lctx.globalAlpha = strength;
-    lctx.fillStyle = "#FCF9F1";
-    lctx.fillRect(0, 0, iw, ih);
-    lctx.globalAlpha = 1;
-    lctx.globalCompositeOperation = "source-over";
 
-    ctx.globalCompositeOperation = "source-atop";
-    ctx.globalAlpha = 1;
+    if (landmarks) {
+      const pts = TEETH_WHITEN_MASK_INDICES.map((idx) => {
+        const p = landmarks[idx];
+        if (!p || typeof p.x !== "number") return null;
+        return { x: p.x * iw, y: p.y * ih };
+      }).filter(Boolean);
+      if (pts.length >= 3) {
+        lctx.globalCompositeOperation = "destination-in";
+        lctx.beginPath();
+        lctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) lctx.lineTo(pts[i].x, pts[i].y);
+        lctx.closePath();
+        lctx.lineJoin = "round";
+        lctx.fillStyle = "#fff";
+        lctx.fill();
+        lctx.globalCompositeOperation = "source-over";
+      }
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = "soft-light";
+    ctx.globalAlpha = strength;
     ctx.filter = `blur(${MASK_CLIP_FEATHER_PX}px)`;
     ctx.drawImage(layer, 0, 0);
     ctx.filter = "none";
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
   };
 
   /**
@@ -760,10 +780,9 @@ const SmileSimulatorAI = () => {
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
     ctx.transform(1, 0, skewX, 1, 0, 0);
-    // 3D depth: subtle drop shadow to pop the bracket off the tooth.
-    ctx.shadowColor = "rgba(0,0,0,0.4)";
-    ctx.shadowBlur = 3;
-    ctx.shadowOffsetX = 1;
+    ctx.shadowColor = "rgba(0,0,0,0.3)";
+    ctx.shadowBlur = 2;
+    ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 1;
     const g = ctx.createLinearGradient(-w, -h * 0.5, w * 0.85, h * 0.4);
     g.addColorStop(0, "#d8dce4");
@@ -839,8 +858,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Dynamic per-tooth scan over inner-lip loop:
-   * cluster by X, then choose row peaks (upper: minY, lower: maxY) as tooth centers.
+   * Loop over scanned landmarks (not a fixed count): find each vertical arch peak in X order,
+   * one bracket per peak so e.g. 10 lower peaks → 10 brackets.
    */
   const getBiometricTeethCount = (landmarks, iw, ih) => {
     const p13 = landmarks[13];
@@ -848,57 +867,103 @@ const SmileSimulatorAI = () => {
     if (!p13 || !p14) return { upperTeeth: [], lowerTeeth: [], upperCount: 0, lowerCount: 0 };
 
     const midY = ((p13.y + p14.y) / 2) * ih;
-    const mouthPts = MOUTH_LANDMARKS.map((idx) => landmarks[idx])
+    const mouthPts = BRACES_LANDMARK_SCAN_INDICES.map((idx) => landmarks[idx])
       .filter((p) => p && typeof p.x === "number" && typeof p.y === "number")
       .map((p) => ({ x: p.x * iw, y: p.y * ih }));
 
-    const buildRow = (isUpper) => {
-      const rowPts = mouthPts.filter((p) => (isUpper ? p.y <= midY : p.y >= midY)).sort((a, b) => a.x - b.x);
-      if (rowPts.length < 3) return [];
-      const span = rowPts[rowPts.length - 1].x - rowPts[0].x;
-      const minSpacing = Math.max(7, span * (isUpper ? 0.06 : 0.05));
-
-      const clusters = [];
-      let cur = [rowPts[0]];
-      for (let i = 1; i < rowPts.length; i++) {
-        if (Math.abs(rowPts[i].x - rowPts[i - 1].x) <= minSpacing) cur.push(rowPts[i]);
-        else {
-          clusters.push(cur);
-          cur = [rowPts[i]];
-        }
-      }
-      clusters.push(cur);
-
-      return clusters
-        .filter((c) => c.length >= 1)
-        .map((c) => {
-          const peak = c.reduce((best, p) => (isUpper ? (p.y < best.y ? p : best) : (p.y > best.y ? p : best)), c[0]);
-          const bottom = c.reduce((best, p) => (isUpper ? (p.y > best.y ? p : best) : (p.y < best.y ? p : best)), c[0]);
-          const center = { x: (peak.x + bottom.x) / 2, y: (peak.y + bottom.y) / 2 };
-          const toothHeight = Math.max(2, Math.abs(bottom.y - peak.y));
-          const minX = Math.min(...c.map((p) => p.x));
-          const maxX = Math.max(...c.map((p) => p.x));
-          const toothWidth = Math.max(2, maxX - minX);
-          return { peak, bottom, center, toothHeight, toothWidth };
-        })
-        .sort((a, b) => a.center.x - b.center.x);
+    const toothFromPeakIndices = (rowPts, peakIndices, isUpper) => {
+      if (!peakIndices.length) return [];
+      return peakIndices.map((pi, k) => {
+        const peak = rowPts[pi];
+        const lo = k > 0 ? peakIndices[k - 1] : 0;
+        const hi = k < peakIndices.length - 1 ? peakIndices[k + 1] : rowPts.length - 1;
+        const window = rowPts.slice(lo, hi + 1);
+        const bottom = window.reduce(
+          (best, p) => (isUpper ? (p.y > best.y ? p : best) : (p.y < best.y ? p : best)),
+          peak
+        );
+        const n = window.length;
+        const cx = window.reduce((s, p) => s + p.x, 0) / n;
+        const cy = window.reduce((s, p) => s + p.y, 0) / n;
+        const toothHeight = Math.max(2, Math.abs(bottom.y - peak.y));
+        const xs = window.map((p) => p.x);
+        const toothWidth = Math.max(2, Math.max(...xs) - Math.min(...xs));
+        return {
+          peak,
+          bottom,
+          center: { x: cx, y: cy },
+          toothHeight,
+          toothWidth,
+        };
+      });
     };
 
-    const upperTeeth = buildRow(true);
-    const lowerTeeth = buildRow(false);
+    const buildRow = (isUpper) => {
+      const rowPts = mouthPts.filter((p) => (isUpper ? p.y <= midY : p.y >= midY)).sort((a, b) => a.x - b.x);
+      if (rowPts.length < 2) return [];
+      const span = rowPts[rowPts.length - 1].x - rowPts[0].x;
+      const minPeakSep = Math.max(4, span * 0.016);
+
+      const peakIdx = [];
+      for (let i = 0; i < rowPts.length; i++) {
+        const y = rowPts[i].y;
+        const yl = i > 0 ? rowPts[i - 1].y : y;
+        const yr = i < rowPts.length - 1 ? rowPts[i + 1].y : y;
+        const isPeak = isUpper ? y <= yl && y <= yr : y >= yl && y >= yr;
+        if (isPeak) peakIdx.push(i);
+      }
+
+      let merged = [];
+      for (const i of peakIdx) {
+        if (!merged.length || rowPts[i].x - rowPts[merged[merged.length - 1]].x >= minPeakSep) {
+          merged.push(i);
+        } else {
+          const j = merged[merged.length - 1];
+          if (isUpper ? rowPts[i].y < rowPts[j].y : rowPts[i].y > rowPts[j].y) merged[merged.length - 1] = i;
+        }
+      }
+
+      if (merged.length === 0) {
+        const minSpacing = Math.max(3, span * 0.022);
+        const clusters = [];
+        let cur = [rowPts[0]];
+        for (let i = 1; i < rowPts.length; i++) {
+          if (Math.abs(rowPts[i].x - rowPts[i - 1].x) <= minSpacing) cur.push(rowPts[i]);
+          else {
+            clusters.push(cur);
+            cur = [rowPts[i]];
+          }
+        }
+        clusters.push(cur);
+        return clusters.map((c) => {
+          const peak = c.reduce((best, p) => (isUpper ? (p.y < best.y ? p : best) : (p.y > best.y ? p : best)), c[0]);
+          const bottom = c.reduce((best, p) => (isUpper ? (p.y > best.y ? p : best) : (p.y < best.y ? p : best)), c[0]);
+          const n = c.length;
+          return {
+            peak,
+            bottom,
+            center: { x: c.reduce((s, p) => s + p.x, 0) / n, y: c.reduce((s, p) => s + p.y, 0) / n },
+            toothHeight: Math.max(2, Math.abs(bottom.y - peak.y)),
+            toothWidth: Math.max(2, Math.max(...c.map((p) => p.x)) - Math.min(...c.map((p) => p.x))),
+          };
+        });
+      }
+
+      return toothFromPeakIndices(rowPts, merged, isUpper);
+    };
+
+    const upperTeeth = buildRow(true).sort((a, b) => a.center.x - b.center.x);
+    const lowerTeeth = buildRow(false).sort((a, b) => a.center.x - b.center.x);
     return { upperTeeth, lowerTeeth, upperCount: upperTeeth.length, lowerCount: lowerTeeth.length };
   };
 
   /**
-   * Biometric adaptive braces:
-   * - count visible teeth from inner-mouth landmarks,
-   * - place one stud at each tooth geometric center,
-   * - tension wire as straight line path through stud centers.
+   * Structure-only overlay (runs after texture): biometric studs per tooth + Catmull-Rom archwire.
+   * Replicate must never draw metal — only local Canvas.
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
     const wireDarkW = 0.5;
-    const wireShimmerW = 0.3;
     const baseW = clamp(scale * 0.0046, 1.6, 3.6);
     const baseH = clamp(scale * 0.0078, 2.4, 5.0);
     const teethPoly = buildTeethPolygonPx(landmarks, iw, ih);
@@ -918,7 +983,8 @@ const SmileSimulatorAI = () => {
           const cy = tooth.center.y;
           if (teethPoly.length >= 3 && !pointInPolygon(cx, cy, teethPoly)) return null;
           const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
-          const perspective = 1 - 0.4 * edge; // center=100%, corners=60%
+          /** Jaw perspective: center studs 100%, corner studs 0.6× */
+          const perspective = 0.6 + 0.4 * (1 - edge);
           const sizeByTooth = clamp(((tooth.toothWidth / medianW) * 0.65 + (tooth.toothHeight / medianH) * 0.35) * 0.95, 0.7, 1.25);
           return {
             x: cx,
@@ -957,7 +1023,7 @@ const SmileSimulatorAI = () => {
 
     const strokeWire = (anchors) => {
       if (anchors.length < 2) return;
-      // Catmull-Rom spline converted to cubic bezier for tight, natural wire tension.
+      // Catmull-Rom → cubic Bézier: “loaded” archwire path under tension.
       ctx.beginPath();
       ctx.moveTo(anchors[0].x, anchors[0].y);
       for (let i = 0; i < anchors.length - 1; i++) {
@@ -979,26 +1045,13 @@ const SmileSimulatorAI = () => {
     metallicWire.addColorStop(1, "#222");
 
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.42)";
-    ctx.shadowBlur = 2;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 1;
+    ctx.shadowColor = "rgba(0,0,0,0.28)";
+    ctx.shadowBlur = 1;
+    ctx.shadowOffsetY = 0.5;
     strokeWire(upperAnchors);
     strokeWire(lowerAnchors);
     ctx.strokeStyle = metallicWire;
     ctx.lineWidth = wireDarkW;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.save();
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    strokeWire(upperAnchors);
-    strokeWire(lowerAnchors);
-    ctx.strokeStyle = "rgba(255,255,255,0.95)";
-    ctx.lineWidth = wireShimmerW;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.stroke();
@@ -1041,7 +1094,7 @@ const SmileSimulatorAI = () => {
             ctx.clip();
           }
           if (clipped || oval) {
-            applyLuminosityWhiteningPass(ctx, iw, ih, 0.4);
+            applyLuminosityWhiteningPass(ctx, iw, ih, 0.4, landmarks);
             applyEnamelGlossAndGumOcclusion(ctx, iw, ih, landmarks, oval);
           }
           ctx.restore();
@@ -1051,6 +1104,7 @@ const SmileSimulatorAI = () => {
           doWhitening();
           runPop();
         } else if (type === "braces") {
+          doWhitening();
           if (landmarks) renderBraces(landmarks, ctx, iw, ih, oval);
           runPop();
         } else if (type === "whitening_braces") {
@@ -1063,21 +1117,29 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Draws braces overlay (upper arch quadratic + brackets).
+   * Hybrid render: base = photo (after AI enamel pass); overlay = transparent canvas with wire + studs only.
+   * Keeps metal sharp and avoids blurring braces into the texture layer.
    */
   const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = iw;
-        canvas.height = ih;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, iw, ih);
-        renderBraces(landmarks, ctx, iw, ih, oval);
-        applyMouthPopFilter(ctx, mouthBounds);
-        resolve(canvas.toDataURL("image/jpeg", 0.95));
+        const base = document.createElement("canvas");
+        base.width = iw;
+        base.height = ih;
+        const bctx = base.getContext("2d");
+        bctx.drawImage(img, 0, 0, iw, ih);
+
+        const overlay = document.createElement("canvas");
+        overlay.width = iw;
+        overlay.height = ih;
+        const octx = overlay.getContext("2d");
+        renderBraces(landmarks, octx, iw, ih, oval);
+
+        bctx.drawImage(overlay, 0, 0);
+        applyMouthPopFilter(bctx, mouthBounds);
+        resolve(base.toDataURL("image/jpeg", 0.95));
       };
       img.onerror = () => reject(new Error("Could not load image for braces overlay"));
       img.src = imageSrc;
@@ -1085,7 +1147,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Whitening: anatomical clip (generateTeethMask) + brightness + source-atop ivory @ 40% (+ 1px blur).
+   * Whitening: anatomical clip (generateTeethMask) + luminosity pass + soft-light @ 40% + 10px edge feather.
    * Fallback: mouth oval clip when landmarks missing. Finishes with mouth pop filter for mobile clarity.
    */
   const applyTeethWhitening = async (imageSrc, oval, landmarks, bounds) => {
@@ -1109,7 +1171,7 @@ const SmileSimulatorAI = () => {
           ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2);
           ctx.clip();
         }
-        applyLuminosityWhiteningPass(ctx, w, h, 0.4);
+        applyLuminosityWhiteningPass(ctx, w, h, 0.4, landmarks);
         applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks, oval);
         ctx.restore();
 
@@ -1324,6 +1386,7 @@ const SmileSimulatorAI = () => {
       let merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval);
 
       const imgRef = await loadImage(normalized);
+      /** Structure layer: braces/wire only after merged texture (Replicate + local enamel) — never in the AI pass. */
       if (selectedTreatment === "braces" && landmarks) {
         merged = await applyBracesOverlay(merged, landmarks, imgRef.width, imgRef.height, oval, bounds);
       }
@@ -1365,7 +1428,7 @@ const SmileSimulatorAI = () => {
         <AnimatedSection className="text-center mb-16">
           <h2 className="text-4xl md:text-5xl font-serif text-zinc-900 mb-6">AI Smile Simulation</h2>
           <p className="text-zinc-500 max-w-2xl mx-auto text-lg leading-relaxed">
-            Professional canvas preview: whitening, alignment, and braces overlay—tuned for natural tooth color without generative color shifts.
+            Hybrid render: AI refines enamel texture only; braces and archwire are drawn in sharp canvas layers after the whitened image is merged.
           </p>
         </AnimatedSection>
 

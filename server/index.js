@@ -52,20 +52,19 @@ app.post('/api/smile', async (req, res) => {
       return res.status(400).json({ error: 'Image and mask must be base64 strings' });
     }
 
+    // sepal/sdxl-inpainting (aca001c8…): documented inputs are prompt, negative_prompt, image, mask,
+    // num_inference_steps, guidance_scale, prompt_strength, seed — not content_weight/strength/mask_blur/width.
     const modelInput = {
       image,
       mask,
       prompt:
-        'Ultra-realistic human teeth, natural enamel texture, professional dental whitening, medical photography, 8k.',
+        'Ultra-high resolution dental photography, natural human teeth, professional whitening, individual tooth enamel texture, medical-grade lighting.',
       negative_prompt:
-        'face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter',
-      content_weight: 0.85,
+        'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter',
       num_inference_steps: 20,
       guidance_scale: 5,
-      strength: 0.25,
-      mask_blur: 4,
-      width: 512,
-      height: 512,
+      /** Lower = preserve original structure (tooth shape); SDXL inpaint strength for masked region. */
+      prompt_strength: 0.7,
     };
 
     const prediction = await replicate.predictions.create({
