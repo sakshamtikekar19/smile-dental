@@ -63,8 +63,8 @@ app.post('/api/smile', async (req, res) => {
         'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter',
       num_inference_steps: 20,
       guidance_scale: 5,
-      /** Lower = preserve original structure (tooth shape); SDXL inpaint strength for masked region. */
-      prompt_strength: 0.7,
+      /** Lower = preserve original alignment/shape; only subtle color/texture change in mask. */
+      prompt_strength: 0.65,
     };
 
     const prediction = await replicate.predictions.create({

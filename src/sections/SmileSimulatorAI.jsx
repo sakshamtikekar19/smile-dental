@@ -24,8 +24,10 @@ const MOUTH_FALLBACK_INDICES = [61, 291, 13, 14, 78, 308];
 /** Used only for sanity (eyes should sit above the mouth), not for mouth box math */
 const EYE_SANITY_INDICES = [33, 133, 362, 263];
 const OVAL_FEATHER_PX = 16;
-/** Feathered lip-protection edge on whitening mask. */
-const MASK_CLIP_FEATHER_PX = 10;
+/** Gaussian feather on whitening composite (tighter = less gray fog on lips). */
+const MASK_CLIP_FEATHER_PX = 5;
+/** Whitening must stay at least this many px occlusal to the estimated lower gingival line (no gum/lip gray). */
+const GUM_CLEARANCE_PX = 5;
 
 /** Inner-only teeth loop — tissue-safe whitening (tighter than lip line). */
 const TEETH_WHITEN_MASK_INDICES = [13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
@@ -580,19 +582,53 @@ const SmileSimulatorAI = () => {
     return canvas.toDataURL("image/jpeg", 0.92);
   };
 
-  /** Anatomical teeth region from landmarks; caller must ctx.save() before and ctx.restore() after. */
-  const generateTeethMask = (landmarks, ctx, iw, ih) => {
+  /**
+   * Pulls the whitening loop off lower lip/chin and upper gingiva: caps y using lower-arch span
+   * so edits stay on enamel (reference: average lower-tooth band + GUM_CLEARANCE_PX).
+   */
+  const getTightenedWhiteningMaskPoints = (landmarks, iw, ih) => {
+    const p13 = landmarks[13];
+    const p14 = landmarks[14];
+    if (!p13 || !p14) return null;
+    const midYpx = ((p13.y + p14.y) / 2) * ih;
     const pts = TEETH_WHITEN_MASK_INDICES.map((idx) => {
       const p = landmarks[idx];
       if (!p || typeof p.x !== "number") return null;
       return { x: p.x * iw, y: p.y * ih };
     }).filter(Boolean);
-    if (pts.length < 3) return false;
+    if (pts.length < 3) return null;
+    const out = pts.map((p) => ({ x: p.x, y: p.y }));
+    const lower = out.filter((p) => p.y > midYpx - 0.5);
+    if (lower.length >= 2) {
+      const lowerGumY = Math.min(...lower.map((p) => p.y));
+      const lowerLipY = Math.max(...lower.map((p) => p.y));
+      const span = Math.max(6, lowerLipY - lowerGumY);
+      const yMaxSafe = lowerGumY + GUM_CLEARANCE_PX + span * 0.62;
+      out.forEach((p) => {
+        if (p.y > midYpx - 0.5) p.y = Math.min(p.y, yMaxSafe);
+      });
+    }
+    const upper = out.filter((p) => p.y <= midYpx + 0.5);
+    if (upper.length >= 2) {
+      const upperGumY = Math.min(...upper.map((p) => p.y));
+      const upperToothY = Math.max(...upper.map((p) => p.y));
+      const span = Math.max(6, upperToothY - upperGumY);
+      const yMinSafe = upperGumY + GUM_CLEARANCE_PX + span * 0.12;
+      out.forEach((p) => {
+        if (p.y <= midYpx + 0.5) p.y = Math.max(p.y, yMinSafe);
+      });
+    }
+    return out;
+  };
+
+  /** Anatomical teeth region from landmarks; caller must ctx.save() before and ctx.restore() after. */
+  const generateTeethMask = (landmarks, ctx, iw, ih) => {
+    const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+    if (!pts || pts.length < 3) return false;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
     ctx.closePath();
-    // Soft corners before clip (no pre-stroke — avoids painting on the base image).
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.clip();
@@ -689,12 +725,8 @@ const SmileSimulatorAI = () => {
     lctx.putImageData(img, 0, 0);
 
     if (landmarks) {
-      const pts = TEETH_WHITEN_MASK_INDICES.map((idx) => {
-        const p = landmarks[idx];
-        if (!p || typeof p.x !== "number") return null;
-        return { x: p.x * iw, y: p.y * ih };
-      }).filter(Boolean);
-      if (pts.length >= 3) {
+      const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+      if (pts && pts.length >= 3) {
         lctx.globalCompositeOperation = "destination-in";
         lctx.beginPath();
         lctx.moveTo(pts[0].x, pts[0].y);
@@ -902,7 +934,8 @@ const SmileSimulatorAI = () => {
       const rowPts = mouthPts.filter((p) => (isUpper ? p.y <= midY : p.y >= midY)).sort((a, b) => a.x - b.x);
       if (rowPts.length < 2) return [];
       const span = rowPts[rowPts.length - 1].x - rowPts[0].x;
-      const minPeakSep = Math.max(4, span * 0.016);
+      /** Slightly tighter X spacing on lower arch so up to ~10 mandibular peaks can resolve. */
+      const minPeakSep = Math.max(3, span * (isUpper ? 0.016 : 0.0125));
 
       const peakIdx = [];
       for (let i = 0; i < rowPts.length; i++) {
@@ -1225,10 +1258,19 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Segmentation-inspired teeth mask in crop space (white=edit region):
-   * combines oval prior + pixel-level enamel clustering (bright + low saturation).
+   * Segmentation-inspired teeth mask in crop space (white=inpaint for Replicate only — never braces).
+   * Tighter oval + anatomical y-cap + 5px blur reduces gum/lip gray and lateral “concrete” patches.
    */
-  const createTeethMaskForCrop = async (mouthImageSrc, cw, ch, ovalInCrop) => {
+  const createTeethMaskForCrop = async (mouthImageSrc, cw, ch, ovalInCrop, maskOpts = null) => {
+    let yMaxCrop = ch;
+    if (maskOpts?.landmarks && maskOpts?.imageWidth && maskOpts?.imageHeight && maskOpts?.bounds) {
+      const t = getTightenedWhiteningMaskPoints(maskOpts.landmarks, maskOpts.imageWidth, maskOpts.imageHeight);
+      if (t?.length) {
+        const maxY = Math.max(...t.map((p) => p.y));
+        yMaxCrop = clamp(Math.ceil(maxY - maskOpts.bounds.y + 1), 1, ch);
+      }
+    }
+
     const canvas = document.createElement("canvas");
     canvas.width = cw;
     canvas.height = ch;
@@ -1249,10 +1291,11 @@ const SmileSimulatorAI = () => {
     const out = ctx.getImageData(0, 0, cw, ch);
     const od = out.data;
     for (let y = 0; y < ch; y++) {
+      if (y > yMaxCrop) continue;
       for (let x = 0; x < cw; x++) {
         const nx = (x - cx) / Math.max(rx, 1);
         const ny = (y - cy) / Math.max(ry, 1);
-        const inOval = nx * nx + ny * ny <= 1.12;
+        const inOval = nx * nx + ny * ny <= 1.06;
         if (!inOval) continue;
         const i = (y * cw + x) * 4;
         const r = d[i];
@@ -1262,7 +1305,7 @@ const SmileSimulatorAI = () => {
         const minc = Math.min(r, g, b);
         const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
         const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
-        const enamel = lum > 92 && sat < 0.42;
+        const enamel = lum > 96 && sat < 0.4;
         if (!enamel) continue;
         od[i] = 255;
         od[i + 1] = 255;
@@ -1271,7 +1314,7 @@ const SmileSimulatorAI = () => {
       }
     }
     ctx.putImageData(out, 0, 0);
-    ctx.filter = "blur(1.2px)";
+    ctx.filter = `blur(${MASK_CLIP_FEATHER_PX}px)`;
     ctx.globalCompositeOperation = "source-over";
     ctx.drawImage(canvas, 0, 0);
     ctx.filter = "none";
@@ -1350,6 +1393,8 @@ const SmileSimulatorAI = () => {
 
       const { bounds, oval, landmarks } = mouth;
 
+      const fullFrame = await loadImage(normalized);
+
       let canvasEnhanced = normalized;
 
       if (selectedTreatment === "whitening" || selectedTreatment === "transformation") {
@@ -1375,7 +1420,12 @@ const SmileSimulatorAI = () => {
           rx: oval.rx,
           ry: oval.ry,
         };
-        const mask = await createTeethMaskForCrop(mouthCrop, bounds.width, bounds.height, ovalInCrop);
+        const mask = await createTeethMaskForCrop(mouthCrop, bounds.width, bounds.height, ovalInCrop, {
+          landmarks,
+          imageWidth: fullFrame.width,
+          imageHeight: fullFrame.height,
+          bounds,
+        });
         try {
           aiPolishedCrop = await enhanceWithAI(mouthCrop, mask);
         } catch {
@@ -1385,7 +1435,7 @@ const SmileSimulatorAI = () => {
 
       let merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval);
 
-      const imgRef = await loadImage(normalized);
+      const imgRef = fullFrame;
       /** Structure layer: braces/wire only after merged texture (Replicate + local enamel) — never in the AI pass. */
       if (selectedTreatment === "braces" && landmarks) {
         merged = await applyBracesOverlay(merged, landmarks, imgRef.width, imgRef.height, oval, bounds);
