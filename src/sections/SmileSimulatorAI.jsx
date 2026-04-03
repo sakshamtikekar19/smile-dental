@@ -1005,7 +1005,7 @@ const SmileSimulatorAI = () => {
 
   /**
    * Universal parabolic arch: midline anchor (landmarks 4+152) → symmetric ±28px columns.
-   * Parabolic labial bow: cy = baseY ± bulge×(1−t²), t∈[−1,1] along the row — center bows toward lips (3D U).
+   * Parabolic U: cy = baseY + bulge×(1−t²) for both rows — center bows toward respective lips; corners shallower.
    * Bracket count: round(width/28) → odd → snap to nearest in {7,9,11,13}; Catmull-Rom wire follows (cx,cy) centers.
    */
   const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
@@ -1032,9 +1032,12 @@ const SmileSimulatorAI = () => {
     const midY = p13 && p14 ? ((p13.y + p14.y) / 2) * ih : oval.cy;
     const upperBaseY = clamp(midY - Math.max(10, oval.ry * 0.24), 4, ih - 4);
     const lowerBaseY = clamp(midY + Math.max(12, oval.ry * 0.28), 4, ih - 4);
-    /** Parabolic labial bow: cy = baseY ± bulge × (1 − t²); stronger bow = clearer U-arch vs straight wire. */
-    const upperBulge = Math.max(11, oval.ry * 0.38);
-    const lowerBulge = Math.max(12, oval.ry * 0.42);
+    /**
+     * Parabolic U (labial): center (t=0) bows toward lip opening; corners (t=±1) stay more occlusal (“higher” on screen).
+     * Upper: cy = baseY + bulge×(1−t²) — center moves down toward upper lip; lower: same sense toward lower lip.
+     */
+    const upperBulge = Math.max(12, oval.ry * 0.42);
+    const lowerBulge = Math.max(13, oval.ry * 0.46);
 
     const makeRow = (baseY, isUpper) => {
       const row = [];
@@ -1045,7 +1048,7 @@ const SmileSimulatorAI = () => {
         cx = clamp(cx, leftPx + 8, rightPx - 8);
         const t = half > 1e-6 ? (i - half) / half : 0;
         const curve = 1 - t * t;
-        const cy = isUpper ? baseY - upperBulge * curve : baseY + lowerBulge * curve;
+        const cy = isUpper ? baseY + upperBulge * curve : baseY + lowerBulge * curve;
         row.push({
           peak: { x: cx, y: cy },
           bottom: { x: cx, y: cy },
@@ -1071,7 +1074,9 @@ const SmileSimulatorAI = () => {
     };
   };
 
-  /** Positions studs from nose–chin midline grid (drawSplineWire); oval clip only — no per-tooth cluster mask. */
+  /**
+   * Geometric parabolic anchors — do not drop studs with a tight ellipse (lower row was often culled).
+   */
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
     /** 1:1 bracket profile (square studs). */
@@ -1081,11 +1086,7 @@ const SmileSimulatorAI = () => {
     const biometric = getMidlineBracketRows(landmarks, iw, ih, oval);
     if (!biometric.upperCount && !biometric.lowerCount) return null;
 
-    const inOval = (cx, cy) => {
-      const nx = (cx - oval.cx) / Math.max(oval.rx, 1);
-      const ny = (cy - oval.cy) / Math.max(oval.ry, 1);
-      return nx * nx + ny * ny <= 1.4;
-    };
+    const inFrame = (cx, cy) => cx >= 2 && cx < iw - 2 && cy >= 2 && cy < ih - 2;
 
     const buildAnchors = (teeth) => {
       if (!teeth.length) return [];
@@ -1097,7 +1098,7 @@ const SmileSimulatorAI = () => {
         .map((tooth) => {
           const cx = tooth.center.x;
           const cy = tooth.center.y;
-          if (!inOval(cx, cy)) return null;
+          if (!inFrame(cx, cy)) return null;
           const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
           const perspective = 0.6 + 0.4 * (1 - edge);
           const sizeByTooth = clamp(((tooth.toothWidth / medianW) * 0.65 + (tooth.toothHeight / medianH) * 0.35) * 0.95, 0.7, 1.25);
@@ -1171,8 +1172,10 @@ const SmileSimulatorAI = () => {
       ctx.clip();
     }
 
-    /** Catmull–Rom through parabolic labial bow centers (U-shaped vs straight segment). */
-    const strokeCatmullRomArchWire = (anchors) => {
+    /**
+     * Catmull–Rom → cubic Béziers. Second arch must NOT call beginPath() or the first subpath is erased.
+     */
+    const appendCatmullRomArchWire = (anchors, startNewPath) => {
       if (anchors.length < 2) return;
       const pts = anchors.map((a) => ({ x: a.x, y: a.y }));
       const n = pts.length;
@@ -1181,8 +1184,12 @@ const SmileSimulatorAI = () => {
         if (i >= n) return pts[n - 1];
         return pts[i];
       };
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
+      if (startNewPath) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+      } else {
+        ctx.moveTo(pts[0].x, pts[0].y);
+      }
       for (let i = 0; i < n - 1; i++) {
         const p0 = get(i - 1);
         const p1 = get(i);
@@ -1208,8 +1215,8 @@ const SmileSimulatorAI = () => {
         ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
         ctx.shadowOffsetY = 0;
       }
-      strokeCatmullRomArchWire(upperAnchors);
-      strokeCatmullRomArchWire(lowerAnchors);
+      appendCatmullRomArchWire(upperAnchors, true);
+      appendCatmullRomArchWire(lowerAnchors, false);
       ctx.strokeStyle = charcoalWire;
       ctx.lineWidth = wireDarkW;
       ctx.lineCap = "round";
