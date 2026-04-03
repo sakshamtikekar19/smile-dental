@@ -926,7 +926,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Jet-black bracket body + specular glint + cross-slot. Gum tint unchanged (hardware layer only).
+   * 1:1 rounded rect: radial charcoal→black body, white specular (upper-left), 1px horizontal wire slot.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -941,10 +941,10 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1;
     }
-    const body = ctx.createLinearGradient(-hw, -hw, hw, hw);
-    body.addColorStop(0, "#2a2c30");
-    body.addColorStop(0.4, "#0a0a0a");
-    body.addColorStop(0.85, "#0a0a0a");
+    const body = ctx.createRadialGradient(-hw * 0.35, -hw * 0.35, side * 0.08, 0, 0, hw * 1.15);
+    body.addColorStop(0, "#6a6e78");
+    body.addColorStop(0.35, "#2e3138");
+    body.addColorStop(0.65, "#0a0a0a");
     body.addColorStop(1, "#000000");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
@@ -955,39 +955,30 @@ const SmileSimulatorAI = () => {
     ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
     ctx.lineWidth = Math.max(0.2, side * 0.05);
     ctx.stroke();
-    const glint = ctx.createLinearGradient(-hw, -hw, -hw * 0.05, -hw * 0.05);
-    glint.addColorStop(0, "#ffffff");
-    glint.addColorStop(0.35, "rgba(255,255,255,0.35)");
-    glint.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = glint;
+    const spec = ctx.createRadialGradient(-hw * 0.45, -hw * 0.45, 0, -hw * 0.38, -hw * 0.38, side * 0.28);
+    spec.addColorStop(0, "#ffffff");
+    spec.addColorStop(0.45, "rgba(255,255,255,0.35)");
+    spec.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = spec;
     ctx.beginPath();
-    ctx.moveTo(-hw, -hw);
-    ctx.lineTo(-hw * 0.12, -hw);
-    ctx.lineTo(-hw, -hw * 0.12);
-    ctx.closePath();
+    ctx.ellipse(-hw * 0.32, -hw * 0.32, side * 0.14, side * 0.14, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "#020203";
+    ctx.strokeStyle = "rgba(0,0,0,0.88)";
     ctx.lineWidth = 1;
-    ctx.lineCap = "square";
+    ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.32, 0);
-    ctx.lineTo(hw * 0.32, 0);
-    ctx.moveTo(0, -hw * 0.32);
-    ctx.lineTo(0, hw * 0.32);
+    ctx.moveTo(-hw * 0.4, 0);
+    ctx.lineTo(hw * 0.4, 0);
     ctx.stroke();
     if (starFlare) {
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = Math.max(0.3, side * 0.07);
-      ctx.lineCap = "round";
-      const L = side * 0.18;
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = Math.max(0.25, side * 0.05);
       ctx.beginPath();
-      ctx.moveTo(-L, 0);
-      ctx.lineTo(L, 0);
-      ctx.moveTo(0, -L);
-      ctx.lineTo(0, L);
+      ctx.moveTo(-hw * 0.15, -hw * 0.48);
+      ctx.lineTo(-hw * 0.05, -hw * 0.38);
       ctx.stroke();
     }
     ctx.restore();
@@ -1009,7 +1000,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Iron midline: bracket centers on horizontal lines through upper/lower arch Y, spaced 28px from facial midline.
+   * Universal 3D arch: mouth width ÷ 28 → bracket count (odd so one stud sits on nose–chin midline).
+   * Labial bow: parabolic Y offset (upper toward upper lip, lower toward lower lip); Catmull-Rom wire follows centers.
    */
   const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
     const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
@@ -1017,20 +1009,34 @@ const SmileSimulatorAI = () => {
     if (archSpanPx == null || archSpanPx < 40) {
       archSpanPx = Math.max(oval.rx * 1.75, 140);
     }
-    const nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 6, 14);
+    let nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 6, 14);
+    if (nTarget % 2 === 0) {
+      nTarget = nTarget < 14 ? nTarget + 1 : nTarget - 1;
+    }
+
+    const leftPx =
+      landmarks[COMMISSURE_LEFT_IDX]?.x != null ? landmarks[COMMISSURE_LEFT_IDX].x * iw : midX - archSpanPx * 0.48;
+    const rightPx =
+      landmarks[COMMISSURE_RIGHT_IDX]?.x != null ? landmarks[COMMISSURE_RIGHT_IDX].x * iw : midX + archSpanPx * 0.48;
 
     const p13 = landmarks[13];
     const p14 = landmarks[14];
     const midY = p13 && p14 ? ((p13.y + p14.y) / 2) * ih : oval.cy;
-    const upperY = clamp(midY - Math.max(10, oval.ry * 0.24), 4, ih - 4);
-    const lowerY = clamp(midY + Math.max(12, oval.ry * 0.28), 4, ih - 4);
+    const upperBaseY = clamp(midY - Math.max(10, oval.ry * 0.24), 4, ih - 4);
+    const lowerBaseY = clamp(midY + Math.max(12, oval.ry * 0.28), 4, ih - 4);
+    const upperBulge = Math.max(6, oval.ry * 0.24);
+    const lowerBulge = Math.max(7, oval.ry * 0.26);
 
-    const makeRow = (y) => {
+    const makeRow = (baseY, isUpper) => {
       const row = [];
+      const half = (nTarget - 1) / 2;
       for (let i = 0; i < nTarget; i++) {
-        const offset = (i - (nTarget - 1) / 2) * MIDLINE_BRACKET_SPACING_PX;
-        const cx = clamp(midX + offset, 4, iw - 4);
-        const cy = y;
+        const offset = (i - half) * MIDLINE_BRACKET_SPACING_PX;
+        let cx = midX + offset;
+        cx = clamp(cx, leftPx + 8, rightPx - 8);
+        const t = half > 1e-6 ? (i - half) / half : 0;
+        const curve = 1 - t * t;
+        const cy = isUpper ? baseY - upperBulge * curve : baseY + lowerBulge * curve;
         row.push({
           peak: { x: cx, y: cy },
           bottom: { x: cx, y: cy },
@@ -1049,8 +1055,8 @@ const SmileSimulatorAI = () => {
     };
 
     return {
-      upperTeeth: makeRow(upperY),
-      lowerTeeth: makeRow(lowerY),
+      upperTeeth: makeRow(upperBaseY, true),
+      lowerTeeth: makeRow(lowerBaseY, false),
       upperCount: nTarget,
       lowerCount: nTarget,
     };
@@ -1156,7 +1162,7 @@ const SmileSimulatorAI = () => {
       ctx.clip();
     }
 
-    /** Uniform Catmull–Rom → cubic Béziers; curve passes through every bracket center (natural U-arch). */
+    /** Catmull–Rom spline through 3D-laid-out centers — labial bow + symmetric midline bracket (odd count). */
     const strokeCatmullRomArchWire = (anchors) => {
       if (anchors.length < 2) return;
       const pts = anchors.map((a) => ({ x: a.x, y: a.y }));
@@ -1309,6 +1315,7 @@ const SmileSimulatorAI = () => {
     const octx = overlay.getContext("2d");
     if (!octx) throw new Error("Could not get overlay context for braces");
 
+    await flushPaintBeforeVectorHardware();
     renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: true });
     octx.save();
     octx.globalCompositeOperation = "destination-over";
