@@ -26,8 +26,12 @@ const EYE_SANITY_INDICES = [33, 133, 362, 263];
 const OVAL_FEATHER_PX = 16;
 /** Gaussian feather on whitening composite (tighter = less gray fog on lips). */
 const MASK_CLIP_FEATHER_PX = 5;
-/** Whitening must stay at least this many px occlusal to the estimated lower gingival line (no gum/lip gray). */
+/** Whitening must stay at least this many px occlusal to the estimated gingival line (upper arch / general). */
 const GUM_CLEARANCE_PX = 5;
+/** Extra buffer on the lower arch (more lip movement; stricter gum lock). */
+const LOWER_GUM_CLEARANCE_PX = 8;
+/** Pre-color luminance below this → treat as interdental shadow (slash whitening ~80%). */
+const INTERDENTAL_SHADOW_LUM_MAX = 62;
 /** Pull whitening paint away from lip / gum (centroid inset on the teeth polygon). */
 const WHITEN_MASK_LIP_INSET_PX = 5;
 /** Never place mask vertices closer than this to outer lip/gum landmark points. */
@@ -611,12 +615,13 @@ const SmileSimulatorAI = () => {
       const lowerGumY = Math.min(...lower.map((p) => p.y));
       const lowerLipY = Math.max(...lower.map((p) => p.y));
       const span = Math.max(6, lowerLipY - lowerGumY);
-      const yMaxSafe = Math.min(
-        lowerGumY + GUM_CLEARANCE_PX + span * 0.58,
-        lowerLipY - GUM_CLEARANCE_PX
-      );
+      const yMaxSafe = lowerLipY - LOWER_GUM_CLEARANCE_PX;
+      const yMinLower = Math.min(lowerGumY + span * 0.4, yMaxSafe - 4);
       out.forEach((p) => {
-        if (p.y > midYpx - 0.5) p.y = Math.min(p.y, yMaxSafe);
+        if (p.y > midYpx - 0.5) {
+          p.y = Math.max(p.y, yMinLower);
+          p.y = Math.min(p.y, yMaxSafe);
+        }
       });
     }
     const upper = out.filter((p) => p.y <= midYpx + 0.5);
@@ -740,6 +745,14 @@ const SmileSimulatorAI = () => {
     ctx.drawImage(ctx.canvas, 0, 0, iw, ih, 0, 0, iw, ih);
     ctx.filter = "none";
 
+    const preColor = document.createElement("canvas");
+    preColor.width = iw;
+    preColor.height = ih;
+    const preCtx = preColor.getContext("2d", { willReadFrequently: true });
+    if (!preCtx) return;
+    preCtx.drawImage(ctx.canvas, 0, 0);
+    const preData = preCtx.getImageData(0, 0, iw, ih).data;
+
     const chromaLayer = document.createElement("canvas");
     chromaLayer.width = iw;
     chromaLayer.height = ih;
@@ -798,6 +811,8 @@ const SmileSimulatorAI = () => {
       const g = d[i + 1];
       const b = d[i + 2];
       const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const origLum =
+        0.2126 * preData[i] + 0.7152 * preData[i + 1] + 0.0722 * preData[i + 2];
       const maxc = Math.max(r, g, b);
       const minc = Math.min(r, g, b);
       const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
@@ -808,7 +823,8 @@ const SmileSimulatorAI = () => {
         if (lum < 60) adapt = 2.0;
         else adapt = 1 + clamp((archMeanLum - lum) / (archMeanLum * 0.42 + 8), 0, 1.6);
       }
-      const w = clamp(baseW * adapt, 0, 1.28);
+      let w = clamp(baseW * adapt, 0, 1.28);
+      if (origLum < INTERDENTAL_SHADOW_LUM_MAX) w *= 0.2;
       d[i] = Math.round(r + (ivory.r - r) * w);
       d[i + 1] = Math.round(g + (ivory.g - g) * w);
       d[i + 2] = Math.round(b + (ivory.b - b) * w);

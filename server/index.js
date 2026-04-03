@@ -58,13 +58,13 @@ app.post('/api/smile', async (req, res) => {
       image,
       mask,
       prompt:
-        'Ultra-white professional dental veneers, perfectly uniform white enamel, high-end teeth whitening, 8k dental photography.',
+        'Individual human teeth, natural enamel translucency, professional dental cleaning, realistic tooth separation, 8k dental photography.',
       negative_prompt:
         'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring',
       num_inference_steps: 20,
       guidance_scale: 5,
-      /** Color-only retouch inside mask; minimal edge motion. */
-      prompt_strength: 0.5,
+      /** Preserve interdental edges and gum line; color-only inside mask. */
+      prompt_strength: 0.48,
     };
 
     const prediction = await replicate.predictions.create({
