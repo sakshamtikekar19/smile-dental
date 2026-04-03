@@ -1419,11 +1419,28 @@ const SmileSimulatorAI = () => {
    */
   const createTeethMaskForCrop = async (mouthImageSrc, cw, ch, ovalInCrop, maskOpts = null) => {
     let yMaxCrop = ch;
+    let teethBBox = null;
     if (maskOpts?.landmarks && maskOpts?.imageWidth && maskOpts?.imageHeight && maskOpts?.bounds) {
       const t = getTightenedWhiteningMaskPoints(maskOpts.landmarks, maskOpts.imageWidth, maskOpts.imageHeight);
       if (t?.length) {
         const maxY = Math.max(...t.map((p) => p.y));
         yMaxCrop = clamp(Math.ceil(maxY - maskOpts.bounds.y + 1), 1, ch);
+      }
+
+      // Alignment "edge-lock": restrict inpaint region to the original teeth bounding box.
+      if (maskOpts?.mode === "alignment" || maskOpts?.mode === "transformation") {
+        const pts = TEETH_WHITEN_MASK_INDICES.map((idx) => {
+          const p = maskOpts.landmarks[idx];
+          if (!p || typeof p.x !== "number" || typeof p.y !== "number") return null;
+          return { x: p.x * maskOpts.imageWidth - maskOpts.bounds.x, y: p.y * maskOpts.imageHeight - maskOpts.bounds.y };
+        }).filter(Boolean);
+        if (pts.length >= 3) {
+          const minX = clamp(Math.floor(Math.min(...pts.map((p) => p.x))), 0, cw - 1);
+          const maxX = clamp(Math.ceil(Math.max(...pts.map((p) => p.x))), 0, cw - 1);
+          const minY = clamp(Math.floor(Math.min(...pts.map((p) => p.y))), 0, ch - 1);
+          const maxY = clamp(Math.ceil(Math.max(...pts.map((p) => p.y))), 0, ch - 1);
+          teethBBox = { minX, maxX, minY, maxY };
+        }
       }
     }
 
@@ -1449,6 +1466,7 @@ const SmileSimulatorAI = () => {
     for (let y = 0; y < ch; y++) {
       if (y > yMaxCrop) continue;
       for (let x = 0; x < cw; x++) {
+        if (teethBBox && (x < teethBBox.minX || x > teethBBox.maxX || y < teethBBox.minY || y > teethBBox.maxY)) continue;
         const nx = (x - cx) / Math.max(rx, 1);
         const ny = (y - cy) / Math.max(ry, 1);
         const inOval = nx * nx + ny * ny <= 1.06;
@@ -1477,13 +1495,13 @@ const SmileSimulatorAI = () => {
     return canvas.toDataURL("image/png");
   };
 
-  const enhanceWithAI = async (mouthImage, mask) => {
+  const enhanceWithAI = async (mouthImage, mask, treatment) => {
     if (!AI_SMILE_API) throw new Error("Backend API is not configured.");
 
     const response = await fetch(AI_SMILE_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: mouthImage, mask }),
+      body: JSON.stringify({ image: mouthImage, mask, treatment }),
     });
 
     const data = await response.json();
@@ -1581,9 +1599,10 @@ const SmileSimulatorAI = () => {
           imageWidth: fullFrame.width,
           imageHeight: fullFrame.height,
           bounds,
+          mode: selectedTreatment,
         });
         try {
-          aiPolishedCrop = await enhanceWithAI(mouthCrop, mask);
+          aiPolishedCrop = await enhanceWithAI(mouthCrop, mask, selectedTreatment);
         } catch {
           aiPolishedCrop = null;
         }
@@ -1594,7 +1613,21 @@ const SmileSimulatorAI = () => {
       const imgRef = fullFrame;
       /** Structure layer: braces/wire only after merged texture (Replicate + local enamel) — never in the AI pass. */
       if (selectedTreatment === "braces" && landmarks) {
-        merged = await applyBracesOverlay(merged, landmarks, imgRef.width, imgRef.height, oval, bounds);
+        // Braces "follow" any tooth-edge changes introduced by AI by re-detecting landmarks on the merged image.
+        let bracesLandmarks = landmarks;
+        let bracesOval = oval;
+        let bracesBounds = bounds;
+        try {
+          const redetect = await detectMouth(merged);
+          if (redetect?.landmarks && redetect?.oval && redetect?.bounds) {
+            bracesLandmarks = redetect.landmarks;
+            bracesOval = redetect.oval;
+            bracesBounds = redetect.bounds;
+          }
+        } catch {
+          /* fallback to original landmarks */
+        }
+        merged = await applyBracesOverlay(merged, bracesLandmarks, imgRef.width, imgRef.height, bracesOval, bracesBounds);
       }
 
       const previewRect = squareCropRect(imgRef.width, imgRef.height, oval);

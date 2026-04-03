@@ -43,7 +43,7 @@ async function toDataUrlFromRemote(url) {
 
 app.post('/api/smile', async (req, res) => {
   try {
-    const { image, mask } = req.body;
+    const { image, mask, treatment } = req.body;
 
     if (!image || !mask) {
       return res.status(400).json({ error: 'Image and mask are required' });
@@ -52,19 +52,23 @@ app.post('/api/smile', async (req, res) => {
       return res.status(400).json({ error: 'Image and mask must be base64 strings' });
     }
 
+    const activeTreatment = typeof treatment === 'string' ? treatment : 'whitening';
+    const isAlignment = activeTreatment === 'alignment' || activeTreatment === 'transformation';
+
     // sepal/sdxl-inpainting (aca001c8…): documented inputs are prompt, negative_prompt, image, mask,
     // num_inference_steps, guidance_scale, prompt_strength, seed — not content_weight/strength/mask_blur/width.
     const modelInput = {
       image,
       mask,
-      prompt:
-        'Individual human teeth, natural enamel translucency, professional dental cleaning, realistic tooth separation, high-contrast tooth edges, 8k dental photography.',
+      prompt: isAlignment
+        ? 'Subtle professional orthodontic alignment, original human tooth positions preserved, straightened natural edges, high-definition dental photography.'
+        : 'Individual human teeth, natural enamel translucency, professional dental cleaning, realistic tooth separation, high-contrast tooth edges, 8k dental photography.',
       negative_prompt:
         'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring',
       num_inference_steps: 20,
       guidance_scale: 5,
-      /** Sharp tooth–gum boundary; minimal diffuse glow on gingiva. */
-      prompt_strength: 0.46,
+      /** Alignment: lower prompt_strength to preserve original geometry. */
+      prompt_strength: isAlignment ? 0.35 : 0.46,
     };
 
     const prediction = await replicate.predictions.create({
