@@ -25,7 +25,7 @@ const MOUTH_FALLBACK_INDICES = [61, 291, 13, 14, 78, 308];
 const EYE_SANITY_INDICES = [33, 133, 362, 263];
 const OVAL_FEATHER_PX = 16;
 /** Ivory-layer edge soften (px); pairs with source-atop so whitening doesn’t cut hard against lips. */
-const MASK_CLIP_FEATHER_PX = 1;
+const MASK_CLIP_FEATHER_PX = 2;
 
 /** Inner-only teeth loop — tissue-safe whitening (tighter than lip line). */
 const TEETH_WHITEN_MASK_INDICES = [13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
@@ -911,20 +911,43 @@ const SmileSimulatorAI = () => {
       ctx.clip();
     }
 
-    const strokeDualArch = () => {
+    const buildBracketAnchors = (indices, p0, p1, p2, p3, isUpper) => {
+      const rowOffsetY = isUpper ? 5 : -5;
+      const out = [];
+      indices.forEach((idx) => {
+        const lm = landmarks[idx];
+        if (!lm || typeof lm.x !== "number") return;
+        const lx = lm.x * iw;
+        const ly = lm.y * ih + rowOffsetY;
+        if (teethPoly.length >= 3 && !pointInPolygon(lx, ly, teethPoly)) return;
+        const t = nearestTOnCubic(p0, p1, p2, p3, lx, ly);
+        const ang = cubicBezierTangentAngle(p0, p1, p2, p3, t);
+        const edge = Math.abs(t - 0.5) * 2;
+        const wMult = 0.6 + 0.4 * (1 - edge);
+        const skewX = (t - 0.5) * (0.38 + 0.48 * edge);
+        const star = isUpper && idx === 13;
+        out.push({ x: lx, y: ly, ang, wMult, skewX, star });
+      });
+      return out;
+    };
+
+    const upperAnchors = buildBracketAnchors(UPPER_BRACKET_LANDMARKS, u0, u1, u2, u3, true);
+    const lowerAnchors = buildBracketAnchors(LOWER_BRACKET_LANDMARKS, l0, l1, l2, l3, false);
+
+    const strokeAnchorWire = (anchors) => {
+      if (anchors.length < 2) return;
       ctx.beginPath();
-      ctx.moveTo(u0.x, u0.y);
-      ctx.bezierCurveTo(u1.x, u1.y, u2.x, u2.y, u3.x, u3.y);
-      ctx.moveTo(l0.x, l0.y);
-      ctx.bezierCurveTo(l1.x, l1.y, l2.x, l2.y, l3.x, l3.y);
+      ctx.moveTo(anchors[0].x, anchors[0].y);
+      for (let i = 1; i < anchors.length; i++) ctx.lineTo(anchors[i].x, anchors[i].y);
     };
 
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.5)";
-    ctx.shadowBlur = 3;
+    ctx.shadowBlur = 2;
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 2;
-    strokeDualArch();
+    ctx.shadowOffsetY = 1;
+    strokeAnchorWire(upperAnchors);
+    strokeAnchorWire(lowerAnchors);
     ctx.strokeStyle = "rgba(60, 60, 60, 0.95)";
     ctx.lineWidth = wireDarkW;
     ctx.lineCap = "round";
@@ -936,7 +959,8 @@ const SmileSimulatorAI = () => {
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
-    strokeDualArch();
+    strokeAnchorWire(upperAnchors);
+    strokeAnchorWire(lowerAnchors);
     ctx.strokeStyle = "rgba(255, 255, 255, 0.98)";
     ctx.lineWidth = wireShimmerW;
     ctx.lineCap = "round";
@@ -944,25 +968,14 @@ const SmileSimulatorAI = () => {
     ctx.stroke();
     ctx.restore();
 
-    const placeBracketsAtLandmarks = (indices, p0, p1, p2, p3, isUpper) => {
-      indices.forEach((idx) => {
-        const lm = landmarks[idx];
-        if (!lm || typeof lm.x !== "number") return;
-        const lx = lm.x * iw;
-        const ly = lm.y * ih;
-        if (teethPoly.length >= 3 && !pointInPolygon(lx, ly, teethPoly)) return;
-        const t = nearestTOnCubic(p0, p1, p2, p3, lx, ly);
-        const ang = cubicBezierTangentAngle(p0, p1, p2, p3, t);
-        const edge = Math.abs(t - 0.5) * 2;
-        const wMult = 0.6 + 0.4 * (1 - edge);
-        const skewX = (t - 0.5) * (0.38 + 0.48 * edge);
-        const star = isUpper && idx === 13;
-        drawBracketStudPerspective(ctx, lx, ly, ang, baseW * wMult, baseH * wMult, skewX, star);
+    const drawAnchors = (anchors) => {
+      anchors.forEach(({ x, y, ang, wMult, skewX, star }) => {
+        drawBracketStudPerspective(ctx, x, y, ang, baseW * wMult, baseH * wMult, skewX, star);
       });
     };
 
-    placeBracketsAtLandmarks(UPPER_BRACKET_LANDMARKS, u0, u1, u2, u3, true);
-    placeBracketsAtLandmarks(LOWER_BRACKET_LANDMARKS, l0, l1, l2, l3, false);
+    drawAnchors(upperAnchors);
+    drawAnchors(lowerAnchors);
 
     ctx.restore();
   };
