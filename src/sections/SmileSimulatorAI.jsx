@@ -48,13 +48,12 @@ const API_MOUTH_MAX_EDGE = 768;
 const TEETH_WHITEN_MASK_INDICES = [13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
 /** Inner mouth cluster used for adaptive biometric tooth scan. */
 const MOUTH_LANDMARKS = TEETH_WHITEN_MASK_INDICES;
-/** Mouth corners — commissure span for bracket count along midline grid. */
-const COMMISSURE_LEFT_IDX = 61;
-const COMMISSURE_RIGHT_IDX = 291;
 /** Nose–chin axis (facial midline X); bracket columns spread ±n×this from center. */
 const NOSE_MIDLINE_IDX = 4;
 const CHIN_MIDLINE_IDX = 152;
 const MIDLINE_BRACKET_SPACING_PX = 28;
+/** Fixed odd count: one column on nose–chin midline; independent of mouth-width heuristics (geometric guarantee). */
+const GEOMETRIC_BRACKET_COUNT = 11;
 /** Archwire + bracket hardware: strong float shadow (medical overlay readability). */
 const ARCHWIRE_LINE_WIDTH_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 5;
@@ -1017,13 +1016,6 @@ const SmileSimulatorAI = () => {
     ctx.restore();
   };
 
-  const getCommissureArchSpanPx = (landmarks, iw, ih) => {
-    const a = landmarks[COMMISSURE_LEFT_IDX];
-    const b = landmarks[COMMISSURE_RIGHT_IDX];
-    if (!a || !b || typeof a.x !== "number" || typeof b.x !== "number") return null;
-    return Math.hypot((b.x - a.x) * iw, (b.y - a.y) * ih);
-  };
-
   /** Nose–chin axis → midline X in pixels (stable vs per-tooth blur). */
   const getFacialMidlineXPx = (landmarks, iw) => {
     const n = landmarks?.[NOSE_MIDLINE_IDX];
@@ -1033,25 +1025,12 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Parabolic labial arches: nose–chin midline X; lip-line baselines (13/14); no per-tooth sampling.
-   * Upper: cy = baseY − bulge×(1−t²) bows toward the upper lip. Lower: cy = baseY + bulge×(1−t²) toward lower lip.
-   * Bracket count ≈ round(mouth width / 28px), odd count for a true midline bracket; 28px column spacing.
+   * Iron-arch geometry: nose (4)–chin (152) axis = midline X; fixed odd bracket count; 28px symmetric columns.
+   * No commissure width clamp — if parabolic math yields a point, it is drawn (canvas margin clamp only).
    */
   const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
     const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
-    let archSpanPx = getCommissureArchSpanPx(landmarks, iw, ih);
-    if (archSpanPx == null || archSpanPx < 40) {
-      archSpanPx = Math.max(oval.rx * 1.75, 140);
-    }
-    let nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 5, 21);
-    if (nTarget % 2 === 0) {
-      nTarget = nTarget < 21 ? nTarget + 1 : nTarget - 1;
-    }
-
-    const leftPx =
-      landmarks[COMMISSURE_LEFT_IDX]?.x != null ? landmarks[COMMISSURE_LEFT_IDX].x * iw : midX - archSpanPx * 0.48;
-    const rightPx =
-      landmarks[COMMISSURE_RIGHT_IDX]?.x != null ? landmarks[COMMISSURE_RIGHT_IDX].x * iw : midX + archSpanPx * 0.48;
+    const nTarget = GEOMETRIC_BRACKET_COUNT;
 
     const p13 = landmarks[13];
     const p14 = landmarks[14];
@@ -1064,10 +1043,11 @@ const SmileSimulatorAI = () => {
     const makeRow = (baseY, isUpper) => {
       const row = [];
       const half = (nTarget - 1) / 2;
+      const margin = 6;
       for (let i = 0; i < nTarget; i++) {
         const offset = (i - half) * MIDLINE_BRACKET_SPACING_PX;
         let cx = midX + offset;
-        cx = clamp(cx, leftPx + 8, rightPx - 8);
+        cx = clamp(cx, margin, iw - margin);
         const t = half > 1e-6 ? (i - half) / half : 0;
         const curve = 1 - t * t;
         const cy = isUpper ? baseY - upperBulge * curve : baseY + lowerBulge * curve;
@@ -1097,7 +1077,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Geometric parabolic anchors — do not drop studs with a tight ellipse (lower row was often culled).
+   * Parabolic anchors only — never drop a stud for “in frame” / tooth mask; clamp to canvas so hardware always draws.
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
@@ -1108,8 +1088,6 @@ const SmileSimulatorAI = () => {
     const biometric = getMidlineBracketRows(landmarks, iw, ih, oval);
     if (!biometric.upperCount && !biometric.lowerCount) return null;
 
-    const inFrame = (cx, cy) => cx >= 2 && cx < iw - 2 && cy >= 2 && cy < ih - 2;
-
     const buildAnchors = (teeth) => {
       if (!teeth.length) return [];
       const heights = teeth.map((t) => t.toothHeight).sort((a, b) => a - b);
@@ -1118,9 +1096,8 @@ const SmileSimulatorAI = () => {
       const medianW = widths[Math.floor(widths.length / 2)] || 8;
       return teeth
         .map((tooth) => {
-          const cx = tooth.center.x;
-          const cy = tooth.center.y;
-          if (!inFrame(cx, cy)) return null;
+          const cx = clamp(tooth.center.x, 4, iw - 5);
+          const cy = clamp(tooth.center.y, 4, ih - 5);
           const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
           const perspective = 0.6 + 0.4 * (1 - edge);
           const sizeByTooth = clamp(((tooth.toothWidth / medianW) * 0.65 + (tooth.toothHeight / medianH) * 0.35) * 0.95, 0.7, 1.25);
@@ -1131,7 +1108,6 @@ const SmileSimulatorAI = () => {
             star: false,
           };
         })
-        .filter(Boolean)
         .sort((a, b) => a.x - b.x);
     };
 
@@ -1187,12 +1163,7 @@ const SmileSimulatorAI = () => {
     const { upperAnchors, lowerAnchors, baseW, baseH } = pack;
 
     ctx.save();
-    const maskOk = generateTeethMask(landmarks, ctx, iw, ih);
-    if (!maskOk) {
-      ctx.beginPath();
-      ctx.ellipse(oval.cx, oval.cy + oval.ry * 0.04, oval.rx * 0.82, oval.ry * 0.66, 0, 0, Math.PI * 2);
-      ctx.clip();
-    }
+    /** No teeth-polygon clip: AI whitening changes enamel pixels; landmark-based clip was hiding studs (wire still drew). */
 
     /**
      * Catmull–Rom → cubic Béziers. Second arch must NOT call beginPath() or the first subpath is erased.
@@ -1233,9 +1204,10 @@ const SmileSimulatorAI = () => {
     const drawWire = () => {
       ctx.save();
       if (!omitWireShadow) {
-        ctx.shadowColor = "black";
+        ctx.shadowColor = HARDWARE_SHADOW_COLOR;
         ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
-        ctx.shadowOffsetY = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 1.5;
       }
       appendCatmullRomArchWire(upperAnchors, true);
       appendCatmullRomArchWire(lowerAnchors, false);
