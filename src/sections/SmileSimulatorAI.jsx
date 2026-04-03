@@ -28,8 +28,10 @@ const OVAL_FEATHER_PX = 16;
 const MASK_CLIP_FEATHER_PX = 5;
 /** Whitening must stay at least this many px occlusal to the estimated lower gingival line (no gum/lip gray). */
 const GUM_CLEARANCE_PX = 5;
+/** Pull whitening paint away from lip landmarks (centroid inset on the teeth polygon). */
+const WHITEN_MASK_LIP_INSET_PX = 3;
 /** Inclusive enamel: include yellow + shadowed teeth in masks (higher sat cap, lower lum floor). */
-const ENAMEL_LUM_MIN = 52;
+const ENAMEL_LUM_MIN = 30;
 const ENAMEL_LUM_MAX = 252;
 const ENAMEL_SAT_MAX = 0.58;
 
@@ -587,8 +589,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Pulls the whitening loop off lower lip/chin and upper gingiva: caps y using lower-arch span
-   * so edits stay on enamel (reference: average lower-tooth band + GUM_CLEARANCE_PX).
+   * Gum clearance (strict) + inner inset toward centroid so paint stays off lips; prefer bare enamel
+   * over tinting soft tissue.
    */
   const getTightenedWhiteningMaskPoints = (landmarks, iw, ih) => {
     const p13 = landmarks[13];
@@ -607,7 +609,10 @@ const SmileSimulatorAI = () => {
       const lowerGumY = Math.min(...lower.map((p) => p.y));
       const lowerLipY = Math.max(...lower.map((p) => p.y));
       const span = Math.max(6, lowerLipY - lowerGumY);
-      const yMaxSafe = lowerGumY + GUM_CLEARANCE_PX + span * 0.62;
+      const yMaxSafe = Math.min(
+        lowerGumY + GUM_CLEARANCE_PX + span * 0.58,
+        lowerLipY - GUM_CLEARANCE_PX
+      );
       out.forEach((p) => {
         if (p.y > midYpx - 0.5) p.y = Math.min(p.y, yMaxSafe);
       });
@@ -617,11 +622,21 @@ const SmileSimulatorAI = () => {
       const upperGumY = Math.min(...upper.map((p) => p.y));
       const upperToothY = Math.max(...upper.map((p) => p.y));
       const span = Math.max(6, upperToothY - upperGumY);
-      const yMinSafe = upperGumY + GUM_CLEARANCE_PX + span * 0.12;
+      const yMinSafe = Math.max(upperGumY + GUM_CLEARANCE_PX, upperGumY + GUM_CLEARANCE_PX + span * 0.1);
       out.forEach((p) => {
         if (p.y <= midYpx + 0.5) p.y = Math.max(p.y, yMinSafe);
       });
     }
+    const cx = out.reduce((s, p) => s + p.x, 0) / out.length;
+    const cy = out.reduce((s, p) => s + p.y, 0) / out.length;
+    const inset = WHITEN_MASK_LIP_INSET_PX;
+    out.forEach((p) => {
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      const len = Math.hypot(dx, dy) || 1;
+      p.x -= (dx / len) * inset;
+      p.y -= (dy / len) * inset;
+    });
     return out;
   };
 
@@ -743,8 +758,8 @@ const SmileSimulatorAI = () => {
       const minc = Math.min(r, g, b);
       const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
       const inEnamelBand = lum >= ENAMEL_LUM_MIN && lum <= ENAMEL_LUM_MAX && sat <= ENAMEL_SAT_MAX;
-      const baseW = clamp((lum - 42) / 188, 0, 1);
-      const adapt = inEnamelBand ? 1 + clamp((archMeanLum - lum) / (archMeanLum * 0.42 + 8), 0, 1.28) : 0;
+      const baseW = clamp((lum - 18) / 210, 0, 1);
+      const adapt = inEnamelBand ? 1 + clamp((archMeanLum - lum) / (archMeanLum * 0.42 + 8), 0, 1.6) : 0;
       const w = clamp(baseW * adapt, 0, 1.12);
       d[i] = Math.round(r + (ivory.r - r) * w);
       d[i + 1] = Math.round(g + (ivory.g - g) * w);

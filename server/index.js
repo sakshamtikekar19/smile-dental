@@ -60,11 +60,11 @@ app.post('/api/smile', async (req, res) => {
       prompt:
         'Ultra-high resolution dental photography, natural human teeth, professional whitening, individual tooth enamel texture, medical-grade lighting.',
       negative_prompt:
-        'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter',
+        'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring',
       num_inference_steps: 20,
       guidance_scale: 5,
-      /** Minimal structural drift: color-only retouch inside mask. */
-      prompt_strength: 0.55,
+      /** Balance: lighten masked shadows without reshaping teeth or lips. */
+      prompt_strength: 0.52,
     };
 
     const prediction = await replicate.predictions.create({
