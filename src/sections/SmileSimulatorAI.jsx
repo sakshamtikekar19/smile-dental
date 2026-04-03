@@ -28,10 +28,12 @@ const OVAL_FEATHER_PX = 16;
 const MASK_CLIP_FEATHER_PX = 5;
 /** Whitening must stay at least this many px occlusal to the estimated lower gingival line (no gum/lip gray). */
 const GUM_CLEARANCE_PX = 5;
-/** Pull whitening paint away from lip landmarks (centroid inset on the teeth polygon). */
-const WHITEN_MASK_LIP_INSET_PX = 3;
+/** Pull whitening paint away from lip / gum (centroid inset on the teeth polygon). */
+const WHITEN_MASK_LIP_INSET_PX = 5;
+/** Never place mask vertices closer than this to outer lip/gum landmark points. */
+const LIP_GUM_LANDMARK_GUARD_PX = 5;
 /** Inclusive enamel: include yellow + shadowed teeth in masks (higher sat cap, lower lum floor). */
-const ENAMEL_LUM_MIN = 30;
+const ENAMEL_LUM_MIN = 15;
 const ENAMEL_LUM_MAX = 252;
 const ENAMEL_SAT_MAX = 0.58;
 
@@ -637,6 +639,23 @@ const SmileSimulatorAI = () => {
       p.x -= (dx / len) * inset;
       p.y -= (dy / len) * inset;
     });
+    const lipGumPx = [...new Set([...MOUTH_PERIMETER_INDICES, 312, 308, 415, 310])]
+      .map((idx) => landmarks[idx])
+      .filter((p) => p && typeof p.x === "number")
+      .map((p) => ({ x: p.x * iw, y: p.y * ih }));
+    const g = LIP_GUM_LANDMARK_GUARD_PX;
+    out.forEach((p) => {
+      lipGumPx.forEach((L) => {
+        const dx = p.x - L.x;
+        const dy = p.y - L.y;
+        const d = Math.hypot(dx, dy);
+        if (d < g && d > 1e-6) {
+          const push = (g - d) / d;
+          p.x += dx * push;
+          p.y += dy * push;
+        }
+      });
+    });
     return out;
   };
 
@@ -713,13 +732,38 @@ const SmileSimulatorAI = () => {
     }).filter(Boolean);
 
   /**
-   * Texture-only whitening: arch mean luminance → per-pixel adaptive boost on darker/yellower enamel,
-   * then teeth-only mask + soft-light composite with MASK_CLIP_FEATHER_PX feather.
+   * Ivory balancing: `color` composite strips yellow chroma (desat source), keeps luminance; then
+   * arch-adaptive soft-light whitening (full-arch override for shadowed molars).
    */
   const applyLuminosityWhiteningPass = (ctx, iw, ih, strength = 0.4, landmarks = null) => {
     ctx.filter = "contrast(1.1) brightness(1.03)";
     ctx.drawImage(ctx.canvas, 0, 0, iw, ih, 0, 0, iw, ih);
     ctx.filter = "none";
+
+    const chromaLayer = document.createElement("canvas");
+    chromaLayer.width = iw;
+    chromaLayer.height = ih;
+    const zctx = chromaLayer.getContext("2d", { willReadFrequently: true });
+    if (!zctx) return;
+    zctx.drawImage(ctx.canvas, 0, 0);
+    const zimg = zctx.getImageData(0, 0, iw, ih);
+    const zd = zimg.data;
+    const desat = 0.48;
+    for (let i = 0; i < zd.length; i += 4) {
+      const r = zd[i];
+      const g = zd[i + 1];
+      const b = zd[i + 2];
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      zd[i] = Math.round(lum + (r - lum) * (1 - desat));
+      zd[i + 1] = Math.round(lum + (g - lum) * (1 - desat));
+      zd[i + 2] = Math.round(lum + (b - lum) * (1 - desat));
+    }
+    zctx.putImageData(zimg, 0, 0);
+    ctx.save();
+    ctx.globalCompositeOperation = "color";
+    ctx.drawImage(chromaLayer, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.restore();
 
     const layer = document.createElement("canvas");
     layer.width = iw;
@@ -758,9 +802,13 @@ const SmileSimulatorAI = () => {
       const minc = Math.min(r, g, b);
       const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
       const inEnamelBand = lum >= ENAMEL_LUM_MIN && lum <= ENAMEL_LUM_MAX && sat <= ENAMEL_SAT_MAX;
-      const baseW = clamp((lum - 18) / 210, 0, 1);
-      const adapt = inEnamelBand ? 1 + clamp((archMeanLum - lum) / (archMeanLum * 0.42 + 8), 0, 1.6) : 0;
-      const w = clamp(baseW * adapt, 0, 1.12);
+      const baseW = clamp((lum - 8) / 230, 0, 1);
+      let adapt = 0;
+      if (inEnamelBand) {
+        if (lum < 60) adapt = 2.0;
+        else adapt = 1 + clamp((archMeanLum - lum) / (archMeanLum * 0.42 + 8), 0, 1.6);
+      }
+      const w = clamp(baseW * adapt, 0, 1.28);
       d[i] = Math.round(r + (ivory.r - r) * w);
       d[i + 1] = Math.round(g + (ivory.g - g) * w);
       d[i + 2] = Math.round(b + (ivory.b - b) * w);
