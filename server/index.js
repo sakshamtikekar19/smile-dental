@@ -53,7 +53,9 @@ app.post('/api/smile', async (req, res) => {
     }
 
     const activeTreatment = typeof treatment === 'string' ? treatment : 'whitening';
-
+    /** Replicate whitening-only: no orthodontic vocabulary (metal is composited client-side). */
+    const whiteningNegative =
+      'metal, stainless steel, orthodontic hardware, wire fixtures, facial structure change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring';
     const baseNegative =
       'braces, wires, brackets, dental appliances, face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring';
     const alignmentNegativeExtra =
@@ -76,6 +78,11 @@ app.post('/api/smile', async (req, res) => {
         'Subtle professional orthodontic alignment, original human tooth positions preserved, straightened natural edges, high-definition dental photography.';
       negative_prompt = baseNegative;
       prompt_strength = 0.35;
+    } else if (activeTreatment === 'whitening' || activeTreatment === 'braces') {
+      prompt =
+        'Pristine natural dentition, flawlessly whitened translucent enamel, professional in-office whitening, lifelike enamel depth and translucency, realistic inter-tooth separation, photorealistic oral close-up, 8k dental photography.';
+      negative_prompt = whiteningNegative;
+      prompt_strength = 0.46;
     } else {
       prompt =
         'Individual human teeth, natural enamel translucency, professional dental cleaning, realistic tooth separation, high-contrast tooth edges, 8k dental photography.';

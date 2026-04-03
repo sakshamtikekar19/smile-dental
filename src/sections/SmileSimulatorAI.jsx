@@ -924,94 +924,65 @@ const SmileSimulatorAI = () => {
     ctx.restore();
   };
 
-  /** Metallic bracket with horizontal skew for pseudo-3D curvature. Optional hero star flare (dentist-commercial sparkle). */
-  const drawBracketStudPerspective = (ctx, x, y, tangentRad, w, h, skewX, starFlare = false, omitDropShadow = false) => {
+  /**
+   * Reflective metal stud (radial polish, not a flat tile). Drawn after the AI pass only.
+   * Shadow matches spec: blur 2, rgba(0,0,0,0.5).
+   */
+  const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
-    ctx.transform(1, 0, skewX, 1, 0, 0);
     if (!omitDropShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.3)";
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
       ctx.shadowBlur = 2;
       ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 1;
+      ctx.shadowOffsetY = 0;
     }
-    const g = ctx.createLinearGradient(-w, -h * 0.5, w * 0.85, h * 0.4);
-    g.addColorStop(0, "#d8dce4");
-    g.addColorStop(0.4, "#949aa6");
-    g.addColorStop(1, "#5a616e");
-    ctx.fillStyle = g;
-    ctx.strokeStyle = "rgba(25,28,34,0.55)";
-    ctx.lineWidth = Math.max(0.35, w * 0.1);
+    const rx = w * 0.5;
+    const ry = h * 0.5;
+    const hx = -rx * 0.38;
+    const hy = -ry * 0.38;
+    const rg = ctx.createRadialGradient(hx, hy, 0, 0, 0, Math.max(rx, ry) * 1.08);
+    rg.addColorStop(0, "#ffffff");
+    rg.addColorStop(0.22, "#e8ebf0");
+    rg.addColorStop(0.42, "#a8adb8");
+    rg.addColorStop(0.68, "#5c616c");
+    rg.addColorStop(1, "#1a1d24");
     ctx.beginPath();
-    if (typeof ctx.roundRect === "function") {
-      ctx.roundRect(-w * 0.5, -h * 0.5, w, h, Math.min(0.5, w * 0.18));
-    } else {
-      ctx.rect(-w * 0.5, -h * 0.5, w, h);
-    }
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = rg;
     ctx.fill();
-    ctx.stroke();
-    // Specular Highlight (the 'Metallic Glint')
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-    ctx.lineWidth = 0.8;
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = Math.max(0.2, Math.min(rx, ry) * 0.07);
     ctx.beginPath();
-    ctx.moveTo(-w * 0.4, -h * 0.3);
-    ctx.lineTo(-w * 0.2, -h * 0.3);
+    ctx.ellipse(0, 0, rx * 0.9, ry * 0.9, 0, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.2)";
-    ctx.lineWidth = Math.max(0.2, w * 0.06);
+    const glint = ctx.createRadialGradient(hx * 0.5, hy * 0.5, 0, hx * 0.1, hy * 0.1, Math.min(rx, ry) * 0.42);
+    glint.addColorStop(0, "rgba(255,255,255,0.55)");
+    glint.addColorStop(0.55, "rgba(255,255,255,0.12)");
+    glint.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = glint;
     ctx.beginPath();
-    if (typeof ctx.roundRect === "function") {
-      ctx.roundRect(-w * 0.46, -h * 0.46, w * 0.92, h * 0.92, Math.min(0.4, w * 0.14));
-    } else {
-      ctx.rect(-w * 0.46, -h * 0.46, w * 0.92, h * 0.92);
-    }
-    ctx.stroke();
-    /* Metallic glint: top-left highlight + bottom-right shadow */
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(255,255,255,0.92)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.5, -h * 0.5);
-    ctx.lineTo(-w * 0.5 + Math.min(w * 0.42, 8), -h * 0.5);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.5, -h * 0.5);
-    ctx.lineTo(-w * 0.5, -h * 0.5 + Math.min(h * 0.42, 8));
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(18, 20, 26, 0.72)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(w * 0.5, h * 0.5);
-    ctx.lineTo(w * 0.5 - Math.min(w * 0.42, 8), h * 0.5);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(w * 0.5, h * 0.5);
-    ctx.lineTo(w * 0.5, h * 0.5 - Math.min(h * 0.42, 8));
-    ctx.stroke();
+    ctx.ellipse(hx * 0.2, hy * 0.2, rx * 0.32, ry * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
     if (starFlare) {
-      ctx.shadowColor = "transparent";
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = "rgba(255,255,255,0.9)";
-      ctx.lineWidth = Math.max(0.65, w * 0.12);
+      ctx.strokeStyle = "rgba(255,255,255,0.88)";
+      ctx.lineWidth = Math.max(0.45, Math.min(rx, ry) * 0.11);
       ctx.lineCap = "round";
-      const sx = -w * 0.28;
-      const sy = -h * 0.28;
-      const L = Math.min(w, h) * 0.2;
+      const L = Math.min(rx, ry) * 0.32;
       ctx.beginPath();
-      ctx.moveTo(sx, sy - L);
-      ctx.lineTo(sx, sy + L);
-      ctx.moveTo(sx - L, sy);
-      ctx.lineTo(sx + L, sy);
+      ctx.moveTo(-L, 0);
+      ctx.lineTo(L, 0);
+      ctx.moveTo(0, -L);
+      ctx.lineTo(0, L);
       ctx.stroke();
     }
     ctx.restore();
   };
 
   /**
-   * Loop over scanned landmarks (not a fixed count): find each vertical arch peak in X order,
-   * one bracket per peak so e.g. 10 lower peaks → 10 brackets.
+   * Per-tooth arch segments: AABB from MediaPipe samples per peak, geometric center = bbox center (stud anchor).
    */
   const getBiometricTeethCount = (landmarks, iw, ih) => {
     const p13 = landmarks[13];
@@ -1034,15 +1005,22 @@ const SmileSimulatorAI = () => {
           (best, p) => (isUpper ? (p.y > best.y ? p : best) : (p.y < best.y ? p : best)),
           peak
         );
-        const n = window.length;
-        const cx = window.reduce((s, p) => s + p.x, 0) / n;
-        const cy = window.reduce((s, p) => s + p.y, 0) / n;
-        const toothHeight = Math.max(2, Math.abs(bottom.y - peak.y));
         const xs = window.map((p) => p.x);
-        const toothWidth = Math.max(2, Math.max(...xs) - Math.min(...xs));
+        const ys = window.map((p) => p.y);
+        const bbox = {
+          minX: Math.min(...xs),
+          maxX: Math.max(...xs),
+          minY: Math.min(...ys),
+          maxY: Math.max(...ys),
+        };
+        const cx = (bbox.minX + bbox.maxX) / 2;
+        const cy = (bbox.minY + bbox.maxY) / 2;
+        const toothHeight = Math.max(2, Math.abs(bottom.y - peak.y));
+        const toothWidth = Math.max(2, bbox.maxX - bbox.minX);
         return {
           peak,
           bottom,
+          bbox,
           center: { x: cx, y: cy },
           toothHeight,
           toothWidth,
@@ -1091,13 +1069,21 @@ const SmileSimulatorAI = () => {
         return clusters.map((c) => {
           const peak = c.reduce((best, p) => (isUpper ? (p.y < best.y ? p : best) : (p.y > best.y ? p : best)), c[0]);
           const bottom = c.reduce((best, p) => (isUpper ? (p.y > best.y ? p : best) : (p.y < best.y ? p : best)), c[0]);
-          const n = c.length;
+          const xs = c.map((p) => p.x);
+          const ys = c.map((p) => p.y);
+          const bbox = {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+          };
           return {
             peak,
             bottom,
-            center: { x: c.reduce((s, p) => s + p.x, 0) / n, y: c.reduce((s, p) => s + p.y, 0) / n },
+            bbox,
+            center: { x: (bbox.minX + bbox.maxX) / 2, y: (bbox.minY + bbox.maxY) / 2 },
             toothHeight: Math.max(2, Math.abs(bottom.y - peak.y)),
-            toothWidth: Math.max(2, Math.max(...c.map((p) => p.x)) - Math.min(...c.map((p) => p.x))),
+            toothWidth: Math.max(2, bbox.maxX - bbox.minX),
           };
         });
       }
@@ -1136,7 +1122,6 @@ const SmileSimulatorAI = () => {
             x: cx,
             y: cy,
             wMult: perspective * sizeByTooth,
-            skewX: Math.sign(cx - oval.cx) * edge * 0.24,
             star: false,
           };
         })
@@ -1186,13 +1171,13 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Structure-only overlay (runs after texture): biometric studs per tooth + Catmull-Rom archwire.
+   * Structure-only overlay (runs after texture): one smooth cubic Bézier archwire per row + reflective studs.
    * Replicate must never draw metal — only local Canvas.
    * @param {{ omitStudShadow?: boolean, omitWireShadow?: boolean }} opts
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
     const { omitStudShadow = false, omitWireShadow = false } = opts;
-    const wireDarkW = 0.5;
+    const wireDarkW = 0.58;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW, baseH } = pack;
@@ -1229,9 +1214,9 @@ const SmileSimulatorAI = () => {
 
     ctx.save();
     if (!omitWireShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.28)";
-      ctx.shadowBlur = 1;
-      ctx.shadowOffsetY = 0.5;
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 2;
+      ctx.shadowOffsetY = 0;
     }
     strokeWire(upperAnchors);
     strokeWire(lowerAnchors);
@@ -1243,8 +1228,8 @@ const SmileSimulatorAI = () => {
     ctx.restore();
 
     const drawAnchors = (anchors) => {
-      anchors.forEach(({ x, y, ang, wMult, skewX, star }) => {
-        drawBracketStudPerspective(ctx, x, y, ang, baseW * wMult, baseH * wMult, skewX, star, omitStudShadow);
+      anchors.forEach(({ x, y, ang, wMult, star }) => {
+        drawReflectiveMetalStud(ctx, x, y, ang, baseW * wMult, baseH * wMult, star, omitStudShadow);
       });
     };
 
@@ -1582,7 +1567,7 @@ const SmileSimulatorAI = () => {
 
       let canvasEnhanced = normalized;
 
-      if (selectedTreatment === "whitening" || selectedTreatment === "transformation") {
+      if (selectedTreatment === "whitening" || selectedTreatment === "transformation" || selectedTreatment === "braces") {
         canvasEnhanced = await applyTeethWhitening(canvasEnhanced, oval, landmarks, bounds);
       }
       if (selectedTreatment === "alignment" || selectedTreatment === "transformation") {
@@ -1599,6 +1584,8 @@ const SmileSimulatorAI = () => {
 
       let aiPolishedCrop = null;
       if (useReplicatePolish && AI_SMILE_API) {
+        /** Braces use the same enamel-only whitening pass on the API (metal is drawn locally). */
+        const replicateTreatment = selectedTreatment === "braces" ? "whitening" : selectedTreatment;
         const midlineXNorm = getFacialMidlineXNorm(landmarks);
         const midlineFullX =
           midlineXNorm != null ? midlineXNorm * fullFrame.width : null;
@@ -1620,10 +1607,10 @@ const SmileSimulatorAI = () => {
           imageWidth: fullFrame.width,
           imageHeight: fullFrame.height,
           bounds,
-          mode: selectedTreatment,
+          mode: replicateTreatment,
         });
         try {
-          aiPolishedCrop = await enhanceWithAI(mouthCrop, mask, selectedTreatment, midlineXNorm);
+          aiPolishedCrop = await enhanceWithAI(mouthCrop, mask, replicateTreatment, midlineXNorm);
         } catch {
           aiPolishedCrop = null;
         }
