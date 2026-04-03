@@ -52,6 +52,13 @@ const BRACES_ARCH_EXTRA_INDICES = [
 ];
 /** All landmark indices used to scan for per-tooth vertical peaks (not a fixed bracket count). */
 const BRACES_LANDMARK_SCAN_INDICES = [...new Set([...TEETH_WHITEN_MASK_INDICES, ...BRACES_ARCH_EXTRA_INDICES])];
+/** Mouth corners — arch span for universal bracket count (px / standard tooth width). */
+const COMMISSURE_LEFT_IDX = 61;
+const COMMISSURE_RIGHT_IDX = 291;
+/** Midpoint of 22–26px; drives how many brackets vs. smile width. */
+const STANDARD_TOOTH_WIDTH_PX = 24;
+/** Cardinal spline tension for archwire (0.5 = smooth outward bow). */
+const ARCHWIRE_CARDINAL_TENSION = 0.5;
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -925,10 +932,11 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Reflective metal stud (radial polish, not a flat tile). Drawn after the AI pass only.
-   * Shadow matches spec: blur 2, rgba(0,0,0,0.5).
+   * Square-profile bracket (1:1 rounded rect): 45° steel gradient + horizontal wire slot. Drawn after AI only.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
+    const side = Math.min(w, h);
+    const r = Math.min(side * 0.18, side * 0.5);
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
@@ -938,39 +946,35 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
     }
-    const rx = w * 0.5;
-    const ry = h * 0.5;
-    const hx = -rx * 0.38;
-    const hy = -ry * 0.38;
-    const rg = ctx.createRadialGradient(hx, hy, 0, 0, 0, Math.max(rx, ry) * 1.08);
-    rg.addColorStop(0, "#ffffff");
-    rg.addColorStop(0.22, "#e8ebf0");
-    rg.addColorStop(0.42, "#a8adb8");
-    rg.addColorStop(0.68, "#5c616c");
-    rg.addColorStop(1, "#1a1d24");
+    const hw = side * 0.5;
+    const g = ctx.createLinearGradient(-hw, -hw, hw, hw);
+    g.addColorStop(0, "#ffffff");
+    g.addColorStop(0.45, "#c5cad4");
+    g.addColorStop(1, "#2e323b");
     ctx.beginPath();
-    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fillStyle = rg;
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-hw, -hw, side, side, r);
+    } else {
+      ctx.rect(-hw, -hw, side, side);
+    }
+    ctx.fillStyle = g;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255,255,255,0.4)";
-    ctx.lineWidth = Math.max(0.2, Math.min(rx, ry) * 0.07);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rx * 0.9, ry * 0.9, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(40,44,52,0.45)";
+    ctx.lineWidth = Math.max(0.25, side * 0.06);
     ctx.stroke();
-    const glint = ctx.createRadialGradient(hx * 0.5, hy * 0.5, 0, hx * 0.1, hy * 0.1, Math.min(rx, ry) * 0.42);
-    glint.addColorStop(0, "rgba(255,255,255,0.55)");
-    glint.addColorStop(0.55, "rgba(255,255,255,0.12)");
-    glint.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = glint;
+    ctx.strokeStyle = "#2a2d35";
+    ctx.lineWidth = 1;
+    ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.ellipse(hx * 0.2, hy * 0.2, rx * 0.32, ry * 0.32, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(-hw * 0.72, 0);
+    ctx.lineTo(hw * 0.72, 0);
+    ctx.stroke();
     if (starFlare) {
-      ctx.strokeStyle = "rgba(255,255,255,0.88)";
-      ctx.lineWidth = Math.max(0.45, Math.min(rx, ry) * 0.11);
+      ctx.strokeStyle = "rgba(255,255,255,0.75)";
+      ctx.lineWidth = Math.max(0.35, side * 0.08);
       ctx.lineCap = "round";
-      const L = Math.min(rx, ry) * 0.32;
+      const L = side * 0.22;
       ctx.beginPath();
       ctx.moveTo(-L, 0);
       ctx.lineTo(L, 0);
@@ -981,8 +985,47 @@ const SmileSimulatorAI = () => {
     ctx.restore();
   };
 
+  const getCommissureArchSpanPx = (landmarks, iw, ih) => {
+    const a = landmarks[COMMISSURE_LEFT_IDX];
+    const b = landmarks[COMMISSURE_RIGHT_IDX];
+    if (!a || !b || typeof a.x !== "number" || typeof b.x !== "number") return null;
+    return Math.hypot((b.x - a.x) * iw, (b.y - a.y) * ih);
+  };
+
+  /** Evenly spaced samples along the polyline arc length — one bracket center per sample. */
+  const resamplePolylineByArcLength = (pts, n) => {
+    if (n < 1 || pts.length < 2) return [];
+    if (n === 1) {
+      const mid = Math.floor(pts.length / 2);
+      return [{ x: pts[mid].x, y: pts[mid].y }];
+    }
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    }
+    const total = cum[cum.length - 1];
+    if (total < 1e-6) return [];
+    const out = [];
+    for (let k = 0; k < n; k++) {
+      const d = (k / (n - 1)) * total;
+      let i = 0;
+      while (i < cum.length - 1 && cum[i + 1] < d) i += 1;
+      const segLen = cum[i + 1] - cum[i];
+      const u = segLen < 1e-6 ? 0 : (d - cum[i]) / segLen;
+      out.push({
+        x: pts[i].x + u * (pts[i + 1].x - pts[i].x),
+        y: pts[i].y + u * (pts[i + 1].y - pts[i].y),
+      });
+    }
+    return out;
+  };
+
+  const universalBracketCountFromArch = (archSpanPx) =>
+    clamp(Math.round(archSpanPx / STANDARD_TOOTH_WIDTH_PX), 4, 12);
+
   /**
-   * Per-tooth arch segments: AABB from MediaPipe samples per peak, geometric center = bbox center (stud anchor).
+   * Universal arch: bracket count from commissure span ÷ standard tooth width; positions from resampled landmarks.
+   * Falls back to peak-based segmentation if the arch polyline is too short.
    */
   const getBiometricTeethCount = (landmarks, iw, ih) => {
     const p13 = landmarks[13];
@@ -993,6 +1036,41 @@ const SmileSimulatorAI = () => {
     const mouthPts = BRACES_LANDMARK_SCAN_INDICES.map((idx) => landmarks[idx])
       .filter((p) => p && typeof p.x === "number" && typeof p.y === "number")
       .map((p) => ({ x: p.x * iw, y: p.y * ih }));
+
+    let archSpanPx = getCommissureArchSpanPx(landmarks, iw, ih);
+    if (archSpanPx == null || archSpanPx < 24) {
+      const xs = mouthPts.map((p) => p.x);
+      if (xs.length >= 2) archSpanPx = Math.max(...xs) - Math.min(...xs);
+      else archSpanPx = 120;
+    }
+    const nTarget = universalBracketCountFromArch(archSpanPx);
+
+    const buildRowPolyline = (isUpper) =>
+      mouthPts.filter((p) => (isUpper ? p.y <= midY : p.y >= midY)).sort((a, b) => a.x - b.x);
+
+    const teethFromResampledArch = (rowPts) => {
+      if (rowPts.length < 2) return [];
+      const samples = resamplePolylineByArcLength(rowPts, nTarget);
+      if (!samples.length) return [];
+      const tw = Math.max(4, archSpanPx / nTarget * 0.92);
+      const th = Math.max(6, tw * 1.15);
+      return samples.map((center) => ({
+        peak: center,
+        bottom: center,
+        bbox: {
+          minX: center.x - tw * 0.45,
+          maxX: center.x + tw * 0.45,
+          minY: center.y - th * 0.45,
+          maxY: center.y + th * 0.45,
+        },
+        center: { x: center.x, y: center.y },
+        toothHeight: th,
+        toothWidth: tw,
+      }));
+    };
+
+    let upperTeeth = teethFromResampledArch(buildRowPolyline(true));
+    let lowerTeeth = teethFromResampledArch(buildRowPolyline(false));
 
     const toothFromPeakIndices = (rowPts, peakIndices, isUpper) => {
       if (!peakIndices.length) return [];
@@ -1091,15 +1169,17 @@ const SmileSimulatorAI = () => {
       return toothFromPeakIndices(rowPts, merged, isUpper);
     };
 
-    const upperTeeth = buildRow(true).sort((a, b) => a.center.x - b.center.x);
-    const lowerTeeth = buildRow(false).sort((a, b) => a.center.x - b.center.x);
+    if (upperTeeth.length < 2) upperTeeth = buildRow(true).sort((a, b) => a.center.x - b.center.x);
+    if (lowerTeeth.length < 2) lowerTeeth = buildRow(false).sort((a, b) => a.center.x - b.center.x);
     return { upperTeeth, lowerTeeth, upperCount: upperTeeth.length, lowerCount: lowerTeeth.length };
   };
 
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
-    const baseW = clamp(scale * 0.0046, 1.6, 3.6);
-    const baseH = clamp(scale * 0.0078, 2.4, 5.0);
+    /** 1:1 bracket profile (square studs). */
+    const baseS = clamp(scale * 0.0055, 1.8, 4);
+    const baseW = baseS;
+    const baseH = baseS;
     const teethPoly = buildTeethPolygonPx(landmarks, iw, ih);
     const biometric = getBiometricTeethCount(landmarks, iw, ih);
     if (!biometric.upperCount && !biometric.lowerCount) return null;
@@ -1171,8 +1251,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Structure-only overlay (runs after texture): one smooth cubic Bézier archwire per row + reflective studs.
-   * Replicate must never draw metal — only local Canvas.
+   * Structure-only overlay: Cardinal-spline archwire + square-profile studs. Replicate never draws metal.
    * @param {{ omitStudShadow?: boolean, omitWireShadow?: boolean }} opts
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
@@ -1190,20 +1269,31 @@ const SmileSimulatorAI = () => {
       ctx.clip();
     }
 
-    const strokeWire = (anchors) => {
+    /** Cardinal spline (tension 0.5): wire passes through each bracket center with natural labial bow. */
+    const strokeCardinalArchWire = (anchors) => {
       if (anchors.length < 2) return;
+      const pts = anchors.map((a) => ({ x: a.x, y: a.y }));
+      const n = pts.length;
+      const c = ARCHWIRE_CARDINAL_TENSION;
+      const factor = (1 - c) / 2;
+      const tangentAt = (i) => {
+        const im1 = Math.max(0, i - 1);
+        const ip1 = Math.min(n - 1, i + 1);
+        return {
+          x: factor * (pts[ip1].x - pts[im1].x),
+          y: factor * (pts[ip1].y - pts[im1].y),
+        };
+      };
       ctx.beginPath();
-      ctx.moveTo(anchors[0].x, anchors[0].y);
-      for (let i = 0; i < anchors.length - 1; i++) {
-        const p0 = anchors[Math.max(i - 1, 0)];
-        const p1 = anchors[i];
-        const p2 = anchors[i + 1];
-        const p3 = anchors[Math.min(i + 2, anchors.length - 1)];
-        const cp1x = p1.x + (p2.x - p0.x) / 6;
-        const cp1y = p1.y + (p2.y - p0.y) / 6;
-        const cp2x = p2.x - (p3.x - p1.x) / 6;
-        const cp2y = p2.y - (p3.y - p1.y) / 6;
-        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 0; i < n - 1; i++) {
+        const T0 = tangentAt(i);
+        const T1 = tangentAt(i + 1);
+        const cp1x = pts[i].x + T0.x / 3;
+        const cp1y = pts[i].y + T0.y / 3;
+        const cp2x = pts[i + 1].x - T1.x / 3;
+        const cp2y = pts[i + 1].y - T1.y / 3;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, pts[i + 1].x, pts[i + 1].y);
       }
     };
 
@@ -1218,8 +1308,8 @@ const SmileSimulatorAI = () => {
       ctx.shadowBlur = 2;
       ctx.shadowOffsetY = 0;
     }
-    strokeWire(upperAnchors);
-    strokeWire(lowerAnchors);
+    strokeCardinalArchWire(upperAnchors);
+    strokeCardinalArchWire(lowerAnchors);
     ctx.strokeStyle = metallicWire;
     ctx.lineWidth = wireDarkW;
     ctx.lineCap = "round";
