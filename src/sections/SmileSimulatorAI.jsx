@@ -53,6 +53,10 @@ const COMMISSURE_RIGHT_IDX = 291;
 const NOSE_MIDLINE_IDX = 4;
 const CHIN_MIDLINE_IDX = 152;
 const MIDLINE_BRACKET_SPACING_PX = 28;
+/** Canonical odd counts (one stud on nose–chin midline); snapped from mouth width ÷ 28. */
+const PREFERRED_ODD_BRACKET_COUNTS = [7, 9, 11, 13];
+const ARCHWIRE_LINE_WIDTH_PX = 2.5;
+const ARCHWIRE_SHADOW_BLUR_PX = 5;
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -937,7 +941,7 @@ const SmileSimulatorAI = () => {
     ctx.rotate(tangentRad + Math.PI / 2);
     if (!omitDropShadow) {
       ctx.shadowColor = "black";
-      ctx.shadowBlur = 5;
+      ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1;
     }
@@ -1000,8 +1004,9 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Universal 3D arch: mouth width ÷ 28 → bracket count (odd so one stud sits on nose–chin midline).
-   * Labial bow: parabolic Y offset (upper toward upper lip, lower toward lower lip); Catmull-Rom wire follows centers.
+   * Universal parabolic arch: midline anchor (landmarks 4+152) → symmetric ±28px columns.
+   * Parabolic labial bow: cy = baseY ± bulge×(1−t²), t∈[−1,1] along the row — center bows toward lips (3D U).
+   * Bracket count: round(width/28) → odd → snap to nearest in {7,9,11,13}; Catmull-Rom wire follows (cx,cy) centers.
    */
   const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
     const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
@@ -1009,10 +1014,13 @@ const SmileSimulatorAI = () => {
     if (archSpanPx == null || archSpanPx < 40) {
       archSpanPx = Math.max(oval.rx * 1.75, 140);
     }
-    let nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 7, 13);
-    if (nTarget % 2 === 0) {
-      nTarget = nTarget < 13 ? nTarget + 1 : nTarget - 1;
+    let nRaw = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 7, 13);
+    if (nRaw % 2 === 0) {
+      nRaw = nRaw < 13 ? nRaw + 1 : nRaw - 1;
     }
+    let nTarget = PREFERRED_ODD_BRACKET_COUNTS.reduce((best, p) =>
+      Math.abs(p - nRaw) < Math.abs(best - nRaw) ? p : best
+    , PREFERRED_ODD_BRACKET_COUNTS[0]);
 
     const leftPx =
       landmarks[COMMISSURE_LEFT_IDX]?.x != null ? landmarks[COMMISSURE_LEFT_IDX].x * iw : midX - archSpanPx * 0.48;
@@ -1150,7 +1158,7 @@ const SmileSimulatorAI = () => {
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
     const { omitStudShadow = false, omitWireShadow = false, layers = "both" } = opts;
-    const wireDarkW = 2.5;
+    const wireDarkW = ARCHWIRE_LINE_WIDTH_PX;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW, baseH } = pack;
@@ -1197,7 +1205,7 @@ const SmileSimulatorAI = () => {
       ctx.save();
       if (!omitWireShadow) {
         ctx.shadowColor = "black";
-        ctx.shadowBlur = 5;
+        ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
         ctx.shadowOffsetY = 0;
       }
       strokeCatmullRomArchWire(upperAnchors);
@@ -1326,7 +1334,7 @@ const SmileSimulatorAI = () => {
     if (!octx) throw new Error("Could not get overlay context for braces");
 
     await flushPaintBeforeVectorHardware();
-    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: true, layers: "wire" });
+    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: false, layers: "wire" });
     await flushPaintBeforeVectorHardware();
     octx.save();
     octx.globalCompositeOperation = "destination-over";
