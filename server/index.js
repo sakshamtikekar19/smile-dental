@@ -56,9 +56,10 @@ app.post('/api/smile', async (req, res) => {
       image,
       mask,
       prompt:
-        'Enhance realism of the teeth and mouth area. Improve lighting, texture, and blending. Do not change shape, alignment, or identity. Keep everything natural.',
+        'Ultra-realistic human teeth, natural enamel texture, professional dental whitening, medical photography, 8k.',
       negative_prompt:
         'face change, new teeth, distorted mouth, unrealistic, plastic, beauty filter',
+      content_weight: 0.85,
       num_inference_steps: 20,
       guidance_scale: 5,
       strength: 0.25,

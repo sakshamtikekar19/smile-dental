@@ -24,8 +24,8 @@ const MOUTH_FALLBACK_INDICES = [61, 291, 13, 14, 78, 308];
 /** Used only for sanity (eyes should sit above the mouth), not for mouth box math */
 const EYE_SANITY_INDICES = [33, 133, 362, 263];
 const OVAL_FEATHER_PX = 16;
-/** Ivory-layer edge soften (px); pairs with source-atop so whitening doesn’t cut hard against lips. */
-const MASK_CLIP_FEATHER_PX = 2;
+/** Feathered lip-protection edge on whitening mask. */
+const MASK_CLIP_FEATHER_PX = 10;
 
 /** Inner-only teeth loop — tissue-safe whitening (tighter than lip line). */
 const TEETH_WHITEN_MASK_INDICES = [13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
@@ -876,7 +876,10 @@ const SmileSimulatorAI = () => {
           const bottom = c.reduce((best, p) => (isUpper ? (p.y > best.y ? p : best) : (p.y < best.y ? p : best)), c[0]);
           const center = { x: (peak.x + bottom.x) / 2, y: (peak.y + bottom.y) / 2 };
           const toothHeight = Math.max(2, Math.abs(bottom.y - peak.y));
-          return { peak, bottom, center, toothHeight };
+          const minX = Math.min(...c.map((p) => p.x));
+          const maxX = Math.max(...c.map((p) => p.x));
+          const toothWidth = Math.max(2, maxX - minX);
+          return { peak, bottom, center, toothHeight, toothWidth };
         })
         .sort((a, b) => a.center.x - b.center.x);
     };
@@ -894,8 +897,8 @@ const SmileSimulatorAI = () => {
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
-    const wireDarkW = 0.8;
-    const wireShimmerW = 0.45;
+    const wireDarkW = 0.5;
+    const wireShimmerW = 0.3;
     const baseW = clamp(scale * 0.0046, 1.6, 3.6);
     const baseH = clamp(scale * 0.0078, 2.4, 5.0);
     const teethPoly = buildTeethPolygonPx(landmarks, iw, ih);
@@ -906,7 +909,9 @@ const SmileSimulatorAI = () => {
     const buildAnchors = (teeth) => {
       if (!teeth.length) return [];
       const heights = teeth.map((t) => t.toothHeight).sort((a, b) => a - b);
+      const widths = teeth.map((t) => t.toothWidth).sort((a, b) => a - b);
       const medianH = heights[Math.floor(heights.length / 2)] || 8;
+      const medianW = widths[Math.floor(widths.length / 2)] || 8;
       return teeth
         .map((tooth) => {
           const cx = tooth.center.x;
@@ -914,7 +919,7 @@ const SmileSimulatorAI = () => {
           if (teethPoly.length >= 3 && !pointInPolygon(cx, cy, teethPoly)) return null;
           const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
           const perspective = 1 - 0.4 * edge; // center=100%, corners=60%
-          const sizeByTooth = clamp((tooth.toothHeight / medianH) * 0.95, 0.7, 1.2);
+          const sizeByTooth = clamp(((tooth.toothWidth / medianW) * 0.65 + (tooth.toothHeight / medianH) * 0.35) * 0.95, 0.7, 1.25);
           return {
             x: cx,
             y: cy,
@@ -952,15 +957,26 @@ const SmileSimulatorAI = () => {
 
     const strokeWire = (anchors) => {
       if (anchors.length < 2) return;
+      // Catmull-Rom spline converted to cubic bezier for tight, natural wire tension.
       ctx.beginPath();
       ctx.moveTo(anchors[0].x, anchors[0].y);
-      for (let i = 1; i < anchors.length; i++) ctx.lineTo(anchors[i].x, anchors[i].y);
+      for (let i = 0; i < anchors.length - 1; i++) {
+        const p0 = anchors[Math.max(i - 1, 0)];
+        const p1 = anchors[i];
+        const p2 = anchors[i + 1];
+        const p3 = anchors[Math.min(i + 2, anchors.length - 1)];
+        const cp1x = p1.x + (p2.x - p0.x) / 6;
+        const cp1y = p1.y + (p2.y - p0.y) / 6;
+        const cp2x = p2.x - (p3.x - p1.x) / 6;
+        const cp2y = p2.y - (p3.y - p1.y) / 6;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      }
     };
 
     const metallicWire = ctx.createLinearGradient(0, oval.cy - oval.ry, 0, oval.cy + oval.ry);
-    metallicWire.addColorStop(0, "#333");
-    metallicWire.addColorStop(0.5, "#AAA");
-    metallicWire.addColorStop(1, "#333");
+    metallicWire.addColorStop(0, "#222");
+    metallicWire.addColorStop(0.5, "#BBB");
+    metallicWire.addColorStop(1, "#222");
 
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.42)";
@@ -1287,7 +1303,7 @@ const SmileSimulatorAI = () => {
        * Replicate/SDXL inpainting on small mouth crops often produces cyan/blue glow or wrong colors.
        * Whitening/alignment use the canvas-enhanced mouthCrop only (natural, stable). Re-enable polish later with a teeth-specific model if needed.
        */
-      const useReplicatePolish = Boolean(AI_SMILE_API);
+      const useReplicatePolish = true;
 
       let aiPolishedCrop = null;
       if (useReplicatePolish && AI_SMILE_API) {
