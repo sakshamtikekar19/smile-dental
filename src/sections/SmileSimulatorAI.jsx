@@ -52,16 +52,17 @@ const MOUTH_LANDMARKS = TEETH_WHITEN_MASK_INDICES;
 const NOSE_MIDLINE_IDX = 4;
 const CHIN_MIDLINE_IDX = 152;
 const MIDLINE_BRACKET_SPACING_PX = 28;
-/** Fixed odd count: one column on nose–chin midline; independent of mouth-width heuristics (geometric guarantee). */
-const GEOMETRIC_BRACKET_COUNT = 11;
+/** Commissures → mouth width (px) for bracket count = round(span/28), odd. */
+const COMMISSURE_LEFT_IDX = 61;
+const COMMISSURE_RIGHT_IDX = 291;
 /** Mean Y of these FaceMesh points → upper lip band (occlusal anchor, not generic mid-face). */
 const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78, 191, 80, 81, 82, 312, 311, 310];
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
-/** Subtle labial parabola only — keeps wire on enamel, not bowed into lips. */
-const LABIAL_BOW_STRENGTH = 0.42;
-/** Archwire + bracket hardware: strong float shadow (medical overlay readability). */
-const ARCHWIRE_LINE_WIDTH_PX = 3;
+/** Labial parabola: center bulges toward lips (visible U-arch vs straight Catmull span). */
+const LABIAL_BOW_STRENGTH = 1;
+/** Archwire stroke (px); readable on bright whitened enamel. */
+const ARCHWIRE_LINE_WIDTH_PX = 2.5;
 const ARCHWIRE_SHADOW_BLUR_PX = 5;
 const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
@@ -1005,12 +1006,12 @@ const SmileSimulatorAI = () => {
     ctx.beginPath();
     ctx.ellipse(-hw * 0.34, -hw * 0.34, side * 0.11, side * 0.11, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "#2a2c30";
+    ctx.strokeStyle = "#5a5f66";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.45, 0);
-    ctx.lineTo(hw * 0.45, 0);
+    ctx.moveTo(-hw * 0.46, 0);
+    ctx.lineTo(hw * 0.46, 0);
     ctx.stroke();
     if (starFlare) {
       ctx.strokeStyle = "rgba(255,255,255,0.5)";
@@ -1038,13 +1039,27 @@ const SmileSimulatorAI = () => {
     return (ys.reduce((a, b) => a + b, 0) / ys.length) * ih;
   };
 
+  const getCommissureArchSpanPx = (landmarks, iw, ih) => {
+    const a = landmarks[COMMISSURE_LEFT_IDX];
+    const b = landmarks[COMMISSURE_RIGHT_IDX];
+    if (!a || !b || typeof a.x !== "number" || typeof b.x !== "number") return null;
+    return Math.hypot((b.x - a.x) * iw, (b.y - a.y) * ih);
+  };
+
   /**
-   * Iron-arch: nose–chin midline X; bracket Y from upper/lower lip mean Y (enamel band), not lip-biased bulge.
-   * Upper row sits occlusal-ward in the upper half of the lip opening; lower row in the lower half — subtle parabola only.
+   * Nose–chin midline X; bracket count ≈ mouth width ÷ 28 (odd); 28px columns; parabolic U bow toward lips.
+   * Vertical rows pinned from upper/lower lip mean Y (enamel band).
    */
   const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
     const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
-    const nTarget = GEOMETRIC_BRACKET_COUNT;
+    let archSpanPx = getCommissureArchSpanPx(landmarks, iw, ih);
+    if (archSpanPx == null || archSpanPx < 48) {
+      archSpanPx = Math.max(oval.rx * 1.9, 150);
+    }
+    let nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 7, 17);
+    if (nTarget % 2 === 0) {
+      nTarget = nTarget < 17 ? nTarget + 1 : nTarget - 1;
+    }
 
     const upperMeanY = meanLandmarkYpx(landmarks, BRACES_UPPER_LIP_Y_INDICES, ih);
     const lowerMeanY = meanLandmarkYpx(landmarks, BRACES_LOWER_LIP_Y_INDICES, ih);
@@ -1069,9 +1084,9 @@ const SmileSimulatorAI = () => {
     const upperBaseY = clamp(lipTop + (enamelMidY - lipTop) * 0.58, 4, ih - 4);
     const lowerBaseY = clamp(enamelMidY + (lipBot - enamelMidY) * 0.42, 4, ih - 4);
 
-    const bowScale = lipSpan * 0.09;
-    const upperBulge = Math.max(4, bowScale) * LABIAL_BOW_STRENGTH;
-    const lowerBulge = Math.max(5, bowScale * 1.05) * LABIAL_BOW_STRENGTH;
+    const bowScale = lipSpan * 0.2 + Math.max(oval.ry * 0.34, 10);
+    const upperBulge = Math.max(8, bowScale * 0.95) * LABIAL_BOW_STRENGTH;
+    const lowerBulge = Math.max(9, bowScale) * LABIAL_BOW_STRENGTH;
 
     const makeRow = (baseY, isUpper) => {
       const row = [];
@@ -1114,8 +1129,8 @@ const SmileSimulatorAI = () => {
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
-    /** ~1:1 medical bracket footprint (reads as a block, not a dot). */
-    const baseS = clamp(scale * 0.0062, 2.1, 4.6);
+    /** ~1:1 rounded-rect bracket; larger floor so JPEG/UI never reads as a dot. */
+    const baseS = clamp(scale * 0.0082, 3.2, 7.2);
     const baseW = baseS;
     const baseH = baseS;
     const biometric = getMidlineBracketRows(landmarks, iw, ih, oval);
@@ -1132,12 +1147,12 @@ const SmileSimulatorAI = () => {
           const cx = clamp(tooth.center.x, 4, iw - 5);
           const cy = clamp(tooth.center.y, 4, ih - 5);
           const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
-          const perspective = 0.6 + 0.4 * (1 - edge);
-          const sizeByTooth = clamp(((tooth.toothWidth / medianW) * 0.65 + (tooth.toothHeight / medianH) * 0.35) * 0.95, 0.7, 1.25);
+          const perspective = 0.72 + 0.28 * (1 - edge);
+          const sizeByTooth = clamp(((tooth.toothWidth / medianW) * 0.65 + (tooth.toothHeight / medianH) * 0.35) * 0.95, 0.82, 1.2);
           return {
             x: cx,
             y: cy,
-            wMult: perspective * sizeByTooth,
+            wMult: Math.max(0.88, perspective * sizeByTooth),
             star: false,
           };
         })
