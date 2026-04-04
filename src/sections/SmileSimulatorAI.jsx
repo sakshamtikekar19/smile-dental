@@ -59,25 +59,26 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Perspective-locked Iron Arch (jaw as one 3D unit):
- * - 1.5px wire × 2 arches: quadratic 61 → 13/14 peak → 291; stroke gradient along commissure chord (not screen-vertical).
- * - 11 equal-t samples on each curve; 15px column snap to brightest enamel cluster; skip stud if below white gate.
- * - 10×10 roundRect studs: radial #0a0a0a → #e8eaee; 1px UL highlight + 1px charcoal slot.
- * - Composite: 3px rgba(0,0,0,0.8) shadow; triple rAF before hardware draw (AI whitening underneath).
+ * Iron Arch (final mandate): 3-point Bézier only — no per-tooth kinks.
+ * - ~1px ultra-thin wire × 2 arches: 61 → labial peak (13/14) → 291; chord gradient #f8f9fa / #4a5058 / #f8f9fa.
+ * - 11 samples @ 10% t; ±20px column scan; whitest cluster wins; heavy pink/red penalty (anti-lip).
+ * - 10×10 studs: radial #050505 → #e8eaee; sharp 1px white UL; 1px charcoal slot.
+ * - 3px composite shadow rgba(0,0,0,0.7); triple rAF before hardware (on top of AI passes).
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
 const ARCH_LABIAL_PEAK_FRAC = 0.42;
-const ENAMEL_SNAP_SCAN_PX = 15;
-const ENAMEL_SNAP_MAX_DELTA_PX = 15;
+const ENAMEL_SNAP_SCAN_PX = 20;
+const ENAMEL_SNAP_MAX_DELTA_PX = 20;
 /** Min brightest-cluster luminance (0–255) to treat column as enamel (skip stud if below). */
 const ENAMEL_SNAP_MIN_LUM = 82;
 /** Lip-like sample → nudge stud X toward mouth midline (px, clamped). */
 const LIP_PINK_NUDGE_MAX_PX = 5;
-const ARCHWIRE_LINE_WIDTH_PX = 1.5;
+/** Surgical wire: 1–1.5px range; 1px reads thinnest on canvas. */
+const ARCHWIRE_LINE_WIDTH_PX = 1;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 3;
-const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
+const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.7)";
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -956,7 +957,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * 1:1 roundRect: radial jet (#0a0a0a) → polished silver rim (#e8eaee); 1px white UL; 1px charcoal slot mid.
+   * 1:1 roundRect: radial jet (#050505) → polished silver rim (#e8eaee); sharp 1px white UL; charcoal slot.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -971,9 +972,9 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1.2;
     }
-    const body = ctx.createRadialGradient(0, 0, side * 0.05, 0, 0, hw * 1.06);
-    body.addColorStop(0, "#0a0a0a");
-    body.addColorStop(0.55, "#4a5058");
+    const body = ctx.createRadialGradient(0, 0, side * 0.04, 0, 0, hw * 1.06);
+    body.addColorStop(0, "#050505");
+    body.addColorStop(0.52, "#4a5058");
     body.addColorStop(1, "#e8eaee");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
@@ -987,11 +988,12 @@ const SmileSimulatorAI = () => {
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
+    ctx.lineJoin = "miter";
     ctx.beginPath();
-    ctx.moveTo(-hw + 1, -hw + 1);
-    ctx.lineTo(-hw + Math.min(4, side * 0.38), -hw + 1);
+    ctx.moveTo(-hw + 0.5, -hw + 0.5);
+    ctx.lineTo(-hw + Math.min(3.5, side * 0.34), -hw + 0.5);
     ctx.stroke();
-    ctx.strokeStyle = "#3d4550";
+    ctx.strokeStyle = "#2a3038";
     ctx.beginPath();
     ctx.moveTo(-hw * 0.45, 0);
     ctx.lineTo(hw * 0.45, 0);
@@ -1061,7 +1063,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * ±ENAMEL_SNAP_SCAN_PX vertical scan; returns best Y and that row’s brightest cluster L (enamel gate).
+   * ±ENAMEL_SNAP_SCAN_PX vertical scan; pick whitest local cluster; heavy pink/red penalty (lips vs enamel).
    */
   const snapBracketYToEnamelColumn = (data, width, height, cx, cyGuess) => {
     const x = Math.floor(clamp(cx, 2, width - 3));
@@ -1080,8 +1082,12 @@ const SmileSimulatorAI = () => {
       const minc = Math.min(r, g, b);
       const sat = maxc < 1 ? 0 : (maxc - minc) / maxc;
       const clusterL = clusterMaxLum(data, width, height, x, y);
-      const lipPenalty = r > g + 30 && r > b + 20 ? 22 : 0;
-      const score = clusterL - sat * 14 - lipPenalty;
+      let lipPenalty = 0;
+      if (r > g + 28 && r > b + 18) lipPenalty += 52;
+      else if (r > g + 14 && r > b + 10) lipPenalty += 32;
+      if (sat > 0.2 && r > g && r > 75) lipPenalty += 18;
+      if (r > 95 && g > 40 && b < r - 15 && sat > 0.15) lipPenalty += 24;
+      const score = clusterL * 1.04 - sat * 24 - lipPenalty;
       if (score > bestScore) {
         bestScore = score;
         bestY = y;
@@ -1267,9 +1273,9 @@ const SmileSimulatorAI = () => {
       upperQuad.p2.x,
       upperQuad.p2.y
     );
-    silverWire.addColorStop(0, "#e8eaee");
+    silverWire.addColorStop(0, "#f8f9fa");
     silverWire.addColorStop(0.5, "#4a5058");
-    silverWire.addColorStop(1, "#e8eaee");
+    silverWire.addColorStop(1, "#f8f9fa");
 
     const drawWire = () => {
       if (!upperQuad || !lowerQuad) return;
@@ -1368,7 +1374,7 @@ const SmileSimulatorAI = () => {
     });
 
   /**
-   * AI enamel → mouth pop → triple rAF → hardware overlay → 3px rgba(0,0,0,0.8) layer shadow (topmost).
+   * AI enamel → mouth pop → triple rAF → hardware overlay → 3px rgba(0,0,0,0.7) layer shadow (topmost).
    * fallbackGeometry: pre–AI-pass landmarks/oval/bounds if post-AI detectMouth fails.
    */
   const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds, fallbackGeometry = null) => {
