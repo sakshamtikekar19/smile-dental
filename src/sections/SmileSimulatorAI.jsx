@@ -59,24 +59,22 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Surgical isolation: TEETH_WHITEN ∩ enamel binary mask → repeated 3×3 erosion → CC blobs → one stud per centroid (opens interdental gaps).
- * If ≥4 blobs after erosion, centroid/Catmull only (no Bézier stud placement). 1.2px silver spline; Bézier only when ≤3 blobs or no raster.
+ * Centroid-only: no Bézier fallback — if CC finds zero blobs after erosion, render no hardware.
+ * High-contrast binary → 4× 3×3 erosion → CC (min blob 8px) → Catmull–Rom + 1px solid #e8eaee wire + studs.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
-const ARCH_BRACKET_SAMPLE_COUNT = 11;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 12;
-/** 3×3 binary erosion iterations on tooth mask before CC (separates merged “white bar” into tooth islands). */
-const TOOTH_MASK_ERODE_ITERATIONS = 2;
-const ARCH_LABIAL_PEAK_FRAC = 0.42;
-const ENAMEL_SNAP_SCAN_PX = 20;
-const ENAMEL_SNAP_MAX_DELTA_PX = 20;
-/** Min brightest-cluster luminance (0–255) to treat column as enamel (skip stud if below). */
-const ENAMEL_SNAP_MIN_LUM = 82;
-/** Lip-like sample → nudge stud X toward mouth midline (px, clamped). */
-const LIP_PINK_NUDGE_MAX_PX = 5;
-/** Surgical spline width (mandate: 1.2px). */
-const ARCHWIRE_LINE_WIDTH_PX = 1.2;
+/** Aggressive 3×3 erosion passes before connected components (isolate tooth islands). */
+const TOOTH_MASK_ERODE_ITERATIONS = 4;
+/** Minimum CC blob area (px); tiny white specks still anchor a stud. */
+const TOOTH_BLOB_MIN_AREA_PX = 8;
+/** Extra luminance floor on top of enamel rules for hard binary tooth mask. */
+const TOOTH_MASK_HIGH_CONTRAST_LUM_MIN = 62;
+/** Solid surgical wire (mandate: 1px). */
+const ARCHWIRE_LINE_WIDTH_PX = 1;
+/** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
+const BRACES_HARDWARE_SETTLE_MS = 50;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 3;
 const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
@@ -1012,122 +1010,6 @@ const SmileSimulatorAI = () => {
     ctx.restore();
   };
 
-  /** Nose–chin axis → midline X in pixels (stable vs per-tooth blur). */
-  const getFacialMidlineXPx = (landmarks, iw) => {
-    const n = landmarks?.[NOSE_MIDLINE_IDX];
-    const c = landmarks?.[CHIN_MIDLINE_IDX];
-    if (!n || !c || typeof n.x !== "number" || typeof c.x !== "number") return null;
-    return ((n.x + c.x) / 2) * iw;
-  };
-
-  const quadraticBezierPoint = (p0, p1, p2, t) => {
-    const u = 1 - t;
-    return {
-      x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
-      y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
-    };
-  };
-
-  /** First derivative of quadratic Bézier at t — wire/stud alignment stays smooth (no x-sort zigzags). */
-  const quadraticBezierTangent = (p0, p1, p2, t) => {
-    const u = 1 - t;
-    const dx = 2 * u * (p1.x - p0.x) + 2 * t * (p2.x - p1.x);
-    const dy = 2 * u * (p1.y - p0.y) + 2 * t * (p2.y - p1.y);
-    return { dx, dy };
-  };
-
-  /** Lip / gum pink (not bright white enamel): nudge stud toward midline. */
-  const isPinkLipSample = (r, g, b) => {
-    if (r < 70 || g < 40) return false;
-    const maxc = Math.max(r, g, b);
-    const minc = Math.min(r, g, b);
-    const sat = maxc < 1 ? 0 : (maxc - minc) / maxc;
-    if (sat < 0.12) return false;
-    return r > g + 8 && r > b + 6 && r + g + b < 620;
-  };
-
-  const sampleLum = (data, width, height, sx, sy) => {
-    if (sy < 1 || sy > height - 2 || sx < 1 || sx > width - 2) return 0;
-    const i = (Math.floor(sy) * width + Math.floor(sx)) * 4;
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-
-  /** Max luminance in a short vertical kernel (whitest “enamel cluster” in column). */
-  const clusterMaxLum = (data, width, height, sx, sy) => {
-    let m = 0;
-    for (let dy = -2; dy <= 2; dy++) {
-      const v = sampleLum(data, width, height, sx, sy + dy);
-      if (v > m) m = v;
-    }
-    return m;
-  };
-
-  /**
-   * ±ENAMEL_SNAP_SCAN_PX vertical scan; pick whitest local cluster; heavy pink/red penalty (lips vs enamel).
-   */
-  const snapBracketYToEnamelColumn = (data, width, height, cx, cyGuess) => {
-    const x = Math.floor(clamp(cx, 2, width - 3));
-    const rScan = ENAMEL_SNAP_SCAN_PX;
-    let bestY = Math.round(clamp(cyGuess, 2, height - 3));
-    let bestScore = -1e9;
-    let bestClusterL = 0;
-    const y0 = Math.floor(clamp(cyGuess - rScan, 2, height - 3));
-    const y1 = Math.floor(clamp(cyGuess + rScan, 2, height - 3));
-    for (let y = y0; y <= y1; y++) {
-      const i = (y * width + x) * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const maxc = Math.max(r, g, b);
-      const minc = Math.min(r, g, b);
-      const sat = maxc < 1 ? 0 : (maxc - minc) / maxc;
-      const clusterL = clusterMaxLum(data, width, height, x, y);
-      let lipPenalty = 0;
-      if (r > g + 28 && r > b + 18) lipPenalty += 52;
-      else if (r > g + 14 && r > b + 10) lipPenalty += 32;
-      if (sat > 0.2 && r > g && r > 75) lipPenalty += 18;
-      if (r > 95 && g > 40 && b < r - 15 && sat > 0.15) lipPenalty += 24;
-      const score = clusterL * 1.04 - sat * 24 - lipPenalty;
-      if (score > bestScore) {
-        bestScore = score;
-        bestY = y;
-        bestClusterL = clusterL;
-      }
-    }
-    const yi = Math.floor(clamp(bestY, 2, height - 3));
-    const ii = (yi * width + x) * 4;
-    return {
-      y: bestY,
-      peakL: bestClusterL,
-      pr: data[ii],
-      pg: data[ii + 1],
-      pb: data[ii + 2],
-    };
-  };
-
-  const applyEnamelSnapToAnchors = (anchors, data, width, height, midlineX) => {
-    if (!data?.length || !anchors?.length) return;
-    const mx = typeof midlineX === "number" ? midlineX : width * 0.5;
-    for (let i = 0; i < anchors.length; i++) {
-      const a = anchors[i];
-      const { y: yNew, peakL, pr, pg, pb } = snapBracketYToEnamelColumn(data, width, height, a.x, a.y);
-      if (peakL < ENAMEL_SNAP_MIN_LUM) {
-        a.skipStud = true;
-      } else {
-        a.y = clamp(yNew, a.y - ENAMEL_SNAP_MAX_DELTA_PX, a.y + ENAMEL_SNAP_MAX_DELTA_PX);
-        a.skipStud = false;
-        if (isPinkLipSample(pr, pg, pb)) {
-          const pull = mx - a.x;
-          const step = clamp(pull * 0.22, -LIP_PINK_NUDGE_MAX_PX, LIP_PINK_NUDGE_MAX_PX);
-          a.x = clamp(a.x + step, 4, width - 5);
-        }
-      }
-    }
-  };
-
   const pointInPolygonPx = (x, y, poly) => {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -1162,6 +1044,17 @@ const SmileSimulatorAI = () => {
     if (lum < ENAMEL_LUM_MIN || lum > ENAMEL_LUM_MAX || sat > ENAMEL_SAT_MAX) return false;
     if (r > g + 14 && r > b + 10 && sat > 0.16) return false;
     return true;
+  };
+
+  /** High-contrast binary tooth pixel (enamel rules + luminance floor) before erosion/CC. */
+  const pixelHighContrastTooth = (data, w, h, gx, gy) => {
+    if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) return false;
+    const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    return lum >= TOOTH_MASK_HIGH_CONTRAST_LUM_MIN;
   };
 
   const catmullRomPoint2D = (p0, p1, p2, p3, t) => {
@@ -1322,7 +1215,7 @@ const SmileSimulatorAI = () => {
         const gx = minX + lx;
         const gy = minY + ly;
         if (!pointInPolygonPx(gx + 0.5, gy + 0.5, poly)) continue;
-        if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) continue;
+        if (!pixelHighContrastTooth(data, w, h, gx, gy)) continue;
         mask[ly * bw + lx] = 1;
       }
     }
@@ -1333,10 +1226,10 @@ const SmileSimulatorAI = () => {
     }
 
     const polyArea = polygonAreaShoelace(poly);
-    const minA = clamp(Math.round(polyArea * 0.0018), 16, 130);
+    const minA = TOOTH_BLOB_MIN_AREA_PX;
     const maxA = clamp(Math.round(polyArea * 0.13), 400, 14000);
     const comps = labelEnamelBlobsCentroids(eroded, bw, bh, minX, minY, minA, maxA);
-    if (comps.length <= 3) return null;
+    if (comps.length === 0) return null;
 
     const ySplit = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
     let upper = comps.filter((c) => c.cy < ySplit).sort((a, b) => a.cx - b.cx);
@@ -1373,154 +1266,25 @@ const SmileSimulatorAI = () => {
     const wireSamplesLower =
       lowerPtsRaw.length > 0 ? sampleOpenCatmullRomChain(lowerPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
 
-    const lc = landmarks[COMMISSURE_LEFT_IDX];
-    const rc = landmarks[COMMISSURE_RIGHT_IDX];
-    let g0x = ((lc?.x ?? 0.5) * iw + (rc?.x ?? 0.5) * iw) * 0.5;
-    let g0y = ((lc?.y ?? 0.5) * ih + (rc?.y ?? 0.5) * ih) * 0.5;
-    let g2x = g0x;
-    let g2y = g0y;
-    if (lc && rc && typeof lc.x === "number" && typeof rc.x === "number") {
-      g0x = lc.x * iw;
-      g0y = lc.y * ih;
-      g2x = rc.x * iw;
-      g2y = rc.y * ih;
-    } else {
-      const merged = [...upper, ...lower].sort((a, b) => a.cx - b.cx);
-      if (merged.length >= 2) {
-        g0x = merged[0].cx;
-        g0y = merged[0].cy;
-        g2x = merged[merged.length - 1].cx;
-        g2y = merged[merged.length - 1].cy;
-      } else if (merged.length === 1) {
-        g0x = merged[0].cx;
-        g0y = merged[0].cy;
-        g2x = merged[0].cx + 2;
-        g2y = merged[0].cy;
-      }
-    }
-
     return {
       wireMode: "catmull",
       upperAnchors: anchorsFromCentroidRow(upper),
       lowerAnchors: anchorsFromCentroidRow(lower),
       wireSamplesUpper,
       wireSamplesLower,
-      wireGradientP0: { x: g0x, y: g0y },
-      wireGradientP2: { x: g2x, y: g2y },
-      upperQuad: null,
-      lowerQuad: null,
     };
   };
 
   /**
-   * One quadratic per arch: P0=61, P2=291; P1 from midline opening (13/14). No per-tooth geometry.
-   */
-  const buildGeometricArchQuads = (landmarks, iw, ih, oval) => {
-    const lc = landmarks[COMMISSURE_LEFT_IDX];
-    const rc = landmarks[COMMISSURE_RIGHT_IDX];
-    if (!lc || !rc || typeof lc.x !== "number" || typeof rc.x !== "number") return null;
-
-    const p0 = { x: lc.x * iw, y: lc.y * ih };
-    const p2 = { x: rc.x * iw, y: rc.y * ih };
-
-    const p13 = landmarks[13];
-    const p14 = landmarks[14];
-    const yChord = (p0.y + p2.y) * 0.5;
-    let upperCtrl;
-    let lowerCtrl;
-
-    if (p13 && p14 && typeof p13.x === "number" && typeof p14.x === "number" && typeof p13.y === "number" && typeof p14.y === "number") {
-      const midOpenX = ((p13.x + p14.x) / 2) * iw;
-      const midOpenY = ((p13.y + p14.y) / 2) * ih;
-      const opening = Math.abs(p14.y - p13.y) * ih;
-      upperCtrl = { x: midOpenX, y: midOpenY - opening * ARCH_LABIAL_PEAK_FRAC };
-      lowerCtrl = { x: midOpenX, y: midOpenY + opening * (ARCH_LABIAL_PEAK_FRAC * 1.08) };
-    } else {
-      const peakX = getFacialMidlineXPx(landmarks, iw) ?? (p0.x + p2.x) * 0.5;
-      const opening = Math.max(oval.ry * 0.85, 24);
-      upperCtrl = { x: peakX, y: yChord - opening * ARCH_LABIAL_PEAK_FRAC };
-      lowerCtrl = { x: peakX, y: yChord + opening * (ARCH_LABIAL_PEAK_FRAC * 1.06) };
-    }
-
-    return {
-      upperQuad: { p0, p1: upperCtrl, p2 },
-      lowerQuad: { p0: { ...p0 }, p1: lowerCtrl, p2: { ...p2 } },
-    };
-  };
-
-  /** Studs only on the geometric curve: t = 0, 1/(n-1), …, 1 — preserve order (no x-sort). */
-  const buildAnchorsOnQuad = (quad, oval, iw, ih) => {
-    const { p0, p1, p2 } = quad;
-    const n = ARCH_BRACKET_SAMPLE_COUNT;
-    const denom = Math.max(1, n - 1);
-    const anchors = [];
-    for (let k = 0; k < n; k++) {
-      const t = k / denom;
-      const q = quadraticBezierPoint(p0, p1, p2, t);
-      const { dx, dy } = quadraticBezierTangent(p0, p1, p2, t);
-      const ang = Math.atan2(dy, dx);
-      const cx = clamp(q.x, 4, iw - 5);
-      const cy = clamp(q.y, 4, ih - 5);
-      const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
-      const perspective = 0.72 + 0.28 * (1 - edge);
-      anchors.push({
-        x: cx,
-        y: cy,
-        ang,
-        wMult: Math.max(0.96, perspective),
-        star: false,
-        skipStud: false,
-      });
-    }
-    return anchors;
-  };
-
-  /**
-   * Eroded-mask CC: >3 blobs → centroid studs + Catmull only. Otherwise Bézier + column snap (no snap / ≤3 blobs).
+   * Centroid-only: no Bézier fallback — returns null if raster missing or zero tooth blobs after isolation.
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
-
     const centroidPack = buildCentroidBracesPack(landmarks, iw, ih, oval, enamelSnap);
-    if (centroidPack) {
-      return {
-        ...centroidPack,
-        baseW,
-        baseH,
-      };
-    }
-
-    const quads = buildGeometricArchQuads(landmarks, iw, ih, oval);
-    if (!quads) return null;
-
-    const midlineX = getFacialMidlineXPx(landmarks, iw) ?? (quads.upperQuad.p0.x + quads.upperQuad.p2.x) * 0.5;
-
-    let upperAnchors = buildAnchorsOnQuad(quads.upperQuad, oval, iw, ih);
-    let lowerAnchors = buildAnchorsOnQuad(quads.lowerQuad, oval, iw, ih);
-
-    if (enamelSnap?.data && enamelSnap.width && enamelSnap.height) {
-      applyEnamelSnapToAnchors(upperAnchors, enamelSnap.data, enamelSnap.width, enamelSnap.height, midlineX);
-      applyEnamelSnapToAnchors(lowerAnchors, enamelSnap.data, enamelSnap.width, enamelSnap.height, midlineX);
-    }
-
-    upperAnchors = upperAnchors.filter((a) => !a.skipStud);
-    lowerAnchors = lowerAnchors.filter((a) => !a.skipStud);
-
-    return {
-      upperAnchors,
-      lowerAnchors,
-      baseW,
-      baseH,
-      wireMode: "bezier",
-      wireSamplesUpper: null,
-      wireSamplesLower: null,
-      wireGradientP0: null,
-      wireGradientP2: null,
-      upperQuad: quads.upperQuad,
-      lowerQuad: quads.lowerQuad,
-    };
+    if (!centroidPack) return null;
+    return { ...centroidPack, baseW, baseH };
   };
 
   /** Soft contact shadows drawn with destination-over so they sit under studs/wire (overlay pass). */
@@ -1556,92 +1320,44 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Parabolic-arch wire + studs. `layers`: 'wire' | 'studs' | 'both' (overlay can paint wire → flush → studs).
-   * @param {{ omitStudShadow?: boolean, omitWireShadow?: boolean, layers?: 'wire' | 'studs' | 'both' }} opts
+   * Centroid-only Catmull wire + studs. `layers`: 'wire' | 'studs' | 'both'.
+   * @param {{ omitStudShadow?: boolean, layers?: 'wire' | 'studs' | 'both' }} opts
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
-    const { omitStudShadow = false, omitWireShadow = false, layers = "both", enamelSnap = null } = opts;
+    const { omitStudShadow = false, layers = "both", enamelSnap = null } = opts;
     const wireDarkW = ARCHWIRE_LINE_WIDTH_PX;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval, enamelSnap);
     if (!pack) return;
-    const {
-      upperAnchors,
-      lowerAnchors,
-      baseW,
-      baseH,
-      upperQuad,
-      lowerQuad,
-      wireMode,
-      wireSamplesUpper,
-      wireSamplesLower,
-      wireGradientP0,
-      wireGradientP2,
-    } = pack;
+    const { upperAnchors, lowerAnchors, baseW, baseH, wireSamplesUpper, wireSamplesLower } = pack;
 
     ctx.save();
 
-    const gx0 =
-      wireMode === "catmull" && wireGradientP0
-        ? wireGradientP0.x
-        : upperQuad?.p0.x ?? 0;
-    const gy0 =
-      wireMode === "catmull" && wireGradientP0
-        ? wireGradientP0.y
-        : upperQuad?.p0.y ?? 0;
-    const gx1 =
-      wireMode === "catmull" && wireGradientP2
-        ? wireGradientP2.x
-        : upperQuad?.p2.x ?? gx0 + 1;
-    const gy1 =
-      wireMode === "catmull" && wireGradientP2
-        ? wireGradientP2.y
-        : upperQuad?.p2.y ?? gy0;
-
-    /** Silver → steel → silver along commissure chord (or 61–291 when centroid wire). */
-    const silverWire = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
-    silverWire.addColorStop(0, "#f8f9fa");
-    silverWire.addColorStop(0.5, "#4a5058");
-    silverWire.addColorStop(1, "#f8f9fa");
+    /** Solid #e8eaee thread; depth from composite 3px shadow only. */
+    const ARCHWIRE_SOLID_SILVER = "#e8eaee";
 
     const drawWire = () => {
       ctx.save();
-      if (!omitWireShadow) {
-        ctx.shadowColor = HARDWARE_SHADOW_COLOR;
-        ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 1.5;
-      }
       ctx.beginPath();
-      if (wireMode === "catmull") {
-        let drewCat = false;
-        if (wireSamplesUpper?.length >= 2) {
-          ctx.moveTo(wireSamplesUpper[0].x, wireSamplesUpper[0].y);
-          for (let i = 1; i < wireSamplesUpper.length; i++) {
-            ctx.lineTo(wireSamplesUpper[i].x, wireSamplesUpper[i].y);
-          }
-          drewCat = true;
+      let drew = false;
+      if (wireSamplesUpper?.length >= 2) {
+        ctx.moveTo(wireSamplesUpper[0].x, wireSamplesUpper[0].y);
+        for (let i = 1; i < wireSamplesUpper.length; i++) {
+          ctx.lineTo(wireSamplesUpper[i].x, wireSamplesUpper[i].y);
         }
-        if (wireSamplesLower?.length >= 2) {
-          ctx.moveTo(wireSamplesLower[0].x, wireSamplesLower[0].y);
-          for (let j = 1; j < wireSamplesLower.length; j++) {
-            ctx.lineTo(wireSamplesLower[j].x, wireSamplesLower[j].y);
-          }
-          drewCat = true;
+        drew = true;
+      }
+      if (wireSamplesLower?.length >= 2) {
+        ctx.moveTo(wireSamplesLower[0].x, wireSamplesLower[0].y);
+        for (let j = 1; j < wireSamplesLower.length; j++) {
+          ctx.lineTo(wireSamplesLower[j].x, wireSamplesLower[j].y);
         }
-        if (!drewCat) {
-          ctx.restore();
-          return;
-        }
-      } else if (upperQuad && lowerQuad) {
-        ctx.moveTo(upperQuad.p0.x, upperQuad.p0.y);
-        ctx.quadraticCurveTo(upperQuad.p1.x, upperQuad.p1.y, upperQuad.p2.x, upperQuad.p2.y);
-        ctx.moveTo(lowerQuad.p0.x, lowerQuad.p0.y);
-        ctx.quadraticCurveTo(lowerQuad.p1.x, lowerQuad.p1.y, lowerQuad.p2.x, lowerQuad.p2.y);
-      } else {
+        drew = true;
+      }
+      if (!drew) {
         ctx.restore();
         return;
       }
-      ctx.strokeStyle = silverWire;
+      ctx.strokeStyle = ARCHWIRE_SOLID_SILVER;
       ctx.lineWidth = wireDarkW;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -1723,6 +1439,8 @@ const SmileSimulatorAI = () => {
       });
     });
 
+  const delayMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   /**
    * AI enamel → mouth pop → triple rAF → hardware overlay → 3px rgba(0,0,0,0.8) layer shadow (topmost).
    * fallbackGeometry: pre–AI-pass landmarks/oval/bounds if post-AI detectMouth fails.
@@ -1773,9 +1491,9 @@ const SmileSimulatorAI = () => {
     if (!octx) throw new Error("Could not get overlay context for braces");
 
     await flushPaintBeforeVectorHardware();
+    await delayMs(BRACES_HARDWARE_SETTLE_MS);
     const braceOpts = {
       omitStudShadow: true,
-      omitWireShadow: true,
       enamelSnap,
     };
     renderBraces(lm, octx, iw, ih, ov, { ...braceOpts, layers: "wire" });
