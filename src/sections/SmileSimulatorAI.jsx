@@ -55,16 +55,16 @@ const MIDLINE_BRACKET_SPACING_PX = 28;
 /** Commissures → mouth width (px); count snapped to odd professional set. */
 const COMMISSURE_LEFT_IDX = 61;
 const COMMISSURE_RIGHT_IDX = 291;
-/** Nearest odd count to span÷28 (always one column on nose–chin midline). */
-const PREFERRED_ODD_BRACKET_COUNTS = [9, 11, 13];
+/** Odd professional counts only 9 or 11 — one column exactly on nose–chin midline (default 11 for typical spans). */
+const PREFERRED_ODD_BRACKET_COUNTS = [9, 11];
 /** Mean Y of these FaceMesh points → upper lip band (occlusal anchor, not generic mid-face). */
 const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78, 191, 80, 81, 82, 312, 311, 310];
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
-/** Labial parabola scale — keep mild so wire sits on enamel, not into lip tissue. */
-const LABIAL_BOW_STRENGTH = 0.48;
-/** Archwire stroke (px); readable on bright whitened enamel. */
-const ARCHWIRE_LINE_WIDTH_PX = 2.5;
+/** Labial parabola — slight U toward lips while rows stay enamel-anchored. */
+const LABIAL_BOW_STRENGTH = 0.42;
+/** Archwire stroke (px); high contrast on whitened enamel. */
+const ARCHWIRE_LINE_WIDTH_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 5;
 const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
@@ -967,11 +967,11 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * 1:1 rounded-rect bracket: radial charcoal → #0a0a0a, pure #ffffff top-left glint, charcoal horizontal wire slot, 5px float shadow.
+   * Physical bracket: 1:1 roundRect body only (no circle studs) — radial steel → #0a0a0a, white corner facet, 1px slot, z-shadow.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
-    const r = Math.min(side * 0.24, side * 0.4);
+    const r = Math.min(side * 0.26, side * 0.38);
     const hw = side * 0.5;
     ctx.save();
     ctx.translate(x, y);
@@ -982,10 +982,10 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1.5;
     }
-    const body = ctx.createRadialGradient(-hw * 0.42, -hw * 0.42, side * 0.04, 0, 0, hw * 1.12);
-    body.addColorStop(0, "#6a6e76");
-    body.addColorStop(0.35, "#3a3d44");
-    body.addColorStop(0.7, "#1a1c20");
+    const body = ctx.createRadialGradient(-hw * 0.4, -hw * 0.4, side * 0.03, 0, 0, hw * 1.15);
+    body.addColorStop(0, "#707580");
+    body.addColorStop(0.32, "#3d4249");
+    body.addColorStop(0.68, "#14161a");
     body.addColorStop(1, "#0a0a0a");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
@@ -996,30 +996,30 @@ const SmileSimulatorAI = () => {
     ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255,255,255,0.16)";
-    ctx.lineWidth = Math.max(0.25, side * 0.055);
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = Math.max(0.28, side * 0.058);
     ctx.stroke();
-    const glint = ctx.createRadialGradient(-hw * 0.55, -hw * 0.55, 0, -hw * 0.36, -hw * 0.36, side * 0.34);
-    glint.addColorStop(0, "#ffffff");
-    glint.addColorStop(0.22, "#ffffff");
-    glint.addColorStop(0.5, "rgba(255,255,255,0.45)");
-    glint.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = glint;
-    ctx.beginPath();
-    ctx.ellipse(-hw * 0.34, -hw * 0.34, side * 0.11, side * 0.11, 0, 0, Math.PI * 2);
-    ctx.fill();
+    const chipW = side * 0.34;
+    const chipH = side * 0.22;
+    const chipR = Math.min(chipW, chipH) * 0.35;
+    const chipX = -hw + side * 0.08;
+    const chipY = -hw + side * 0.08;
     ctx.fillStyle = "#ffffff";
-    ctx.globalAlpha = 0.9;
+    ctx.globalAlpha = 0.95;
     ctx.beginPath();
-    ctx.arc(-hw * 0.44, -hw * 0.44, Math.max(side * 0.065, 0.8), 0, Math.PI * 2);
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(chipX, chipY, chipW, chipH, chipR);
+    } else {
+      ctx.rect(chipX, chipY, chipW, chipH);
+    }
     ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = "#4a5058";
+    ctx.strokeStyle = "#5c636c";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.46, 0);
-    ctx.lineTo(hw * 0.46, 0);
+    ctx.moveTo(-hw * 0.47, 0);
+    ctx.lineTo(hw * 0.47, 0);
     ctx.stroke();
     if (starFlare) {
       ctx.strokeStyle = "rgba(255,255,255,0.5)";
@@ -1055,8 +1055,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Nose–chin midline X; odd bracket count in {9,11,13} from mouth width÷28; 28px symmetric columns.
-   * Vertical anchor: mean upper-lip Y + mean lower-lip Y → dead center of smile window; arches offset into enamel, mild parabola.
+   * Nose–chin midline X (4+152); 28px symmetric columns; odd count 9 or 11 — default 11 when span allows.
+   * Enamel Y: average of upper vs lower lip boundary means = smile-window center; arches bracket that band.
    */
   const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
     const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
@@ -1064,9 +1064,9 @@ const SmileSimulatorAI = () => {
     if (archSpanPx == null || archSpanPx < 48) {
       archSpanPx = Math.max(oval.rx * 1.9, 150);
     }
-    let nGuess = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 9, 13);
+    let nGuess = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 9, 11);
     if (nGuess % 2 === 0) {
-      nGuess = nGuess < 13 ? nGuess + 1 : nGuess - 1;
+      nGuess = nGuess <= 9 ? 9 : 11;
     }
     const nTarget = PREFERRED_ODD_BRACKET_COUNTS.reduce((best, p) =>
       Math.abs(p - nGuess) < Math.abs(best - nGuess) ? p : best
@@ -1094,11 +1094,12 @@ const SmileSimulatorAI = () => {
       enamelMidY = (lipTop + lipBot) / 2;
     }
     const lipSpan = Math.max(lipBot - lipTop, 20);
-    const enamelHalf = lipSpan * 0.185;
+    /** Half-distance from enamel vertical center into upper/lower tooth bands (stays off lip red zone). */
+    const enamelHalf = lipSpan * 0.168;
     const upperBaseY = clamp(enamelMidY - enamelHalf, 4, ih - 4);
     const lowerBaseY = clamp(enamelMidY + enamelHalf, 4, ih - 4);
 
-    const bowScale = lipSpan * 0.085 + Math.max(oval.ry * 0.16, 6);
+    const bowScale = lipSpan * 0.078 + Math.max(oval.ry * 0.14, 5);
     const upperBulge = Math.max(3.5, bowScale * 0.92) * LABIAL_BOW_STRENGTH;
     const lowerBulge = Math.max(4, bowScale) * LABIAL_BOW_STRENGTH;
 
@@ -1143,8 +1144,8 @@ const SmileSimulatorAI = () => {
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const scale = Math.max(iw, ih);
-    /** ~1:1 rounded-rect bracket; larger floor so JPEG/UI never reads as a dot. */
-    const baseS = clamp(scale * 0.0082, 3.2, 7.2);
+    /** ~1:1 rounded-rect bracket; minimum size so downsampling never reads as a circular dot. */
+    const baseS = clamp(scale * 0.0092, 4, 8.5);
     const baseW = baseS;
     const baseH = baseS;
     const biometric = getMidlineBracketRows(landmarks, iw, ih, oval);
@@ -1166,7 +1167,7 @@ const SmileSimulatorAI = () => {
           return {
             x: cx,
             y: cy,
-            wMult: Math.max(0.88, perspective * sizeByTooth),
+            wMult: Math.max(0.96, perspective * sizeByTooth),
             star: false,
           };
         })
