@@ -61,19 +61,18 @@ const COMMISSURE_RIGHT_IDX = 291;
 const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78, 191, 80, 81, 82, 312, 311, 310];
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
-/** Mandate: ~12×12 px square studs (train-track read). */
+/**
+ * Iron Arch — geometric-first braces (no landmark chains):
+ * - One ctx.quadraticCurveTo() per arch: endpoints 61 & 291; control X from landmark 4, control Y from pure mouth opening (labial U).
+ * - Eleven bracket samples at t = 0…1 step 0.1; raster ±20px column snap to brightest enamel (anti-lip).
+ * - Hardware is last layer after triple requestAnimationFrame in applyBracesOverlay.
+ */
 const BRACKET_DRAW_SIDE_PX = 12;
-/** Geometric arch: 11 samples = every 10% along each quadratic Bézier. */
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
-/** Labial U: control Y offset vs commissure chord (landmark 4 supplies peak X only; L4.y is not occlusal). */
 const ARCH_LABIAL_PEAK_FRAC = 0.44;
-/** Vertical scan half-range for raster enamel snap (±20px). */
 const ENAMEL_SNAP_SCAN_PX = 20;
-/** Cap snap so studs stay near the analytic arch. */
 const ENAMEL_SNAP_MAX_DELTA_PX = 20;
-/** Archwire stroke (px); silver → black gradient. */
 const ARCHWIRE_LINE_WIDTH_PX = 2.5;
-/** Hardware layer composite shadow (after triple rAF). */
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 4;
 const ARCHWIRE_SHADOW_BLUR_PX = 4;
 const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
@@ -996,7 +995,7 @@ const SmileSimulatorAI = () => {
     }
     ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = "#4b5563";
+    ctx.strokeStyle = "#374151";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
@@ -1053,8 +1052,18 @@ const SmileSimulatorAI = () => {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   };
 
+  /** Max luminance in a short vertical kernel (whitest “enamel cluster” in column). */
+  const clusterMaxLum = (data, width, height, sx, sy) => {
+    let m = 0;
+    for (let dy = -2; dy <= 2; dy++) {
+      const v = sampleLum(data, width, height, sx, sy + dy);
+      if (v > m) m = v;
+    }
+    return m;
+  };
+
   /**
-   * ±ENAMEL_SNAP_SCAN_PX vertical scan: pick Y with brightest 3-row “cluster” (whitened enamel), mild anti-lip bias.
+   * ±ENAMEL_SNAP_SCAN_PX: for each candidate Y, score = brightest 5-row cluster (whitest enamel); light anti-lip tint.
    */
   const snapBracketYToEnamelColumn = (data, width, height, cx, cyGuess) => {
     const x = Math.floor(clamp(cx, 2, width - 3));
@@ -1068,15 +1077,12 @@ const SmileSimulatorAI = () => {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
-      const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      const Lup = sampleLum(data, width, height, x, y - 1);
-      const Ldn = sampleLum(data, width, height, x, y + 1);
-      const clusterL = Math.max(L, Lup * 0.92, Ldn * 0.92);
       const maxc = Math.max(r, g, b);
       const minc = Math.min(r, g, b);
       const sat = maxc < 1 ? 0 : (maxc - minc) / maxc;
-      const lipPenalty = r > g + 30 && r > b + 20 ? 28 : 0;
-      const score = clusterL - sat * 22 - lipPenalty;
+      const clusterL = clusterMaxLum(data, width, height, x, y);
+      const lipPenalty = r > g + 30 && r > b + 20 ? 22 : 0;
+      const score = clusterL - sat * 14 - lipPenalty;
       if (score > bestScore) {
         bestScore = score;
         bestY = y;
