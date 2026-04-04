@@ -59,15 +59,21 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Center-lock grid scan: TEETH_WHITEN ROI → enamel mask → 18 columns → per-arch vertical mid on deepest X →
- * min-spacing filter → 1.2px #e8eaee Catmull (≥20 steps/segment). No Bézier fallback.
+ * Luminance-peak anchors: 18 columns × 3 sub-strips (brightest strip wins X) → vertical mid in safe zone →
+ * upper strict luminance peaks → lower mirrors upper X, cy ≥ ySplit+10 → 3-pt moving avg → 1.2px Catmull.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
 /** Horizontal strips for column scan (higher density for wide smiles). */
 const GRID_ENAMEL_COLUMNS = 18;
-/** Drop grid samples closer than this to the previous kept point (reduces bunched studs). */
+/** Sub-strips per column for luminance comparison (brightest = tooth center vs interdental gap). */
+const LUMINANCE_COLUMN_SUB_STRIPS = 3;
+/** Clamp vertical stud position inside each run: inset from gum and incisal edges (fraction of run height). */
+const BRACKET_VERTICAL_SAFE_INSET_FRAC = 0.2;
+/** Lower-arch studs must sit at least this far below lip-opening Y (image px). */
+const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
+/** Drop grid samples closer than this to the previous kept point (fallback / lower rescue). */
 const GRID_SCAN_MIN_NEIGHBOR_DIST_PX = 12;
 /** Surgical silver spline (mandate). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
@@ -1080,105 +1086,187 @@ const SmileSimulatorAI = () => {
     return pts.map((p) => ({ x: p.x, y: p.y }));
   };
 
-  /** Euclidean min-spacing along a sorted row (keeps left-to-right grid order). */
-  const filterArchPointsMinSpacing = (row, minDistPx) => {
-    if (row.length === 0) return [];
-    const minD2 = minDistPx * minDistPx;
-    const out = [row[0]];
-    for (let i = 1; i < row.length; i++) {
-      const p = row[i];
-      const last = out[out.length - 1];
-      const dx = p.cx - last.cx;
-      const dy = p.cy - last.cy;
-      if (dx * dx + dy * dy >= minD2) out.push(p);
-    }
-    return out;
+  const sampleLuminanceGlobal = (data, w, imgH, gx, gy) => {
+    if (gx < 0 || gy < 0 || gx >= w || gy >= imgH) return 0;
+    const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
+    return 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
   };
 
-  /** Uniform subsample if still too many studs after spacing filter. */
-  const capArchPointCount = (row, maxN) => {
-    if (row.length <= maxN) return row;
-    if (maxN <= 1) return [row[0]];
-    const n = row.length;
-    const out = [];
-    for (let k = 0; k < maxN; k++) {
-      const idx = Math.round((k * (n - 1)) / (maxN - 1));
-      out.push(row[idx]);
+  const clampBracketMidY = (midLy, topLy, botLy, frac) => {
+    const span = botLy - topLy + 1;
+    if (span < 3) return clamp(midLy, topLy, botLy);
+    const lo = topLy + frac * span;
+    const hi = botLy - frac * span;
+    if (lo > hi) return clamp(midLy, topLy, botLy);
+    return clamp(midLy, lo, hi);
+  };
+
+  const longestRunOneLx = (mask, bw, lx, y0, y1) => {
+    let runTop = -1;
+    let runLen = 0;
+    let brTop = -1;
+    let brBot = -1;
+    let brLen = 0;
+    const flush = () => {
+      if (runLen > brLen) {
+        brLen = runLen;
+        brTop = runTop;
+        brBot = runTop + runLen - 1;
+      }
+      runLen = 0;
+      runTop = -1;
+    };
+    for (let ly = y0; ly <= y1; ly++) {
+      if (mask[ly * bw + lx] === 1) {
+        if (runLen === 0) runTop = ly;
+        runLen++;
+      } else flush();
     }
-    return out;
+    flush();
+    if (brLen === 0) return null;
+    return { top: brTop, bot: brBot, len: brLen };
   };
 
   /**
-   * Grid columns on the enamel mask. Per column and per arch (split at mouth opening in ROI Y):
-   * pick the X with the longest contiguous vertical run of enamel, then place the stud at that run’s vertical mid.
+   * Per column: 3 sub-strips → brightest wins X (sub-strip center); Y = safe-clamped mid of longest run in that strip.
    */
-  const gridScanEnamelCenterLock = (mask, bw, bh, minX, minY, cols, ySplitLocalPx) => {
-    const split = clamp(Math.round(ySplitLocalPx), 1, Math.max(1, bh - 1));
-    const yUpperEnd = split - 1;
-    const yLowerStart = split;
-    const upper = [];
-    const lower = [];
-    const lxCenter = (xStart, xEnd) => (xStart + xEnd) * 0.5;
-
-    const pickStudInBand = (xStart, xEnd, y0, y1) => {
-      if (y0 > y1) return null;
-      const colCenter = lxCenter(xStart, xEnd);
-      let bestLx = -1;
-      let bestDepth = -1;
-      let bestMidY = 0;
-      for (let lx = xStart; lx <= xEnd; lx++) {
-        let runTop = -1;
-        let runLen = 0;
-        let bestRunTop = -1;
-        let bestRunBot = -1;
-        let bestRunLen = 0;
-        const flushRun = (top, len) => {
-          if (len <= 0 || top < 0) return;
-          const bot = top + len - 1;
-          if (len > bestRunLen) {
-            bestRunLen = len;
-            bestRunTop = top;
-            bestRunBot = bot;
-          }
-        };
+  const pickColumnStudLuminancePeak = (
+    data,
+    w,
+    mask,
+    bw,
+    minX,
+    minY,
+    xStart,
+    xEnd,
+    y0,
+    y1,
+    nSub,
+  ) => {
+    if (y0 > y1 || xEnd < xStart) return null;
+    const colW = xEnd - xStart + 1;
+    let bestAvg = -1;
+    let bestSub = -1;
+    for (let s = 0; s < nSub; s++) {
+      const sx0 = xStart + Math.floor((s * colW) / nSub);
+      const sx1 = xStart + Math.floor(((s + 1) * colW) / nSub) - 1;
+      if (sx1 < sx0) continue;
+      let sum = 0;
+      let cnt = 0;
+      for (let lx = sx0; lx <= sx1; lx++) {
         for (let ly = y0; ly <= y1; ly++) {
-          if (mask[ly * bw + lx] === 1) {
-            if (runLen === 0) runTop = ly;
-            runLen++;
-          } else {
-            flushRun(runTop, runLen);
-            runLen = 0;
-            runTop = -1;
-          }
-        }
-        flushRun(runTop, runLen);
-        if (bestRunLen === 0) continue;
-        const depth = bestRunLen;
-        const midY = (bestRunTop + bestRunBot) * 0.5;
-        const tieBreak = Math.abs(lx - colCenter);
-        const bestTie = bestLx < 0 ? Infinity : Math.abs(bestLx - colCenter);
-        if (depth > bestDepth || (depth === bestDepth && tieBreak < bestTie)) {
-          bestDepth = depth;
-          bestLx = lx;
-          bestMidY = midY;
+          if (mask[ly * bw + lx] !== 1) continue;
+          sum += sampleLuminanceGlobal(data, w, h, minX + lx, minY + ly);
+          cnt++;
         }
       }
-      if (bestLx < 0) return null;
-      return { cx: minX + bestLx, cy: minY + bestMidY, area: 1 };
-    };
-
-    for (let c = 0; c < cols; c++) {
-      const xStart = Math.floor((c * bw) / cols);
-      const xEnd = Math.min(bw - 1, Math.ceil(((c + 1) * bw) / cols) - 1);
-      if (xEnd < xStart) continue;
-      const u = pickStudInBand(xStart, xEnd, 0, yUpperEnd);
-      if (u) upper.push(u);
-      const lo = pickStudInBand(xStart, xEnd, yLowerStart, bh - 1);
-      if (lo) lower.push(lo);
+      const avg = cnt > 0 ? sum / cnt : -1;
+      if (avg > bestAvg) {
+        bestAvg = avg;
+        bestSub = s;
+      }
     }
-    upper.sort((a, b) => a.cx - b.cx);
-    lower.sort((a, b) => a.cx - b.cx);
-    return { upper, lower };
+    if (bestAvg < 0) return null;
+    const sx0 = xStart + Math.floor((bestSub * colW) / nSub);
+    const sx1 = xStart + Math.floor(((bestSub + 1) * colW) / nSub) - 1;
+    const stripCenterLx = (sx0 + sx1) * 0.5;
+    let bestLx = -1;
+    let bestDepth = -1;
+    let bestTop = 0;
+    let bestBot = 0;
+    for (let lx = sx0; lx <= sx1; lx++) {
+      const run = longestRunOneLx(mask, bw, lx, y0, y1);
+      if (!run) continue;
+      const tie = Math.abs(lx - stripCenterLx);
+      const bestTie = bestLx < 0 ? Infinity : Math.abs(bestLx - stripCenterLx);
+      if (run.len > bestDepth || (run.len === bestDepth && tie < bestTie)) {
+        bestDepth = run.len;
+        bestLx = lx;
+        bestTop = run.top;
+        bestBot = run.bot;
+      }
+    }
+    if (bestLx < 0) return null;
+    const midRaw = (bestTop + bestBot) * 0.5;
+    const midClamped = clampBracketMidY(midRaw, bestTop, bestBot, BRACKET_VERTICAL_SAFE_INSET_FRAC);
+    return {
+      cx: minX + stripCenterLx,
+      cy: minY + midClamped,
+      peakMetric: bestAvg,
+    };
+  };
+
+  /** Strict local maxima on peakMetric along sorted columns; fallback = bright spaced picks (≤8). */
+  const pickStrictLuminancePeaks = (cands) => {
+    if (cands.length === 0) return [];
+    if (cands.length === 1) return [cands[0]];
+    const n = cands.length;
+    const strict = [];
+    for (let i = 0; i < n; i++) {
+      const prev = i > 0 ? cands[i - 1].peakMetric : -Infinity;
+      const next = i < n - 1 ? cands[i + 1].peakMetric : -Infinity;
+      if (cands[i].peakMetric > prev && cands[i].peakMetric > next) strict.push(cands[i]);
+    }
+    if (strict.length >= 2) {
+      strict.sort((a, b) => a.cx - b.cx);
+      return strict;
+    }
+    const minD2 = GRID_SCAN_MIN_NEIGHBOR_DIST_PX * GRID_SCAN_MIN_NEIGHBOR_DIST_PX;
+    const sorted = [...cands].sort((a, b) => b.peakMetric - a.peakMetric);
+    const fallback = [];
+    for (const c of sorted) {
+      let ok = true;
+      for (const p of fallback) {
+        const dx = p.cx - c.cx;
+        if (dx * dx < minD2) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) fallback.push(c);
+      if (fallback.length >= 8) break;
+    }
+    fallback.sort((a, b) => a.cx - b.cx);
+    return (fallback.length > 0 ? fallback : [...cands]).sort((a, b) => a.cx - b.cx);
+  };
+
+  /** Same cx as upper; cy from lower-band run at nearest lx, forced ≥ ySplit + offset. */
+  const mirrorLowerStudsToUpper = (mask, bw, bh, minX, minY, yLower0, yLower1, ySplitImg, upperRow) => {
+    return upperRow.map((u) => {
+      const lx0 = clamp(Math.round(u.cx - minX), 0, bw - 1);
+      let bestRun = null;
+      for (let d = 0; d <= 6; d++) {
+        const tries =
+          d === 0
+            ? [lx0]
+            : [clamp(lx0 - d, 0, bw - 1), clamp(lx0 + d, 0, bw - 1)];
+        for (const lx of tries) {
+          const run = longestRunOneLx(mask, bw, lx, yLower0, yLower1);
+          if (run && (!bestRun || run.len > bestRun.len)) bestRun = run;
+        }
+      }
+      let cy = Math.max(ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX, minY + yLower0 + 2);
+      if (bestRun) {
+        const midRaw = (bestRun.top + bestRun.bot) * 0.5;
+        const midClamped = clampBracketMidY(midRaw, bestRun.top, bestRun.bot, BRACKET_VERTICAL_SAFE_INSET_FRAC);
+        cy = Math.max(minY + midClamped, ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX);
+      }
+      return { cx: u.cx, cy, area: 1 };
+    });
+  };
+
+  const smoothArchCentroidsMovingAvg3 = (row) => {
+    if (row.length === 0) return [];
+    if (row.length < 3) return row.map((r) => ({ cx: r.cx, cy: r.cy, area: r.area ?? 1 }));
+    return row.map((_, i) => {
+      const i0 = Math.max(0, i - 1);
+      const i2 = Math.min(row.length - 1, i + 1);
+      return {
+        cx: (row[i0].cx + row[i].cx + row[i2].cx) / 3,
+        cy: (row[i0].cy + row[i].cy + row[i2].cy) / 3,
+        area: row[i].area ?? 1,
+      };
+    });
   };
 
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
@@ -1201,7 +1289,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Full enamel mask in TEETH_WHITEN → center-lock grid (18 cols, mid-Y on deepest X per arch) → spacing → Catmull wire + studs.
+   * Enamel mask → 18×3 luminance strips → upper strict peaks → lower mirrors upper X (≥ ySplit+10) → 3-pt smooth → Catmull.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
@@ -1232,21 +1320,40 @@ const SmileSimulatorAI = () => {
       }
     }
 
-    const ySplitLocal = ((landmarks[13].y + landmarks[14].y) / 2) * ih - minY;
-    let { upper, lower } = gridScanEnamelCenterLock(
-      mask,
-      bw,
-      bh,
-      minX,
-      minY,
-      GRID_ENAMEL_COLUMNS,
-      ySplitLocal,
-    );
-    upper = filterArchPointsMinSpacing(upper, GRID_SCAN_MIN_NEIGHBOR_DIST_PX);
-    lower = filterArchPointsMinSpacing(lower, GRID_SCAN_MIN_NEIGHBOR_DIST_PX);
-    upper = capArchPointCount(upper, MAX_CENTROID_STUDS_PER_ARCH);
-    lower = capArchPointCount(lower, MAX_CENTROID_STUDS_PER_ARCH);
-    if (upper.length === 0 && lower.length === 0) return null;
+    const ySplitImg = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
+    const ySplitLocal = ySplitImg - minY;
+    const split = clamp(Math.round(ySplitLocal), 1, Math.max(1, bh - 1));
+    const yUpperEnd = split - 1;
+    const yLowerStart = split;
+
+    const upperCands = [];
+    for (let c = 0; c < GRID_ENAMEL_COLUMNS; c++) {
+      const xStart = Math.floor((c * bw) / GRID_ENAMEL_COLUMNS);
+      const xEnd = Math.min(bw - 1, Math.ceil(((c + 1) * bw) / GRID_ENAMEL_COLUMNS) - 1);
+      if (xEnd < xStart) continue;
+      const u = pickColumnStudLuminancePeak(
+        data,
+        w,
+        mask,
+        bw,
+        minX,
+        minY,
+        xStart,
+        xEnd,
+        0,
+        yUpperEnd,
+        LUMINANCE_COLUMN_SUB_STRIPS,
+      );
+      if (u) upperCands.push(u);
+    }
+    upperCands.sort((a, b) => a.cx - b.cx);
+    let upper = pickStrictLuminancePeaks(upperCands);
+    upper = upper.slice(0, MAX_CENTROID_STUDS_PER_ARCH);
+    if (upper.length === 0) return null;
+
+    let lower = mirrorLowerStudsToUpper(mask, bw, bh, minX, minY, yLowerStart, bh - 1, ySplitImg, upper);
+    upper = smoothArchCentroidsMovingAvg3(upper);
+    lower = smoothArchCentroidsMovingAvg3(lower);
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
@@ -1286,7 +1393,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Grid-scan Catmull wire (no Bézier path): null if no raster snap or grid yields no enamel columns.
+   * Luminance-peak Catmull wire (no Bézier path): null if no raster snap or no upper enamel columns.
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
@@ -1389,6 +1496,7 @@ const SmileSimulatorAI = () => {
       ctx.lineWidth = lw;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
+      ctx.setLineDash([]);
       requestAnimationFrame(() => {
         ctx.stroke();
         ctx.restore();
