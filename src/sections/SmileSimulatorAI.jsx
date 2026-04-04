@@ -59,22 +59,16 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Centroid segregation: full enamel in TEETH_WHITEN → Sobel(luminance) edges → DT seeds + edge-barrier watershed →
- * one stud per island; 1.2px #e8eaee Catmull per arch. No erosion, no Bézier fallback.
+ * Grid enamel scan: TEETH_WHITEN ROI → full enamel mask → 12-column top/bottom samples → min-spacing filter →
+ * 1.2px #e8eaee Catmull (≥20 steps/segment). Two arches cannot cross; no watershed, no Bézier fallback.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
-/** Catmull–Rom samples per inter-centroid segment (smooth curved archwire). */
-const CATMULL_WIRE_STEPS_PER_SEGMENT = 14;
-/** Minimum labeled tooth region area (px). */
-const TOOTH_BLOB_MIN_AREA_PX = 8;
-/** Sobel threshold = this quantile of edge magnitude inside enamel mask (tune if too few/many splits). */
-const SOBEL_EDGE_QUANTILE = 0.68;
-/** Dilate binary edge barriers (interdental “cuts”). */
-const SOBEL_EDGE_DILATE_PASSES = 2;
-/** Distance-to-boundary required for a watershed seed (px). */
-const WATERSHED_MIN_DT_SEED = 4;
-/** Minimum Chebyshev distance between seeds. */
-const WATERSHED_SEED_MIN_DIST = 6;
+/** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
+const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
+/** Horizontal strips for column scan (mandate). */
+const GRID_ENAMEL_COLUMNS = 12;
+/** Drop grid samples closer than this to the previous kept point (reduces bunched studs). */
+const GRID_SCAN_MIN_NEIGHBOR_DIST_PX = 15;
 /** Surgical silver spline (mandate). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 /** Cap studs per arch (wide smiles); raise to keep one stud per visible tooth. */
@@ -1029,14 +1023,6 @@ const SmileSimulatorAI = () => {
     return inside;
   };
 
-  const polygonAreaShoelace = (poly) => {
-    let a = 0;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      a += poly[j].x * poly[i].y - poly[i].x * poly[j].y;
-    }
-    return Math.abs(a * 0.5);
-  };
-
   const pixelEnamelInTeethMask = (data, w, h, gx, gy) => {
     if (gx < 1 || gy < 1 || gx >= w - 1 || gy >= h - 1) return false;
     const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
@@ -1094,296 +1080,69 @@ const SmileSimulatorAI = () => {
     return pts.map((p) => ({ x: p.x, y: p.y }));
   };
 
-  /** Grayscale 0–255 at global (gx,gy) from imageData. */
-  const sampleLuminanceByte = (data, w, imgH, gx, gy) => {
-    if (gx < 0 || gy < 0 || gx >= w || gy >= imgH) return 0;
-    const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-
-  /** Luminance grid for ROI (bbox), mirrored at inner borders for Sobel. */
-  const buildLuminanceRoi = (data, w, h, minX, minY, bw, bh) => {
-    const g = new Float32Array(bw * bh);
-    for (let ly = 0; ly < bh; ly++) {
-      for (let lx = 0; lx < bw; lx++) {
-        g[ly * bw + lx] = sampleLuminanceByte(data, w, h, minX + lx, minY + ly);
-      }
-    }
-    return g;
-  };
-
-  /** Sobel magnitude on luminance ROI; borders zeroed. */
-  const sobelMagnitudeRoi = (gray, bw, bh) => {
-    const mag = new Float32Array(bw * bh);
-    for (let y = 1; y < bh - 1; y++) {
-      for (let x = 1; x < bw - 1; x++) {
-        const i = y * bw + x;
-        const g00 = gray[i - bw - 1];
-        const g01 = gray[i - bw];
-        const g02 = gray[i - bw + 1];
-        const g10 = gray[i - 1];
-        const g12 = gray[i + 1];
-        const g20 = gray[i + bw - 1];
-        const g21 = gray[i + bw];
-        const g22 = gray[i + bw + 1];
-        const gx = -g00 - 2 * g10 - g20 + g02 + 2 * g12 + g22;
-        const gy = -g00 - 2 * g01 - g02 + g20 + 2 * g21 + g22;
-        mag[i] = Math.hypot(gx, gy);
-      }
-    }
-    return mag;
-  };
-
-  /** Manhattan distance from each foreground pixel to nearest background (mask 0). */
-  const manhattanDistanceToBackground = (mask, bw, bh) => {
-    const INF = 0x7fff;
-    const dt = new Int16Array(bw * bh);
-    for (let i = 0; i < mask.length; i++) {
-      dt[i] = mask[i] === 1 ? INF : 0;
-    }
-    for (let y = 0; y < bh; y++) {
-      for (let x = 0; x < bw; x++) {
-        const i = y * bw + x;
-        if (mask[i] !== 1) continue;
-        let m = dt[i];
-        if (x > 0) m = Math.min(m, dt[i - 1] + 1);
-        if (y > 0) m = Math.min(m, dt[i - bw] + 1);
-        dt[i] = m;
-      }
-    }
-    for (let y = bh - 1; y >= 0; y--) {
-      for (let x = bw - 1; x >= 0; x--) {
-        const i = y * bw + x;
-        if (mask[i] !== 1) continue;
-        let m = dt[i];
-        if (x + 1 < bw) m = Math.min(m, dt[i + 1] + 1);
-        if (y + 1 < bh) m = Math.min(m, dt[i + bw] + 1);
-        dt[i] = m;
-      }
-    }
-    return dt;
-  };
-
-  const dilateBinaryMax3x3 = (src, bw, bh) => {
-    const out = new Uint8Array(bw * bh);
-    for (let y = 1; y < bh - 1; y++) {
-      for (let x = 1; x < bw - 1; x++) {
-        let v = 0;
-        for (let dy = -1; dy <= 1 && !v; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (src[(y + dy) * bw + x + dx]) {
-              v = 1;
-              break;
-            }
-          }
-        }
-        out[y * bw + x] = v;
-      }
+  /** Euclidean min-spacing along a sorted row (keeps left-to-right grid order). */
+  const filterArchPointsMinSpacing = (row, minDistPx) => {
+    if (row.length === 0) return [];
+    const minD2 = minDistPx * minDistPx;
+    const out = [row[0]];
+    for (let i = 1; i < row.length; i++) {
+      const p = row[i];
+      const last = out[out.length - 1];
+      const dx = p.cx - last.cx;
+      const dy = p.cy - last.cy;
+      if (dx * dx + dy * dy >= minD2) out.push(p);
     }
     return out;
   };
 
-  /** Approximate quantile of values where mask==1. */
-  const maskedQuantile = (values, mask, bw, bh, q) => {
-    const arr = [];
-    for (let i = 0; i < mask.length; i++) {
-      if (mask[i] === 1 && values[i] > 0) arr.push(values[i]);
+  /** Uniform subsample if still too many studs after spacing filter. */
+  const capArchPointCount = (row, maxN) => {
+    if (row.length <= maxN) return row;
+    if (maxN <= 1) return [row[0]];
+    const n = row.length;
+    const out = [];
+    for (let k = 0; k < maxN; k++) {
+      const idx = Math.round((k * (n - 1)) / (maxN - 1));
+      out.push(row[idx]);
     }
-    if (!arr.length) return 1;
-    arr.sort((a, b) => a - b);
-    const idx = clamp(Math.floor((arr.length - 1) * q), 0, arr.length - 1);
-    return arr[idx];
-  };
-
-  /** Greedy local maxima of DT as watershed seeds. */
-  const pickDistanceTransformSeeds = (dt, toothMask, bw, bh) => {
-    const candidates = [];
-    for (let y = 1; y < bh - 1; y++) {
-      for (let x = 1; x < bw - 1; x++) {
-        const i = y * bw + x;
-        if (toothMask[i] !== 1) continue;
-        const d = dt[i];
-        if (d < WATERSHED_MIN_DT_SEED) continue;
-        let isMax = true;
-        for (let dy = -1; dy <= 1 && isMax; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (dy === 0 && dx === 0) continue;
-            const j = i + dy * bw + dx;
-            if (toothMask[j] === 1 && dt[j] > d) {
-              isMax = false;
-              break;
-            }
-          }
-        }
-        if (isMax) candidates.push({ i, d });
-      }
-    }
-    candidates.sort((a, b) => b.d - a.d);
-    const seeds = [];
-    const taken = new Uint8Array(bw * bh);
-    const r = WATERSHED_SEED_MIN_DIST;
-    for (const { i } of candidates) {
-      if (taken[i]) continue;
-      const sx = i % bw;
-      const sy = (i / bw) | 0;
-      let ok = true;
-      for (let dy = -r; dy <= r && ok; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          const nx = sx + dx;
-          const ny = sy + dy;
-          if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
-          if (Math.max(Math.abs(dx), Math.abs(dy)) <= r && taken[ny * bw + nx]) {
-            ok = false;
-            break;
-          }
-        }
-      }
-      if (!ok) continue;
-      seeds.push(i);
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          const nx = sx + dx;
-          const ny = sy + dy;
-          if (nx >= 0 && ny >= 0 && nx < bw && ny < bh && Math.max(Math.abs(dx), Math.abs(dy)) <= r) {
-            taken[ny * bw + nx] = 1;
-          }
-        }
-      }
-    }
-    return seeds;
+    return out;
   };
 
   /**
-   * Multi-source BFS: expand each seed label through enamel pixels, blocked by dilated Sobel edges.
+   * 12 vertical columns on the enamel mask: per column, top-most and bottom-most mask pixel → upper / lower rows.
    */
-  const watershedLabelsFromSeeds = (toothMask, wall, seeds, bw, bh) => {
-    const labels = new Int32Array(bw * bh);
-    const qx = new Int32Array(bw * bh);
-    const qy = new Int32Array(bw * bh);
-    let qh = 0;
-    let qt = 0;
-    seeds.forEach((idx, k) => {
-      if (toothMask[idx] !== 1 || wall[idx]) return;
-      const id = k + 1;
-      labels[idx] = id;
-      qx[qt] = idx % bw;
-      qy[qt] = (idx / bw) | 0;
-      qt += 1;
-    });
-    while (qh < qt) {
-      const x = qx[qh];
-      const y = qy[qh];
-      qh += 1;
-      const id = labels[y * bw + x];
-      const dirs = [
-        [-1, 0],
-        [1, 0],
-        [0, -1],
-        [0, 1],
-      ];
-      for (const [dx, dy] of dirs) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
-        const ni = ny * bw + nx;
-        if (toothMask[ni] !== 1 || wall[ni]) continue;
-        if (labels[ni] !== 0) continue;
-        labels[ni] = id;
-        qx[qt] = nx;
-        qy[qt] = ny;
-        qt += 1;
-      }
-    }
-    return labels;
-  };
-
-  const centroidsFromLabelMap = (labels, toothMask, bw, bh, minX, minY, minA, maxA) => {
-    const n = labels.length;
-    const maxL = 256;
-    const sumx = new Float64Array(maxL);
-    const sumy = new Float64Array(maxL);
-    const cnt = new Int32Array(maxL);
-    for (let i = 0; i < n; i++) {
-      if (toothMask[i] !== 1) continue;
-      const L = labels[i];
-      if (L <= 0 || L >= maxL) continue;
-      const x = i % bw;
-      const y = (i / bw) | 0;
-      sumx[L] += x;
-      sumy[L] += y;
-      cnt[L] += 1;
-    }
-    const comps = [];
-    for (let L = 1; L < maxL; L++) {
-      const c = cnt[L];
-      if (c < minA || c > maxA) continue;
-      comps.push({ cx: minX + sumx[L] / c, cy: minY + sumy[L] / c, area: c });
-    }
-    return comps;
-  };
-
-  /**
-   * Sobel + DT-seed watershed inside full enamel mask; adaptive quantile if too few regions.
-   */
-  const segmentTeethCentroidsWatershed = (data, w, h, toothMask, bw, bh, minX, minY, polyArea) => {
-    const gray = buildLuminanceRoi(data, w, h, minX, minY, bw, bh);
-    const mag = sobelMagnitudeRoi(gray, bw, bh);
-    const minA = TOOTH_BLOB_MIN_AREA_PX;
-    const maxA = clamp(Math.round(polyArea * 0.13), 400, 14000);
-
-    let q = SOBEL_EDGE_QUANTILE;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const thresh = maskedQuantile(mag, toothMask, bw, bh, q);
-      let edge = new Uint8Array(bw * bh);
-      for (let i = 0; i < mag.length; i++) {
-        if (toothMask[i] === 1 && mag[i] >= thresh) edge[i] = 1;
-      }
-      let wall = edge;
-      for (let p = 0; p < SOBEL_EDGE_DILATE_PASSES; p++) {
-        wall = dilateBinaryMax3x3(wall, bw, bh);
-      }
-      const dt = manhattanDistanceToBackground(toothMask, bw, bh);
-      let seeds = pickDistanceTransformSeeds(dt, toothMask, bw, bh);
-      if (seeds.length < 2) {
-        const flat = [];
-        for (let i = 0; i < toothMask.length; i++) {
-          if (toothMask[i] === 1) flat.push({ i, d: dt[i] });
+  const gridScanEnamelTwoRows = (mask, bw, bh, minX, minY, cols) => {
+    const upper = [];
+    const lower = [];
+    for (let c = 0; c < cols; c++) {
+      const xStart = Math.floor((c * bw) / cols);
+      const xEnd = Math.min(bw - 1, Math.ceil(((c + 1) * bw) / cols) - 1);
+      if (xEnd < xStart) continue;
+      let topY = -1;
+      let bottomY = -1;
+      for (let lx = xStart; lx <= xEnd; lx++) {
+        for (let ly = 0; ly < bh; ly++) {
+          if (mask[ly * bw + lx] !== 1) continue;
+          if (topY < 0 || ly < topY) topY = ly;
+          if (bottomY < 0 || ly > bottomY) bottomY = ly;
         }
-        flat.sort((a, b) => b.d - a.d);
-        seeds = [];
-        const step = Math.max(10, Math.floor(Math.min(bw, bh) / 14));
-        for (const { i } of flat) {
-          if (dt[i] < 2) break;
-          if (seeds.length >= 24) break;
-          let far = true;
-          for (const s of seeds) {
-            const ax = i % bw;
-            const ay = (i / bw) | 0;
-            const bx = s % bw;
-            const by = (s / bw) | 0;
-            if (Math.max(Math.abs(ax - bx), Math.abs(ay - by)) < step * 0.85) {
-              far = false;
-              break;
-            }
-          }
-          if (far) seeds.push(i);
-        }
-        if (seeds.length < 1 && flat.length) seeds = [flat[0].i];
       }
-      const labels = watershedLabelsFromSeeds(toothMask, wall, seeds, bw, bh);
-      let comps = centroidsFromLabelMap(labels, toothMask, bw, bh, minX, minY, minA, maxA);
-      if (comps.length > 4 || attempt === 3) return comps;
-      q = Math.max(0.45, q - 0.07);
+      if (topY < 0) continue;
+      const lxMid = (xStart + xEnd) * 0.5;
+      const cx = minX + lxMid;
+      upper.push({ cx, cy: minY + topY, area: 1 });
+      if (bottomY > topY) {
+        lower.push({ cx, cy: minY + bottomY, area: 1 });
+      }
     }
-    return [];
+    upper.sort((a, b) => a.cx - b.cx);
+    lower.sort((a, b) => a.cx - b.cx);
+    return { upper, lower };
   };
 
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
     if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
-    const steps = Math.max(4, stepsPerSeg | 0);
+    const steps = Math.max(20, stepsPerSeg | 0);
     const chain = expandCatmullRomEnds(pts);
     const out = [];
     const segCount = chain.length - 3;
@@ -1400,47 +1159,8 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
-  const trimCentroidRowByArea = (row, maxN) => {
-    if (row.length <= maxN) return row;
-    return [...row]
-      .sort((a, b) => b.area - a.area)
-      .slice(0, maxN)
-      .sort((a, b) => a.cx - b.cx);
-  };
-
   /**
-   * Split tooth blobs into upper / lower arches: prefer lip-opening Y; if one arch is empty, use largest vertical gap
-   * between sorted centroids, else split count in half on Y so both rows get a curved wire when possible.
-   */
-  const splitCompsIntoUpperLowerArches = (comps, ySplitPx) => {
-    let upper = comps.filter((c) => c.cy < ySplitPx).sort((a, b) => a.cx - b.cx);
-    let lower = comps.filter((c) => c.cy >= ySplitPx).sort((a, b) => a.cx - b.cx);
-    const broken = comps.length >= 2 && (upper.length === 0 || lower.length === 0);
-    if (broken) {
-      const byY = [...comps].sort((a, b) => a.cy - b.cy);
-      let bestIdx = 0;
-      let bestGap = -1;
-      for (let i = 0; i < byY.length - 1; i++) {
-        const g = byY[i + 1].cy - byY[i].cy;
-        if (g > bestGap) {
-          bestGap = g;
-          bestIdx = i;
-        }
-      }
-      if (bestGap >= 5) {
-        upper = byY.slice(0, bestIdx + 1).sort((a, b) => a.cx - b.cx);
-        lower = byY.slice(bestIdx + 1).sort((a, b) => a.cx - b.cx);
-      } else {
-        const mid = Math.max(1, Math.floor(byY.length / 2));
-        upper = byY.slice(0, mid).sort((a, b) => a.cx - b.cx);
-        lower = byY.slice(mid).sort((a, b) => a.cx - b.cx);
-      }
-    }
-    return { upper, lower };
-  };
-
-  /**
-   * Full enamel in TEETH_WHITEN → Sobel-edge watershed → centroids → upper/lower arches → Catmull wire + studs (no erosion).
+   * Full enamel mask in TEETH_WHITEN → 12-column grid top/bottom scan → spacing filter → Catmull wire + studs.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
@@ -1471,17 +1191,12 @@ const SmileSimulatorAI = () => {
       }
     }
 
-    const polyArea = polygonAreaShoelace(poly);
-    const comps = segmentTeethCentroidsWatershed(data, w, h, mask, bw, bh, minX, minY, polyArea);
-    if (comps.length === 0) return null;
-
-    const ySplit = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
-    const split = splitCompsIntoUpperLowerArches(comps, ySplit);
-    let upper = split.upper;
-    let lower = split.lower;
-
-    upper = trimCentroidRowByArea(upper, MAX_CENTROID_STUDS_PER_ARCH);
-    lower = trimCentroidRowByArea(lower, MAX_CENTROID_STUDS_PER_ARCH);
+    let { upper, lower } = gridScanEnamelTwoRows(mask, bw, bh, minX, minY, GRID_ENAMEL_COLUMNS);
+    upper = filterArchPointsMinSpacing(upper, GRID_SCAN_MIN_NEIGHBOR_DIST_PX);
+    lower = filterArchPointsMinSpacing(lower, GRID_SCAN_MIN_NEIGHBOR_DIST_PX);
+    upper = capArchPointCount(upper, MAX_CENTROID_STUDS_PER_ARCH);
+    lower = capArchPointCount(lower, MAX_CENTROID_STUDS_PER_ARCH);
+    if (upper.length === 0 && lower.length === 0) return null;
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
@@ -1521,7 +1236,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Centroid-only (no fallback): null if no raster or zero enamel islands after mask + erosion.
+   * Grid-scan Catmull wire (no Bézier path): null if no raster snap or grid yields no enamel columns.
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
@@ -1581,33 +1296,53 @@ const SmileSimulatorAI = () => {
     const ARCHWIRE_SOLID_SILVER = "#e8eaee";
 
     const drawWire = () => {
-      ctx.save();
-      ctx.beginPath();
-      let drew = false;
-      if (wireSamplesUpper?.length >= 2) {
-        ctx.moveTo(wireSamplesUpper[0].x, wireSamplesUpper[0].y);
-        for (let i = 1; i < wireSamplesUpper.length; i++) {
-          ctx.lineTo(wireSamplesUpper[i].x, wireSamplesUpper[i].y);
+      const up = wireSamplesUpper;
+      const lo = wireSamplesLower;
+      const hasUpper = up?.length >= 2;
+      const hasLower = lo?.length >= 2;
+      if (!hasUpper && !hasLower) return;
+
+      const strokeStyle = ARCHWIRE_SOLID_SILVER;
+      const lw = wireDarkW;
+      if (typeof Path2D !== "undefined") {
+        const path = new Path2D();
+        if (hasUpper) {
+          path.moveTo(up[0].x, up[0].y);
+          for (let i = 1; i < up.length; i++) path.lineTo(up[i].x, up[i].y);
         }
-        drew = true;
-      }
-      if (wireSamplesLower?.length >= 2) {
-        ctx.moveTo(wireSamplesLower[0].x, wireSamplesLower[0].y);
-        for (let j = 1; j < wireSamplesLower.length; j++) {
-          ctx.lineTo(wireSamplesLower[j].x, wireSamplesLower[j].y);
+        if (hasLower) {
+          path.moveTo(lo[0].x, lo[0].y);
+          for (let j = 1; j < lo.length; j++) path.lineTo(lo[j].x, lo[j].y);
         }
-        drew = true;
-      }
-      if (!drew) {
-        ctx.restore();
+        requestAnimationFrame(() => {
+          ctx.save();
+          ctx.strokeStyle = strokeStyle;
+          ctx.lineWidth = lw;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.stroke(path);
+          ctx.restore();
+        });
         return;
       }
-      ctx.strokeStyle = ARCHWIRE_SOLID_SILVER;
-      ctx.lineWidth = wireDarkW;
+      ctx.save();
+      ctx.beginPath();
+      if (hasUpper) {
+        ctx.moveTo(up[0].x, up[0].y);
+        for (let i = 1; i < up.length; i++) ctx.lineTo(up[i].x, up[i].y);
+      }
+      if (hasLower) {
+        ctx.moveTo(lo[0].x, lo[0].y);
+        for (let j = 1; j < lo.length; j++) ctx.lineTo(lo[j].x, lo[j].y);
+      }
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lw;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.stroke();
-      ctx.restore();
+      requestAnimationFrame(() => {
+        ctx.stroke();
+        ctx.restore();
+      });
     };
 
     const drawAnchors = (anchors) => {
@@ -1616,12 +1351,12 @@ const SmileSimulatorAI = () => {
       });
     };
 
-    if (layers === "wire" || layers === "both") {
-      drawWire();
-    }
     if (layers === "studs" || layers === "both") {
       drawAnchors(upperAnchors);
       drawAnchors(lowerAnchors);
+    }
+    if (layers === "wire" || layers === "both") {
+      drawWire();
     }
     ctx.restore();
   };
@@ -1742,6 +1477,7 @@ const SmileSimulatorAI = () => {
       enamelSnap,
     };
     renderBraces(lm, octx, iw, ih, ov, { ...braceOpts, layers: "wire" });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
     await flushPaintBeforeVectorHardware();
     octx.save();
     octx.globalCompositeOperation = "destination-over";
