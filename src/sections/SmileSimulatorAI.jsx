@@ -59,24 +59,26 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Local maxima center-lock: 18 columns → horizontal COG + densest-lx tooth run → 50% Y clamped 5px from edges →
- * density peaks (upper) → lower mirrors upper → narrow mouth caps lower at 4 → Laplacian smooth → 1.2px Catmull.
+ * Anatomical luminance center-lock: 18 columns × 3 sub-strips (brightest X) → mid-Y with 15% face clamp →
+ * up to 8 upper peaks → narrow mouth subsamples to 6 then mirror lower → 3-pt moving avg → 1.2px Catmull.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
 /** Horizontal strips for column scan (higher density for wide smiles). */
 const GRID_ENAMEL_COLUMNS = 18;
-/** Inset from top/bottom of enamel run so studs stay on tooth face (away from gum/incisal). */
-const BRACKET_FACE_EDGE_INSET_PX = 5;
+/** Sub-strips per column: mean luminance on enamel picks tooth center vs interdental gap. */
+const LUMINANCE_COLUMN_SUB_STRIPS = 3;
+/** Clamp vertical stud away from gumline and incisal edge (fraction of tooth span). */
+const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.15;
 /** Lower-arch studs must sit at least this far below lip-opening Y (image px). */
 const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
-/** If ROI band above/below ySplit is narrower than this, cap lower-arch studs (prevents overlap). */
+/** If ROI band above/below ySplit is narrower than this, cap arch studs (prevents overlap). */
 const MOUTH_ARCH_NARROW_BAND_PX = 26;
-/** Lower stud count when mouth opening (per ROI) is narrow. */
-const LOWER_ARCH_MAX_STUDS_NARROW_MOUTH = 4;
-/** Laplacian relaxation iterations on arch polyline (reduces zig-zag before Catmull). */
-const BRACES_LAPLACIAN_SMOOTH_ITERATIONS = 4;
+/** Max upper-arch studs after luminance peak pick (wide smile). */
+const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 8;
+/** When mouth band is narrow, subsample upper (then mirror) to this many studs. */
+const LOWER_ARCH_MAX_STUDS_NARROW_MOUTH = 6;
 /** Drop grid samples closer than this to the previous kept point (fallback / lower rescue). */
 const GRID_SCAN_MIN_NEIGHBOR_DIST_PX = 12;
 /** Surgical silver spline (mandate). */
@@ -1090,11 +1092,19 @@ const SmileSimulatorAI = () => {
     return pts.map((p) => ({ x: p.x, y: p.y }));
   };
 
-  /** Vertical mid at 50% of run, clamped so cy stays ≥ insetPx from run top and bottom (tooth face). */
-  const clampBracketMidYFace = (midLy, topLy, botLy, insetPx) => {
-    const lo = topLy + insetPx;
-    const hi = botLy - insetPx;
-    if (lo > hi) return (topLy + botLy) * 0.5;
+  const sampleLuminanceGlobal = (data, w, imgH, gx, gy) => {
+    if (gx < 0 || gy < 0 || gx >= w || gy >= imgH) return 0;
+    const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
+    return 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+  };
+
+  /** Mid-Y at 50% of [top,bot], clamped frac inward from gum and biting edge (tooth face). */
+  const clampBracketMidYFrac = (midLy, topLy, botLy, frac) => {
+    const span = botLy - topLy + 1;
+    if (span < 3) return (topLy + botLy) * 0.5;
+    const lo = topLy + frac * span;
+    const hi = botLy - frac * span;
+    if (lo > hi) return clamp(midLy, topLy, botLy);
     return clamp(midLy, lo, hi);
   };
 
@@ -1125,49 +1135,70 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Per column: horizontal COG of enamel (density center) for X; vertical mid of longest run at densest lx, face-clamped.
+   * Per column: 3 sub-strips → highest mean luminance on enamel wins X (strip center);
+   * Y = mid of top/bottom enamel in that strip, clamped 15% from gum/incisal.
    */
-  const pickColumnStudDensityCenter = (mask, bw, minX, minY, xStart, xEnd, y0, y1) => {
+  const pickColumnStudLuminancePeak = (
+    data,
+    w,
+    imgH,
+    mask,
+    bw,
+    minX,
+    minY,
+    xStart,
+    xEnd,
+    y0,
+    y1,
+    nSub,
+  ) => {
     if (y0 > y1 || xEnd < xStart) return null;
-    let sumLx = 0;
-    let cnt = 0;
-    for (let lx = xStart; lx <= xEnd; lx++) {
+    const colW = xEnd - xStart + 1;
+    let bestAvg = -1;
+    let bestSub = -1;
+    for (let s = 0; s < nSub; s++) {
+      const sx0 = xStart + Math.floor((s * colW) / nSub);
+      const sx1 = xStart + Math.floor(((s + 1) * colW) / nSub) - 1;
+      if (sx1 < sx0) continue;
+      let sum = 0;
+      let cnt = 0;
+      for (let lx = sx0; lx <= sx1; lx++) {
+        for (let ly = y0; ly <= y1; ly++) {
+          if (mask[ly * bw + lx] !== 1) continue;
+          sum += sampleLuminanceGlobal(data, w, imgH, minX + lx, minY + ly);
+          cnt++;
+        }
+      }
+      const avg = cnt > 0 ? sum / cnt : -1;
+      if (avg > bestAvg) {
+        bestAvg = avg;
+        bestSub = s;
+      }
+    }
+    if (bestAvg < 0 || bestSub < 0) return null;
+    const sx0 = xStart + Math.floor((bestSub * colW) / nSub);
+    const sx1 = xStart + Math.floor(((bestSub + 1) * colW) / nSub) - 1;
+    let topY = -1;
+    let botY = -1;
+    for (let lx = sx0; lx <= sx1; lx++) {
       for (let ly = y0; ly <= y1; ly++) {
         if (mask[ly * bw + lx] !== 1) continue;
-        sumLx += lx;
-        cnt++;
+        if (topY < 0 || ly < topY) topY = ly;
+        if (botY < 0 || ly > botY) botY = ly;
       }
     }
-    if (cnt === 0) return null;
-    const cogLx = sumLx / cnt;
-    let bestLx = xStart;
-    let bestCnt = -1;
-    for (let lx = xStart; lx <= xEnd; lx++) {
-      let colCnt = 0;
-      for (let ly = y0; ly <= y1; ly++) {
-        if (mask[ly * bw + lx] === 1) colCnt++;
-      }
-      const tie = Math.abs(lx - cogLx);
-      const bestTie = Math.abs(bestLx - cogLx);
-      if (colCnt > bestCnt || (colCnt === bestCnt && colCnt > 0 && tie < bestTie)) {
-        bestCnt = colCnt;
-        bestLx = lx;
-      }
-    }
-    if (bestCnt <= 0) return null;
-    const run = longestRunOneLx(mask, bw, bestLx, y0, y1);
-    if (!run) return null;
-    const midRaw = (run.top + run.bot) * 0.5;
-    const midClamped = clampBracketMidYFace(midRaw, run.top, run.bot, BRACKET_FACE_EDGE_INSET_PX);
+    if (topY < 0) return null;
+    const midRaw = (topY + botY) * 0.5;
+    const midClamped = clampBracketMidYFrac(midRaw, topY, botY, BRACKET_VERTICAL_FACE_SAFE_FRAC);
     return {
-      cx: minX + cogLx,
+      cx: minX + (sx0 + sx1) * 0.5,
       cy: minY + midClamped,
-      peakMetric: cnt,
+      peakMetric: bestAvg,
     };
   };
 
-  /** Strict local maxima on enamel density (peakMetric) along sorted columns; fallback = spaced picks (≤8). */
-  const pickStrictDensityPeaks = (cands) => {
+  /** Strict local maxima on luminance (peakMetric) along columns; fallback = bright spaced picks (≤8). */
+  const pickStrictLuminancePeaks = (cands) => {
     if (cands.length === 0) return [];
     if (cands.length === 1) return [cands[0]];
     const n = cands.length;
@@ -1218,31 +1249,25 @@ const SmileSimulatorAI = () => {
       let cy = Math.max(ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX, minY + yLower0 + 2);
       if (bestRun) {
         const midRaw = (bestRun.top + bestRun.bot) * 0.5;
-        const midClamped = clampBracketMidYFace(midRaw, bestRun.top, bestRun.bot, BRACKET_FACE_EDGE_INSET_PX);
+        const midClamped = clampBracketMidYFrac(midRaw, bestRun.top, bestRun.bot, BRACKET_VERTICAL_FACE_SAFE_FRAC);
         cy = Math.max(minY + midClamped, ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX);
       }
       return { cx: u.cx, cy, area: 1 };
     });
   };
 
-  /** Discrete Laplacian relaxation on interior points (ends fixed) — flattens zig-zag before Catmull. */
-  const laplacianSmoothArch2D = (row, iterations) => {
+  const smoothArchCentroidsMovingAvg3 = (row) => {
     if (row.length === 0) return [];
     if (row.length < 3) return row.map((r) => ({ cx: r.cx, cy: r.cy, area: r.area ?? 1 }));
-    const lambda = 0.42;
-    const nIters = clamp(iterations | 0, 1, 12);
-    let pts = row.map((r) => ({ cx: r.cx, cy: r.cy, area: r.area ?? 1 }));
-    for (let it = 0; it < nIters; it++) {
-      const next = pts.map((p) => ({ ...p }));
-      for (let i = 1; i < pts.length - 1; i++) {
-        const lx = pts[i - 1].cx + pts[i + 1].cx - 2 * pts[i].cx;
-        const ly = pts[i - 1].cy + pts[i + 1].cy - 2 * pts[i].cy;
-        next[i].cx = pts[i].cx + lambda * lx;
-        next[i].cy = pts[i].cy + lambda * ly;
-      }
-      pts = next;
-    }
-    return pts;
+    return row.map((_, i) => {
+      const i0 = Math.max(0, i - 1);
+      const i2 = Math.min(row.length - 1, i + 1);
+      return {
+        cx: (row[i0].cx + row[i].cx + row[i2].cx) / 3,
+        cy: (row[i0].cy + row[i].cy + row[i2].cy) / 3,
+        area: row[i].area ?? 1,
+      };
+    });
   };
 
   const subsampleArchRowToCount = (row, targetN) => {
@@ -1318,12 +1343,25 @@ const SmileSimulatorAI = () => {
       const xStart = Math.floor((c * bw) / GRID_ENAMEL_COLUMNS);
       const xEnd = Math.min(bw - 1, Math.ceil(((c + 1) * bw) / GRID_ENAMEL_COLUMNS) - 1);
       if (xEnd < xStart) continue;
-      const u = pickColumnStudDensityCenter(mask, bw, minX, minY, xStart, xEnd, 0, yUpperEnd);
+      const u = pickColumnStudLuminancePeak(
+        data,
+        w,
+        h,
+        mask,
+        bw,
+        minX,
+        minY,
+        xStart,
+        xEnd,
+        0,
+        yUpperEnd,
+        LUMINANCE_COLUMN_SUB_STRIPS,
+      );
       if (u) upperCands.push(u);
     }
     upperCands.sort((a, b) => a.cx - b.cx);
-    let upper = pickStrictDensityPeaks(upperCands);
-    upper = upper.slice(0, MAX_CENTROID_STUDS_PER_ARCH);
+    let upper = pickStrictLuminancePeaks(upperCands);
+    upper = upper.slice(0, Math.min(UPPER_ARCH_MAX_LUMINANCE_PEAKS, MAX_CENTROID_STUDS_PER_ARCH));
     if (upper.length === 0) return null;
 
     const upperBandH = yUpperEnd + 1;
@@ -1334,8 +1372,8 @@ const SmileSimulatorAI = () => {
     }
 
     let lower = mirrorLowerStudsToUpper(mask, bw, bh, minX, minY, yLowerStart, bh - 1, ySplitImg, upper);
-    upper = laplacianSmoothArch2D(upper, BRACES_LAPLACIAN_SMOOTH_ITERATIONS);
-    lower = laplacianSmoothArch2D(lower, BRACES_LAPLACIAN_SMOOTH_ITERATIONS);
+    upper = smoothArchCentroidsMovingAvg3(upper);
+    lower = smoothArchCentroidsMovingAvg3(lower);
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
@@ -1375,7 +1413,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Density-peak Catmull wire (no Bézier path): null if no raster snap or no upper enamel columns.
+   * Luminance-peak Catmull wire (no Bézier path): null if no raster snap or no upper enamel columns.
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
