@@ -59,11 +59,11 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Pure geometric Iron Arch (curve first, studs on curve):
- * - 1.5px wire: one quadratic per arch (61 → 291); control at midline opening (13/14).
- * - 11 samples at t = 0…1 on that curve only (no tooth-landmark tracing); tangent from Bézier derivative.
- * - 10px studs: jet center / polished silver rim; enamel column snap + pink-lip nudge toward midline.
- * - 3px hardware shadow; triple rAF before overlay draw.
+ * Perspective-locked Iron Arch (jaw as one 3D unit):
+ * - 1.5px wire × 2 arches: quadratic 61 → 13/14 peak → 291; stroke gradient along commissure chord (not screen-vertical).
+ * - 11 equal-t samples on each curve; 15px column snap to brightest enamel cluster; skip stud if below white gate.
+ * - 10×10 roundRect studs: radial #0a0a0a → #e8eaee; 1px UL highlight + 1px charcoal slot.
+ * - Composite: 3px rgba(0,0,0,0.8) shadow; triple rAF before hardware draw (AI whitening underneath).
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
@@ -956,7 +956,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * 1:1 roundRect: radial jet center → silver rim; 1px white UL specular; 1px slot.
+   * 1:1 roundRect: radial jet (#0a0a0a) → polished silver rim (#e8eaee); 1px white UL; 1px charcoal slot mid.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -971,10 +971,9 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1.2;
     }
-    const body = ctx.createRadialGradient(0, 0, side * 0.06, 0, 0, hw * 1.08);
+    const body = ctx.createRadialGradient(0, 0, side * 0.05, 0, 0, hw * 1.06);
     body.addColorStop(0, "#0a0a0a");
-    body.addColorStop(0.42, "#3a3d44");
-    body.addColorStop(0.72, "#b8bdc4");
+    body.addColorStop(0.55, "#4a5058");
     body.addColorStop(1, "#e8eaee");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
@@ -985,16 +984,14 @@ const SmileSimulatorAI = () => {
     ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(-hw * 0.5, -hw * 0.46, 1, 1);
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.46, -hw * 0.36);
-    ctx.lineTo(-hw * 0.28, -hw * 0.36);
+    ctx.moveTo(-hw + 1, -hw + 1);
+    ctx.lineTo(-hw + Math.min(4, side * 0.38), -hw + 1);
     ctx.stroke();
-    ctx.strokeStyle = "#2f3540";
+    ctx.strokeStyle = "#3d4550";
     ctx.beginPath();
     ctx.moveTo(-hw * 0.45, 0);
     ctx.lineTo(hw * 0.45, 0);
@@ -1263,7 +1260,13 @@ const SmileSimulatorAI = () => {
 
     ctx.save();
 
-    const silverWire = ctx.createLinearGradient(0, oval.cy - oval.ry, 0, oval.cy + oval.ry);
+    /** Silver → steel → silver along commissure chord (labial perspective; avoids flat screen-vertical banding). */
+    const silverWire = ctx.createLinearGradient(
+      upperQuad.p0.x,
+      upperQuad.p0.y,
+      upperQuad.p2.x,
+      upperQuad.p2.y
+    );
     silverWire.addColorStop(0, "#e8eaee");
     silverWire.addColorStop(0.5, "#4a5058");
     silverWire.addColorStop(1, "#e8eaee");
