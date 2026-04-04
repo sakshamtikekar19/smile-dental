@@ -59,14 +59,15 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Computer Vision Centroid Anchoring: TEETH_WHITEN polygon ∩ enamel-bright pixels → 8-connected CC → one stud per blob centroid.
- * No landmark/% sampling for stud placement when raster exists. Catmull–Rom archwire (1.2px) through centroids; Bézier fallback if CC weak.
- * Studs: 10×10 roundRect, jet #0a0a0a → polished rim #e8eaee, 1px white chip + charcoal slot. Final composite: 3px shadow after triple rAF.
+ * Surgical isolation: TEETH_WHITEN ∩ enamel binary mask → repeated 3×3 erosion → CC blobs → one stud per centroid (opens interdental gaps).
+ * If ≥4 blobs after erosion, centroid/Catmull only (no Bézier stud placement). 1.2px silver spline; Bézier only when ≤3 blobs or no raster.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 12;
+/** 3×3 binary erosion iterations on tooth mask before CC (separates merged “white bar” into tooth islands). */
+const TOOTH_MASK_ERODE_ITERATIONS = 2;
 const ARCH_LABIAL_PEAK_FRAC = 0.42;
 const ENAMEL_SNAP_SCAN_PX = 20;
 const ENAMEL_SNAP_MAX_DELTA_PX = 20;
@@ -1192,6 +1193,36 @@ const SmileSimulatorAI = () => {
     ];
   };
 
+  /** Catmull–Rom needs ≥2 points; duplicate with tiny offset for single-centroid arches. */
+  const ensureSplineControlPoints = (pts) => {
+    if (pts.length === 0) return [];
+    if (pts.length === 1) {
+      const p = pts[0];
+      return [
+        { x: p.x, y: p.y },
+        { x: p.x + 1.2, y: p.y },
+      ];
+    }
+    return pts.map((p) => ({ x: p.x, y: p.y }));
+  };
+
+  /** 3×3 erosion: pixel stays on only if full neighborhood is foreground (thins bridges between teeth). */
+  const binaryErode3x3 = (mask, bw, bh) => {
+    const out = new Uint8Array(bw * bh);
+    for (let y = 1; y < bh - 1; y++) {
+      for (let x = 1; x < bw - 1; x++) {
+        let ok = 1;
+        for (let dy = -1; dy <= 1 && ok; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (mask[(y + dy) * bw + x + dx] !== 1) ok = 0;
+          }
+        }
+        out[y * bw + x] = ok;
+      }
+    }
+    return out;
+  };
+
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
     if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
     const steps = Math.max(4, stepsPerSeg | 0);
@@ -1265,7 +1296,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * CV tooth blobs: raster inside TEETH_WHITEN mask → CC labeling → geometric centroid per component → one stud each.
+   * Erode enamel mask → CC → centroids. ≥4 blobs: centroid-only (no Bézier studs). <4 blobs: null → Bézier fallback.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
@@ -1296,20 +1327,23 @@ const SmileSimulatorAI = () => {
       }
     }
 
+    let eroded = mask;
+    for (let e = 0; e < TOOTH_MASK_ERODE_ITERATIONS; e++) {
+      eroded = binaryErode3x3(eroded, bw, bh);
+    }
+
     const polyArea = polygonAreaShoelace(poly);
-    const minA = clamp(Math.round(polyArea * 0.0025), 28, 160);
-    const maxA = clamp(Math.round(polyArea * 0.15), 500, 16000);
-    const comps = labelEnamelBlobsCentroids(mask, bw, bh, minX, minY, minA, maxA);
-    if (comps.length < 4) return null;
+    const minA = clamp(Math.round(polyArea * 0.0018), 16, 130);
+    const maxA = clamp(Math.round(polyArea * 0.13), 400, 14000);
+    const comps = labelEnamelBlobsCentroids(eroded, bw, bh, minX, minY, minA, maxA);
+    if (comps.length <= 3) return null;
 
     const ySplit = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
     let upper = comps.filter((c) => c.cy < ySplit).sort((a, b) => a.cx - b.cx);
     let lower = comps.filter((c) => c.cy >= ySplit).sort((a, b) => a.cx - b.cx);
-    if (upper.length < 2 || lower.length < 2) return null;
 
     upper = trimCentroidRowByArea(upper, 14);
     lower = trimCentroidRowByArea(lower, 14);
-    if (upper.length < 2 || lower.length < 2) return null;
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
@@ -1330,10 +1364,14 @@ const SmileSimulatorAI = () => {
         };
       });
 
-    const upperPts = upper.map((c) => ({ x: c.cx, y: c.cy }));
-    const lowerPts = lower.map((c) => ({ x: c.cx, y: c.cy }));
-    const wireSamplesUpper = sampleOpenCatmullRomChain(upperPts, CATMULL_WIRE_STEPS_PER_SEGMENT);
-    const wireSamplesLower = sampleOpenCatmullRomChain(lowerPts, CATMULL_WIRE_STEPS_PER_SEGMENT);
+    const upperPtsRaw = upper.map((c) => ({ x: c.cx, y: c.cy }));
+    const lowerPtsRaw = lower.map((c) => ({ x: c.cx, y: c.cy }));
+    const upperPts = ensureSplineControlPoints(upperPtsRaw);
+    const lowerPts = ensureSplineControlPoints(lowerPtsRaw);
+    const wireSamplesUpper =
+      upperPtsRaw.length > 0 ? sampleOpenCatmullRomChain(upperPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
+    const wireSamplesLower =
+      lowerPtsRaw.length > 0 ? sampleOpenCatmullRomChain(lowerPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
 
     const lc = landmarks[COMMISSURE_LEFT_IDX];
     const rc = landmarks[COMMISSURE_RIGHT_IDX];
@@ -1347,10 +1385,18 @@ const SmileSimulatorAI = () => {
       g2x = rc.x * iw;
       g2y = rc.y * ih;
     } else {
-      g0x = upperPts[0].x;
-      g0y = upperPts[0].y;
-      g2x = upperPts[upperPts.length - 1].x;
-      g2y = upperPts[upperPts.length - 1].y;
+      const merged = [...upper, ...lower].sort((a, b) => a.cx - b.cx);
+      if (merged.length >= 2) {
+        g0x = merged[0].cx;
+        g0y = merged[0].cy;
+        g2x = merged[merged.length - 1].cx;
+        g2y = merged[merged.length - 1].cy;
+      } else if (merged.length === 1) {
+        g0x = merged[0].cx;
+        g0y = merged[0].cy;
+        g2x = merged[0].cx + 2;
+        g2y = merged[0].cy;
+      }
     }
 
     return {
@@ -1430,7 +1476,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * CV centroid path when `enamelSnap` yields enough tooth blobs; else Bézier + column snap (no imageData / weak CC).
+   * Eroded-mask CC: >3 blobs → centroid studs + Catmull only. Otherwise Bézier + column snap (no snap / ≤3 blobs).
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
@@ -1566,16 +1612,25 @@ const SmileSimulatorAI = () => {
         ctx.shadowOffsetY = 1.5;
       }
       ctx.beginPath();
-      if (wireMode === "catmull" && wireSamplesUpper?.length >= 2) {
-        ctx.moveTo(wireSamplesUpper[0].x, wireSamplesUpper[0].y);
-        for (let i = 1; i < wireSamplesUpper.length; i++) {
-          ctx.lineTo(wireSamplesUpper[i].x, wireSamplesUpper[i].y);
+      if (wireMode === "catmull") {
+        let drewCat = false;
+        if (wireSamplesUpper?.length >= 2) {
+          ctx.moveTo(wireSamplesUpper[0].x, wireSamplesUpper[0].y);
+          for (let i = 1; i < wireSamplesUpper.length; i++) {
+            ctx.lineTo(wireSamplesUpper[i].x, wireSamplesUpper[i].y);
+          }
+          drewCat = true;
         }
         if (wireSamplesLower?.length >= 2) {
           ctx.moveTo(wireSamplesLower[0].x, wireSamplesLower[0].y);
           for (let j = 1; j < wireSamplesLower.length; j++) {
             ctx.lineTo(wireSamplesLower[j].x, wireSamplesLower[j].y);
           }
+          drewCat = true;
+        }
+        if (!drewCat) {
+          ctx.restore();
+          return;
         }
       } else if (upperQuad && lowerQuad) {
         ctx.moveTo(upperQuad.p0.x, upperQuad.p0.y);
