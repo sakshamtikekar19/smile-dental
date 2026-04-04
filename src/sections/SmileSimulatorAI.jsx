@@ -59,10 +59,9 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Centroid Anchor (primary): TEETH_WHITEN polygon + raster enamel → 8-connected blobs → one stud per centroid;
- * upper/lower split at 13/14; Catmull–Rom wire through centroids. Geometric Bézier fallback if no raster or CC weak.
- * - 1px wire; chord gradient #f8f9fa → #4a5058 → #f8f9fa. Studs: radial #0a0a0a → #e8eaee + UL glint + slot.
- * - 3px composite shadow rgba(0,0,0,0.7); triple rAF before hardware.
+ * Tooth-first hardware: TEETH_WHITEN polygon ∩ bright enamel → CC blobs → one stud per centroid (no interval sampling).
+ * Catmull–Rom spline threads centroids (must-pass); 1–1.5px wire; Bézier only as fallback when raster/CC unavailable.
+ * Studs: 10×10 roundRect, radial #0a0a0a → #e8eaee, 1px white UL chip + charcoal channel. Composite 3px rgba(0,0,0,0.8).
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
@@ -75,11 +74,11 @@ const ENAMEL_SNAP_MAX_DELTA_PX = 20;
 const ENAMEL_SNAP_MIN_LUM = 82;
 /** Lip-like sample → nudge stud X toward mouth midline (px, clamped). */
 const LIP_PINK_NUDGE_MAX_PX = 5;
-/** Surgical wire: 1–1.5px range; 1px reads thinnest on canvas. */
-const ARCHWIRE_LINE_WIDTH_PX = 1;
+/** Surgical steel wire (mandate: 1px–1.5px). */
+const ARCHWIRE_LINE_WIDTH_PX = 1.25;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 3;
-const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.7)";
+const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -958,7 +957,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * 1:1 roundRect: radial jet (#0a0a0a) → polished silver rim (#e8eaee); 1px white UL glint; charcoal slot.
+   * 1:1 roundRect: radial jet #0a0a0a → rim #e8eaee; 1px white specular chip + glint; 1px charcoal channel.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -986,13 +985,15 @@ const SmileSimulatorAI = () => {
     ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-hw + 0.5, -hw + 0.5, 1, 1);
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.lineJoin = "miter";
     ctx.beginPath();
-    ctx.moveTo(-hw + 0.5, -hw + 0.5);
-    ctx.lineTo(-hw + Math.min(3.5, side * 0.34), -hw + 0.5);
+    ctx.moveTo(-hw + 1.5, -hw + 0.5);
+    ctx.lineTo(-hw + Math.min(4, side * 0.36), -hw + 0.5);
     ctx.stroke();
     ctx.strokeStyle = "#2a3038";
     ctx.beginPath();
@@ -1429,7 +1430,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Prefer centroid-anchored studs from TEETH_WHITEN ∩ enamel CC; else geometric Bézier + optional column snap.
+   * Tooth-first: studs only on enamel CC centroids when raster exists; else legacy Bézier + column snap (no centroid data).
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
@@ -1668,7 +1669,7 @@ const SmileSimulatorAI = () => {
     });
 
   /**
-   * AI enamel → mouth pop → triple rAF → hardware overlay → 3px rgba(0,0,0,0.7) layer shadow (topmost).
+   * AI enamel → mouth pop → triple rAF → hardware overlay → 3px rgba(0,0,0,0.8) layer shadow (topmost).
    * fallbackGeometry: pre–AI-pass landmarks/oval/bounds if post-AI detectMouth fails.
    */
   const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds, fallbackGeometry = null) => {
