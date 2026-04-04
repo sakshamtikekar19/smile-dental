@@ -51,7 +51,6 @@ const MOUTH_LANDMARKS = TEETH_WHITEN_MASK_INDICES;
 /** Nose–chin axis (facial midline X). */
 const NOSE_MIDLINE_IDX = 4;
 const CHIN_MIDLINE_IDX = 152;
-const MIDLINE_BRACKET_SPACING_PX = 28;
 /** Commissures → mouth width (px); count snapped to odd professional set. */
 const COMMISSURE_LEFT_IDX = 61;
 const COMMISSURE_RIGHT_IDX = 291;
@@ -60,10 +59,11 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Perspective-locked Iron Arch:
- * - 2px wire: one quadratic per arch (61 → 291); control at midline opening (13/14) for labial U.
- * - 10px studs: jet center / silver rim; ±15px raster snap; studs below min luminance omitted.
- * - 3px composite shadow; triple rAF before hardware in applyBracesOverlay.
+ * Pure geometric Iron Arch (curve first, studs on curve):
+ * - 1.5px wire: one quadratic per arch (61 → 291); control at midline opening (13/14).
+ * - 11 samples at t = 0…1 on that curve only (no tooth-landmark tracing); tangent from Bézier derivative.
+ * - 10px studs: jet center / polished silver rim; enamel column snap + pink-lip nudge toward midline.
+ * - 3px hardware shadow; triple rAF before overlay draw.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
@@ -72,7 +72,9 @@ const ENAMEL_SNAP_SCAN_PX = 15;
 const ENAMEL_SNAP_MAX_DELTA_PX = 15;
 /** Min brightest-cluster luminance (0–255) to treat column as enamel (skip stud if below). */
 const ENAMEL_SNAP_MIN_LUM = 82;
-const ARCHWIRE_LINE_WIDTH_PX = 2;
+/** Lip-like sample → nudge stud X toward mouth midline (px, clamped). */
+const LIP_PINK_NUDGE_MAX_PX = 5;
+const ARCHWIRE_LINE_WIDTH_PX = 1.5;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 3;
 const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
@@ -971,9 +973,9 @@ const SmileSimulatorAI = () => {
     }
     const body = ctx.createRadialGradient(0, 0, side * 0.06, 0, 0, hw * 1.08);
     body.addColorStop(0, "#0a0a0a");
-    body.addColorStop(0.45, "#25282e");
-    body.addColorStop(0.78, "#6d737c");
-    body.addColorStop(1, "#9aa3ad");
+    body.addColorStop(0.42, "#3a3d44");
+    body.addColorStop(0.72, "#b8bdc4");
+    body.addColorStop(1, "#e8eaee");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
       ctx.roundRect(-hw, -hw, side, side, r);
@@ -983,14 +985,16 @@ const SmileSimulatorAI = () => {
     ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-hw * 0.5, -hw * 0.46, 1, 1);
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.48, -hw * 0.38);
-    ctx.lineTo(-hw * 0.22, -hw * 0.38);
+    ctx.moveTo(-hw * 0.46, -hw * 0.36);
+    ctx.lineTo(-hw * 0.28, -hw * 0.36);
     ctx.stroke();
-    ctx.strokeStyle = "#4b5563";
+    ctx.strokeStyle = "#2f3540";
     ctx.beginPath();
     ctx.moveTo(-hw * 0.45, 0);
     ctx.lineTo(hw * 0.45, 0);
@@ -1020,6 +1024,24 @@ const SmileSimulatorAI = () => {
       x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
       y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
     };
+  };
+
+  /** First derivative of quadratic Bézier at t — wire/stud alignment stays smooth (no x-sort zigzags). */
+  const quadraticBezierTangent = (p0, p1, p2, t) => {
+    const u = 1 - t;
+    const dx = 2 * u * (p1.x - p0.x) + 2 * t * (p2.x - p1.x);
+    const dy = 2 * u * (p1.y - p0.y) + 2 * t * (p2.y - p1.y);
+    return { dx, dy };
+  };
+
+  /** Lip / gum pink (not bright white enamel): nudge stud toward midline. */
+  const isPinkLipSample = (r, g, b) => {
+    if (r < 70 || g < 40) return false;
+    const maxc = Math.max(r, g, b);
+    const minc = Math.min(r, g, b);
+    const sat = maxc < 1 ? 0 : (maxc - minc) / maxc;
+    if (sat < 0.12) return false;
+    return r > g + 8 && r > b + 6 && r + g + b < 620;
   };
 
   const sampleLum = (data, width, height, sx, sy) => {
@@ -1069,37 +1091,41 @@ const SmileSimulatorAI = () => {
         bestClusterL = clusterL;
       }
     }
-    return { y: bestY, peakL: bestClusterL };
+    const yi = Math.floor(clamp(bestY, 2, height - 3));
+    const ii = (yi * width + x) * 4;
+    return {
+      y: bestY,
+      peakL: bestClusterL,
+      pr: data[ii],
+      pg: data[ii + 1],
+      pb: data[ii + 2],
+    };
   };
 
-  const applyEnamelSnapToAnchors = (anchors, data, width, height) => {
+  const applyEnamelSnapToAnchors = (anchors, data, width, height, midlineX) => {
     if (!data?.length || !anchors?.length) return;
+    const mx = typeof midlineX === "number" ? midlineX : width * 0.5;
     for (let i = 0; i < anchors.length; i++) {
       const a = anchors[i];
-      const { y: yNew, peakL } = snapBracketYToEnamelColumn(data, width, height, a.x, a.y);
+      const { y: yNew, peakL, pr, pg, pb } = snapBracketYToEnamelColumn(data, width, height, a.x, a.y);
       if (peakL < ENAMEL_SNAP_MIN_LUM) {
         a.skipStud = true;
       } else {
         a.y = clamp(yNew, a.y - ENAMEL_SNAP_MAX_DELTA_PX, a.y + ENAMEL_SNAP_MAX_DELTA_PX);
         a.skipStud = false;
+        if (isPinkLipSample(pr, pg, pb)) {
+          const pull = mx - a.x;
+          const step = clamp(pull * 0.22, -LIP_PINK_NUDGE_MAX_PX, LIP_PINK_NUDGE_MAX_PX);
+          a.x = clamp(a.x + step, 4, width - 5);
+        }
       }
     }
   };
 
-  const retangentAnchors = (anchors) => {
-    if (!anchors.length) return anchors;
-    return anchors.map((a, i) => {
-      const prev = anchors[Math.max(0, i - 1)];
-      const next = anchors[Math.min(anchors.length - 1, i + 1)];
-      const ang = Math.atan2(next.y - prev.y, next.x - prev.x);
-      return { ...a, ang };
-    });
-  };
-
   /**
-   * One quadratic per arch: P0=61, P2=291; P1 anchored at midline lip opening (13/14) for perspective-locked labial U.
+   * One quadratic per arch: P0=61, P2=291; P1 from midline opening (13/14). No per-tooth geometry.
    */
-  const buildGeometricBracesPack = (landmarks, iw, ih, oval) => {
+  const buildGeometricArchQuads = (landmarks, iw, ih, oval) => {
     const lc = landmarks[COMMISSURE_LEFT_IDX];
     const rc = landmarks[COMMISSURE_RIGHT_IDX];
     if (!lc || !rc || typeof lc.x !== "number" || typeof rc.x !== "number") return null;
@@ -1126,111 +1152,69 @@ const SmileSimulatorAI = () => {
       lowerCtrl = { x: peakX, y: yChord + opening * (ARCH_LABIAL_PEAK_FRAC * 1.06) };
     }
 
-    const n = ARCH_BRACKET_SAMPLE_COUNT;
-    const denom = Math.max(1, n - 1);
-    const tw = MIDLINE_BRACKET_SPACING_PX;
-    const teethUpper = [];
-    const teethLower = [];
-    for (let k = 0; k < n; k++) {
-      const t = k / denom;
-      const qu = quadraticBezierPoint(p0, upperCtrl, p2, t);
-      const ql = quadraticBezierPoint(p0, lowerCtrl, p2, t);
-      teethUpper.push({
-        peak: { x: qu.x, y: qu.y },
-        bottom: { x: qu.x, y: qu.y },
-        bbox: {
-          minX: qu.x - tw * 0.48,
-          maxX: qu.x + tw * 0.48,
-          minY: qu.y - 10,
-          maxY: qu.y + 10,
-        },
-        center: { x: qu.x, y: qu.y },
-        toothHeight: 10,
-        toothWidth: tw,
-      });
-      teethLower.push({
-        peak: { x: ql.x, y: ql.y },
-        bottom: { x: ql.x, y: ql.y },
-        bbox: {
-          minX: ql.x - tw * 0.48,
-          maxX: ql.x + tw * 0.48,
-          minY: ql.y - 10,
-          maxY: ql.y + 10,
-        },
-        center: { x: ql.x, y: ql.y },
-        toothHeight: 10,
-        toothWidth: tw,
-      });
-    }
-
     return {
-      upperTeeth: teethUpper,
-      lowerTeeth: teethLower,
-      upperCount: n,
-      lowerCount: n,
       upperQuad: { p0, p1: upperCtrl, p2 },
       lowerQuad: { p0: { ...p0 }, p1: lowerCtrl, p2: { ...p2 } },
     };
   };
 
+  /** Studs only on the geometric curve: t = 0, 1/(n-1), …, 1 — preserve order (no x-sort). */
+  const buildAnchorsOnQuad = (quad, oval, iw, ih) => {
+    const { p0, p1, p2 } = quad;
+    const n = ARCH_BRACKET_SAMPLE_COUNT;
+    const denom = Math.max(1, n - 1);
+    const anchors = [];
+    for (let k = 0; k < n; k++) {
+      const t = k / denom;
+      const q = quadraticBezierPoint(p0, p1, p2, t);
+      const { dx, dy } = quadraticBezierTangent(p0, p1, p2, t);
+      const ang = Math.atan2(dy, dx);
+      const cx = clamp(q.x, 4, iw - 5);
+      const cy = clamp(q.y, 4, ih - 5);
+      const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
+      const perspective = 0.72 + 0.28 * (1 - edge);
+      anchors.push({
+        x: cx,
+        y: cy,
+        ang,
+        wMult: Math.max(0.96, perspective),
+        star: false,
+        skipStud: false,
+      });
+    }
+    return anchors;
+  };
+
   /**
-   * Geometric anchors + optional enamel column snap from raster (overlay path after whitening).
+   * Geometric curve first; studs sampled on that curve only. Optional raster enamel snap + lip nudge.
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
-    const biometric = buildGeometricBracesPack(landmarks, iw, ih, oval);
-    if (!biometric?.upperCount && !biometric?.lowerCount) return null;
+    const quads = buildGeometricArchQuads(landmarks, iw, ih, oval);
+    if (!quads) return null;
 
-    const buildAnchors = (teeth) => {
-      if (!teeth.length) return [];
-      const heights = teeth.map((t) => t.toothHeight).sort((a, b) => a - b);
-      const widths = teeth.map((t) => t.toothWidth).sort((a, b) => a - b);
-      const medianH = heights[Math.floor(heights.length / 2)] || 8;
-      const medianW = widths[Math.floor(widths.length / 2)] || 8;
-      return teeth
-        .map((tooth) => {
-          const cx = clamp(tooth.center.x, 4, iw - 5);
-          const cy = clamp(tooth.center.y, 4, ih - 5);
-          const edge = clamp(Math.abs((cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
-          const perspective = 0.72 + 0.28 * (1 - edge);
-          const sizeByTooth = clamp(
-            ((tooth.toothWidth / medianW) * 0.65 + (tooth.toothHeight / medianH) * 0.35) * 0.95,
-            0.82,
-            1.2
-          );
-          return {
-            x: cx,
-            y: cy,
-            wMult: Math.max(0.96, perspective * sizeByTooth),
-            star: false,
-            skipStud: false,
-          };
-        })
-        .sort((a, b) => a.x - b.x);
-    };
+    const midlineX = getFacialMidlineXPx(landmarks, iw) ?? (quads.upperQuad.p0.x + quads.upperQuad.p2.x) * 0.5;
 
-    let upperAnchors = buildAnchors(biometric.upperTeeth);
-    let lowerAnchors = buildAnchors(biometric.lowerTeeth);
+    let upperAnchors = buildAnchorsOnQuad(quads.upperQuad, oval, iw, ih);
+    let lowerAnchors = buildAnchorsOnQuad(quads.lowerQuad, oval, iw, ih);
 
     if (enamelSnap?.data && enamelSnap.width && enamelSnap.height) {
-      applyEnamelSnapToAnchors(upperAnchors, enamelSnap.data, enamelSnap.width, enamelSnap.height);
-      applyEnamelSnapToAnchors(lowerAnchors, enamelSnap.data, enamelSnap.width, enamelSnap.height);
+      applyEnamelSnapToAnchors(upperAnchors, enamelSnap.data, enamelSnap.width, enamelSnap.height, midlineX);
+      applyEnamelSnapToAnchors(lowerAnchors, enamelSnap.data, enamelSnap.width, enamelSnap.height, midlineX);
     }
 
     upperAnchors = upperAnchors.filter((a) => !a.skipStud);
     lowerAnchors = lowerAnchors.filter((a) => !a.skipStud);
-    upperAnchors = retangentAnchors(upperAnchors);
-    lowerAnchors = retangentAnchors(lowerAnchors);
 
     return {
       upperAnchors,
       lowerAnchors,
       baseW,
       baseH,
-      upperQuad: biometric.upperQuad,
-      lowerQuad: biometric.lowerQuad,
+      upperQuad: quads.upperQuad,
+      lowerQuad: quads.lowerQuad,
     };
   };
 
