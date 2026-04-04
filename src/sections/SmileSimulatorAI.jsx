@@ -1133,6 +1133,7 @@ const SmileSimulatorAI = () => {
   const pickColumnStudLuminancePeak = (
     data,
     w,
+    imgH,
     mask,
     bw,
     minX,
@@ -1156,7 +1157,7 @@ const SmileSimulatorAI = () => {
       for (let lx = sx0; lx <= sx1; lx++) {
         for (let ly = y0; ly <= y1; ly++) {
           if (mask[ly * bw + lx] !== 1) continue;
-          sum += sampleLuminanceGlobal(data, w, h, minX + lx, minY + ly);
+          sum += sampleLuminanceGlobal(data, w, imgH, minX + lx, minY + ly);
           cnt++;
         }
       }
@@ -1334,6 +1335,7 @@ const SmileSimulatorAI = () => {
       const u = pickColumnStudLuminancePeak(
         data,
         w,
+        h,
         mask,
         bw,
         minX,
