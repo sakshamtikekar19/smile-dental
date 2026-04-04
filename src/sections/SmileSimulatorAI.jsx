@@ -59,20 +59,24 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Computer-vision centroid anchors only (no landmarks / % placement, no Bézier): TEETH_WHITEN ∩ enamel → erosion → CC →
- * one jet/silver stud per island; Catmull–Rom silver thread per arch (upper + lower). No hardware if zero blobs.
+ * Centroid segregation: full enamel in TEETH_WHITEN → Sobel(luminance) edges → DT seeds + edge-barrier watershed →
+ * one stud per island; 1.2px #e8eaee Catmull per arch. No erosion, no Bézier fallback.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth curved archwire). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 14;
-/** 3×3 binary erosion passes before CC (split merged enamel without erasing all signal). */
-const TOOTH_MASK_ERODE_ITERATIONS = 3;
-/** Minimum CC blob area (px). */
+/** Minimum labeled tooth region area (px). */
 const TOOTH_BLOB_MIN_AREA_PX = 8;
-/** Luminance floor on enamel-qualified pixels (inclusive of slightly yellow/dim teeth). */
-const TOOTH_MASK_HIGH_CONTRAST_LUM_MIN = 50;
-/** Surgical spline width (mandate: 1px–1.2px). */
-const ARCHWIRE_LINE_WIDTH_PX = 1.1;
+/** Sobel threshold = this quantile of edge magnitude inside enamel mask (tune if too few/many splits). */
+const SOBEL_EDGE_QUANTILE = 0.68;
+/** Dilate binary edge barriers (interdental “cuts”). */
+const SOBEL_EDGE_DILATE_PASSES = 2;
+/** Distance-to-boundary required for a watershed seed (px). */
+const WATERSHED_MIN_DT_SEED = 4;
+/** Minimum Chebyshev distance between seeds. */
+const WATERSHED_SEED_MIN_DIST = 6;
+/** Surgical silver spline (mandate). */
+const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 /** Cap studs per arch (wide smiles); raise to keep one stud per visible tooth. */
 const MAX_CENTROID_STUDS_PER_ARCH = 20;
 /** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
@@ -1048,17 +1052,6 @@ const SmileSimulatorAI = () => {
     return true;
   };
 
-  /** High-contrast binary tooth pixel (enamel rules + luminance floor) before erosion/CC. */
-  const pixelHighContrastTooth = (data, w, h, gx, gy) => {
-    if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) return false;
-    const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    return lum >= TOOTH_MASK_HIGH_CONTRAST_LUM_MIN;
-  };
-
   const catmullRomPoint2D = (p0, p1, p2, p3, t) => {
     const t2 = t * t;
     const t3 = t2 * t;
@@ -1101,21 +1094,291 @@ const SmileSimulatorAI = () => {
     return pts.map((p) => ({ x: p.x, y: p.y }));
   };
 
-  /** 3×3 erosion: pixel stays on only if full neighborhood is foreground (thins bridges between teeth). */
-  const binaryErode3x3 = (mask, bw, bh) => {
+  /** Grayscale 0–255 at global (gx,gy) from imageData. */
+  const sampleLuminanceByte = (data, w, imgH, gx, gy) => {
+    if (gx < 0 || gy < 0 || gx >= w || gy >= imgH) return 0;
+    const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+
+  /** Luminance grid for ROI (bbox), mirrored at inner borders for Sobel. */
+  const buildLuminanceRoi = (data, w, h, minX, minY, bw, bh) => {
+    const g = new Float32Array(bw * bh);
+    for (let ly = 0; ly < bh; ly++) {
+      for (let lx = 0; lx < bw; lx++) {
+        g[ly * bw + lx] = sampleLuminanceByte(data, w, h, minX + lx, minY + ly);
+      }
+    }
+    return g;
+  };
+
+  /** Sobel magnitude on luminance ROI; borders zeroed. */
+  const sobelMagnitudeRoi = (gray, bw, bh) => {
+    const mag = new Float32Array(bw * bh);
+    for (let y = 1; y < bh - 1; y++) {
+      for (let x = 1; x < bw - 1; x++) {
+        const i = y * bw + x;
+        const g00 = gray[i - bw - 1];
+        const g01 = gray[i - bw];
+        const g02 = gray[i - bw + 1];
+        const g10 = gray[i - 1];
+        const g12 = gray[i + 1];
+        const g20 = gray[i + bw - 1];
+        const g21 = gray[i + bw];
+        const g22 = gray[i + bw + 1];
+        const gx = -g00 - 2 * g10 - g20 + g02 + 2 * g12 + g22;
+        const gy = -g00 - 2 * g01 - g02 + g20 + 2 * g21 + g22;
+        mag[i] = Math.hypot(gx, gy);
+      }
+    }
+    return mag;
+  };
+
+  /** Manhattan distance from each foreground pixel to nearest background (mask 0). */
+  const manhattanDistanceToBackground = (mask, bw, bh) => {
+    const INF = 0x7fff;
+    const dt = new Int16Array(bw * bh);
+    for (let i = 0; i < mask.length; i++) {
+      dt[i] = mask[i] === 1 ? INF : 0;
+    }
+    for (let y = 0; y < bh; y++) {
+      for (let x = 0; x < bw; x++) {
+        const i = y * bw + x;
+        if (mask[i] !== 1) continue;
+        let m = dt[i];
+        if (x > 0) m = Math.min(m, dt[i - 1] + 1);
+        if (y > 0) m = Math.min(m, dt[i - bw] + 1);
+        dt[i] = m;
+      }
+    }
+    for (let y = bh - 1; y >= 0; y--) {
+      for (let x = bw - 1; x >= 0; x--) {
+        const i = y * bw + x;
+        if (mask[i] !== 1) continue;
+        let m = dt[i];
+        if (x + 1 < bw) m = Math.min(m, dt[i + 1] + 1);
+        if (y + 1 < bh) m = Math.min(m, dt[i + bw] + 1);
+        dt[i] = m;
+      }
+    }
+    return dt;
+  };
+
+  const dilateBinaryMax3x3 = (src, bw, bh) => {
     const out = new Uint8Array(bw * bh);
     for (let y = 1; y < bh - 1; y++) {
       for (let x = 1; x < bw - 1; x++) {
-        let ok = 1;
-        for (let dy = -1; dy <= 1 && ok; dy++) {
+        let v = 0;
+        for (let dy = -1; dy <= 1 && !v; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
-            if (mask[(y + dy) * bw + x + dx] !== 1) ok = 0;
+            if (src[(y + dy) * bw + x + dx]) {
+              v = 1;
+              break;
+            }
           }
         }
-        out[y * bw + x] = ok;
+        out[y * bw + x] = v;
       }
     }
     return out;
+  };
+
+  /** Approximate quantile of values where mask==1. */
+  const maskedQuantile = (values, mask, bw, bh, q) => {
+    const arr = [];
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] === 1 && values[i] > 0) arr.push(values[i]);
+    }
+    if (!arr.length) return 1;
+    arr.sort((a, b) => a - b);
+    const idx = clamp(Math.floor((arr.length - 1) * q), 0, arr.length - 1);
+    return arr[idx];
+  };
+
+  /** Greedy local maxima of DT as watershed seeds. */
+  const pickDistanceTransformSeeds = (dt, toothMask, bw, bh) => {
+    const candidates = [];
+    for (let y = 1; y < bh - 1; y++) {
+      for (let x = 1; x < bw - 1; x++) {
+        const i = y * bw + x;
+        if (toothMask[i] !== 1) continue;
+        const d = dt[i];
+        if (d < WATERSHED_MIN_DT_SEED) continue;
+        let isMax = true;
+        for (let dy = -1; dy <= 1 && isMax; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dy === 0 && dx === 0) continue;
+            const j = i + dy * bw + dx;
+            if (toothMask[j] === 1 && dt[j] > d) {
+              isMax = false;
+              break;
+            }
+          }
+        }
+        if (isMax) candidates.push({ i, d });
+      }
+    }
+    candidates.sort((a, b) => b.d - a.d);
+    const seeds = [];
+    const taken = new Uint8Array(bw * bh);
+    const r = WATERSHED_SEED_MIN_DIST;
+    for (const { i } of candidates) {
+      if (taken[i]) continue;
+      const sx = i % bw;
+      const sy = (i / bw) | 0;
+      let ok = true;
+      for (let dy = -r; dy <= r && ok; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const nx = sx + dx;
+          const ny = sy + dy;
+          if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+          if (Math.max(Math.abs(dx), Math.abs(dy)) <= r && taken[ny * bw + nx]) {
+            ok = false;
+            break;
+          }
+        }
+      }
+      if (!ok) continue;
+      seeds.push(i);
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const nx = sx + dx;
+          const ny = sy + dy;
+          if (nx >= 0 && ny >= 0 && nx < bw && ny < bh && Math.max(Math.abs(dx), Math.abs(dy)) <= r) {
+            taken[ny * bw + nx] = 1;
+          }
+        }
+      }
+    }
+    return seeds;
+  };
+
+  /**
+   * Multi-source BFS: expand each seed label through enamel pixels, blocked by dilated Sobel edges.
+   */
+  const watershedLabelsFromSeeds = (toothMask, wall, seeds, bw, bh) => {
+    const labels = new Int32Array(bw * bh);
+    const qx = new Int32Array(bw * bh);
+    const qy = new Int32Array(bw * bh);
+    let qh = 0;
+    let qt = 0;
+    seeds.forEach((idx, k) => {
+      if (toothMask[idx] !== 1 || wall[idx]) return;
+      const id = k + 1;
+      labels[idx] = id;
+      qx[qt] = idx % bw;
+      qy[qt] = (idx / bw) | 0;
+      qt += 1;
+    });
+    while (qh < qt) {
+      const x = qx[qh];
+      const y = qy[qh];
+      qh += 1;
+      const id = labels[y * bw + x];
+      const dirs = [
+        [-1, 0],
+        [1, 0],
+        [0, -1],
+        [0, 1],
+      ];
+      for (const [dx, dy] of dirs) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+        const ni = ny * bw + nx;
+        if (toothMask[ni] !== 1 || wall[ni]) continue;
+        if (labels[ni] !== 0) continue;
+        labels[ni] = id;
+        qx[qt] = nx;
+        qy[qt] = ny;
+        qt += 1;
+      }
+    }
+    return labels;
+  };
+
+  const centroidsFromLabelMap = (labels, toothMask, bw, bh, minX, minY, minA, maxA) => {
+    const n = labels.length;
+    const maxL = 256;
+    const sumx = new Float64Array(maxL);
+    const sumy = new Float64Array(maxL);
+    const cnt = new Int32Array(maxL);
+    for (let i = 0; i < n; i++) {
+      if (toothMask[i] !== 1) continue;
+      const L = labels[i];
+      if (L <= 0 || L >= maxL) continue;
+      const x = i % bw;
+      const y = (i / bw) | 0;
+      sumx[L] += x;
+      sumy[L] += y;
+      cnt[L] += 1;
+    }
+    const comps = [];
+    for (let L = 1; L < maxL; L++) {
+      const c = cnt[L];
+      if (c < minA || c > maxA) continue;
+      comps.push({ cx: minX + sumx[L] / c, cy: minY + sumy[L] / c, area: c });
+    }
+    return comps;
+  };
+
+  /**
+   * Sobel + DT-seed watershed inside full enamel mask; adaptive quantile if too few regions.
+   */
+  const segmentTeethCentroidsWatershed = (data, w, h, toothMask, bw, bh, minX, minY, polyArea) => {
+    const gray = buildLuminanceRoi(data, w, h, minX, minY, bw, bh);
+    const mag = sobelMagnitudeRoi(gray, bw, bh);
+    const minA = TOOTH_BLOB_MIN_AREA_PX;
+    const maxA = clamp(Math.round(polyArea * 0.13), 400, 14000);
+
+    let q = SOBEL_EDGE_QUANTILE;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const thresh = maskedQuantile(mag, toothMask, bw, bh, q);
+      let edge = new Uint8Array(bw * bh);
+      for (let i = 0; i < mag.length; i++) {
+        if (toothMask[i] === 1 && mag[i] >= thresh) edge[i] = 1;
+      }
+      let wall = edge;
+      for (let p = 0; p < SOBEL_EDGE_DILATE_PASSES; p++) {
+        wall = dilateBinaryMax3x3(wall, bw, bh);
+      }
+      const dt = manhattanDistanceToBackground(toothMask, bw, bh);
+      let seeds = pickDistanceTransformSeeds(dt, toothMask, bw, bh);
+      if (seeds.length < 2) {
+        const flat = [];
+        for (let i = 0; i < toothMask.length; i++) {
+          if (toothMask[i] === 1) flat.push({ i, d: dt[i] });
+        }
+        flat.sort((a, b) => b.d - a.d);
+        seeds = [];
+        const step = Math.max(10, Math.floor(Math.min(bw, bh) / 14));
+        for (const { i } of flat) {
+          if (dt[i] < 2) break;
+          if (seeds.length >= 24) break;
+          let far = true;
+          for (const s of seeds) {
+            const ax = i % bw;
+            const ay = (i / bw) | 0;
+            const bx = s % bw;
+            const by = (s / bw) | 0;
+            if (Math.max(Math.abs(ax - bx), Math.abs(ay - by)) < step * 0.85) {
+              far = false;
+              break;
+            }
+          }
+          if (far) seeds.push(i);
+        }
+        if (seeds.length < 1 && flat.length) seeds = [flat[0].i];
+      }
+      const labels = watershedLabelsFromSeeds(toothMask, wall, seeds, bw, bh);
+      let comps = centroidsFromLabelMap(labels, toothMask, bw, bh, minX, minY, minA, maxA);
+      if (comps.length > 4 || attempt === 3) return comps;
+      q = Math.max(0.45, q - 0.07);
+    }
+    return [];
   };
 
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
@@ -1135,51 +1398,6 @@ const SmileSimulatorAI = () => {
       }
     }
     return out;
-  };
-
-  const labelEnamelBlobsCentroids = (mask, bw, bh, minX, minY, minA, maxA) => {
-    const labels = new Int32Array(bw * bh);
-    const comps = [];
-    let labelId = 0;
-    const tryPush = (stack, lx, ly) => {
-      if (lx < 0 || ly < 0 || lx >= bw || ly >= bh) return;
-      const idx = ly * bw + lx;
-      if (mask[idx] !== 1 || labels[idx] !== 0) return;
-      stack.push(idx);
-    };
-    for (let ly = 0; ly < bh; ly++) {
-      for (let lx = 0; lx < bw; lx++) {
-        const start = ly * bw + lx;
-        if (mask[start] !== 1 || labels[start] !== 0) continue;
-        labelId += 1;
-        const stack = [start];
-        let sumX = 0;
-        let sumY = 0;
-        let cnt = 0;
-        while (stack.length) {
-          const idx = stack.pop();
-          if (labels[idx] !== 0) continue;
-          if (mask[idx] !== 1) continue;
-          labels[idx] = labelId;
-          const x = idx % bw;
-          const y = (idx / bw) | 0;
-          sumX += x;
-          sumY += y;
-          cnt += 1;
-          tryPush(stack, x - 1, y);
-          tryPush(stack, x + 1, y);
-          tryPush(stack, x, y - 1);
-          tryPush(stack, x, y + 1);
-          tryPush(stack, x - 1, y - 1);
-          tryPush(stack, x + 1, y - 1);
-          tryPush(stack, x - 1, y + 1);
-          tryPush(stack, x + 1, y + 1);
-        }
-        if (cnt < minA || cnt > maxA) continue;
-        comps.push({ cx: minX + sumX / cnt, cy: minY + sumY / cnt, area: cnt });
-      }
-    }
-    return comps;
   };
 
   const trimCentroidRowByArea = (row, maxN) => {
@@ -1222,7 +1440,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Erode high-contrast tooth mask → CC → centroids → upper/lower arches → Catmull wire + studs.
+   * Full enamel in TEETH_WHITEN → Sobel-edge watershed → centroids → upper/lower arches → Catmull wire + studs (no erosion).
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
@@ -1248,20 +1466,13 @@ const SmileSimulatorAI = () => {
         const gx = minX + lx;
         const gy = minY + ly;
         if (!pointInPolygonPx(gx + 0.5, gy + 0.5, poly)) continue;
-        if (!pixelHighContrastTooth(data, w, h, gx, gy)) continue;
+        if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) continue;
         mask[ly * bw + lx] = 1;
       }
     }
 
-    let eroded = mask;
-    for (let e = 0; e < TOOTH_MASK_ERODE_ITERATIONS; e++) {
-      eroded = binaryErode3x3(eroded, bw, bh);
-    }
-
     const polyArea = polygonAreaShoelace(poly);
-    const minA = TOOTH_BLOB_MIN_AREA_PX;
-    const maxA = clamp(Math.round(polyArea * 0.13), 400, 14000);
-    const comps = labelEnamelBlobsCentroids(eroded, bw, bh, minX, minY, minA, maxA);
+    const comps = segmentTeethCentroidsWatershed(data, w, h, mask, bw, bh, minX, minY, polyArea);
     if (comps.length === 0) return null;
 
     const ySplit = ((landmarks[13].y + landmarks[14].y) / 2) * ih;

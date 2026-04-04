@@ -73,12 +73,12 @@ app.post('/api/smile', async (req, res) => {
       }
       negative_prompt = `${baseNegative}, ${alignmentNegativeExtra}`;
       prompt_strength = 0.40;
-    } else if (activeTreatment === 'transformation') {
+    } else if (activeTreatment === 'transformation' || activeTreatment === 'braces') {
       prompt =
         'Subtle professional orthodontic alignment, original human tooth positions preserved, straightened natural edges, high-definition dental photography.';
       negative_prompt = baseNegative;
       prompt_strength = 0.35;
-    } else if (activeTreatment === 'whitening' || activeTreatment === 'braces') {
+    } else if (activeTreatment === 'whitening') {
       prompt =
         'Pristine natural dentition, flawlessly whitened translucent enamel, professional in-office whitening, lifelike enamel depth and translucency, realistic inter-tooth separation, photorealistic oral close-up, 8k dental photography.';
       negative_prompt = whiteningNegative;
