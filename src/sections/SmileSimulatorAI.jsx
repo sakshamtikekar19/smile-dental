@@ -967,7 +967,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Iron Arch stud: ~1:1 roundRect (not a circle) — radial dark gray → #0a0a0a, #ffffff upper-left glint, 1px charcoal slot, 5px rgba shadow.
+   * Per-tooth stainless bracket: ~1:1 roundRect, silver radial (clinical reference), #ffffff labial glint, 1px slot, float shadow.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -982,10 +982,11 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1.5;
     }
-    const body = ctx.createRadialGradient(-hw * 0.4, -hw * 0.4, side * 0.03, 0, 0, hw * 1.15);
-    body.addColorStop(0, "#707580");
-    body.addColorStop(0.32, "#3d4249");
-    body.addColorStop(0.68, "#14161a");
+    const body = ctx.createRadialGradient(-hw * 0.38, -hw * 0.42, side * 0.02, 0, 0, hw * 1.18);
+    body.addColorStop(0, "#e8eaee");
+    body.addColorStop(0.18, "#b8bec8");
+    body.addColorStop(0.45, "#7a828d");
+    body.addColorStop(0.72, "#2e3238");
     body.addColorStop(1, "#0a0a0a");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
@@ -1014,7 +1015,7 @@ const SmileSimulatorAI = () => {
     }
     ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = "#5c636c";
+    ctx.strokeStyle = "#2a2e35";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
@@ -1055,7 +1056,112 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Iron Arch: X from nose–chin (4+152) only; bracket count = round(mouth_width/28) → odd {9,11}; ±28px from midX.
+   * One bracket per visible tooth: teeth-mask landmarks split by lip midline, sorted by x, merged if too close.
+   * Positions follow each person's arch geometry; mild labial bow layered on top. Falls back to midline grid if sparse.
+   */
+  const getPerToothBracketRows = (landmarks, iw, ih, oval) => {
+    const p13 = landmarks[13];
+    const p14 = landmarks[14];
+    if (!p13 || !p14) return null;
+
+    const midYNorm = (p13.y + p14.y) / 2;
+    const midY = midYNorm * ih;
+    const lipOpenPx = Math.abs(p14.y - p13.y) * ih;
+    const slack = clamp(lipOpenPx * 0.035, 2.5, 12);
+
+    const toPx = (idx) => {
+      const p = landmarks[idx];
+      if (!p || typeof p.x !== "number" || typeof p.y !== "number") return null;
+      return { x: p.x * iw, y: p.y * ih };
+    };
+
+    const candidates = TEETH_WHITEN_MASK_INDICES.map(toPx).filter(Boolean);
+    let upperPts = candidates.filter((p) => p.y < midY + slack);
+    let lowerPts = candidates.filter((p) => p.y > midY - slack);
+
+    upperPts.sort((a, b) => a.x - b.x);
+    lowerPts.sort((a, b) => a.x - b.x);
+
+    const minSep = clamp(iw * 0.013, 9, 21);
+    const mergeClose = (arr) => {
+      if (!arr.length) return [];
+      const out = [{ ...arr[0] }];
+      for (let k = 1; k < arr.length; k++) {
+        const p = arr[k];
+        const last = out[out.length - 1];
+        const d = Math.hypot(p.x - last.x, p.y - last.y);
+        if (d >= minSep) {
+          out.push({ ...p });
+        } else {
+          last.x = (last.x + p.x) / 2;
+          last.y = (last.y + p.y) / 2;
+        }
+      }
+      return out;
+    };
+
+    upperPts = mergeClose(upperPts);
+    lowerPts = mergeClose(lowerPts);
+
+    if (upperPts.length < 4 || lowerPts.length < 4) return null;
+
+    const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
+    const spanX = (pts) => Math.max(...pts.map((q) => q.x)) - Math.min(...pts.map((q) => q.x));
+    const archHalfW = Math.max(spanX(upperPts), spanX(lowerPts), oval.rx * 0.85) * 0.52;
+    const mildBulge = clamp(LABIAL_BOW_STRENGTH * lipOpenPx * 0.055, 2, 10);
+
+    const upperLab = clamp(ih * 0.0065, 2, 6.5);
+    const lowerLab = clamp(ih * 0.0075, 2, 7.5);
+
+    const toothRow = (pts, isUpper, labShift) => {
+      const n = pts.length;
+      return pts.map((p, i) => {
+        let cx = clamp(p.x, 4, iw - 4);
+        let cy = p.y + (isUpper ? -labShift : labShift);
+        const t = archHalfW > 1 ? (cx - midX) / archHalfW : 0;
+        const tc = clamp(t, -1.15, 1.15);
+        const curve = Math.max(0, 1 - tc * tc);
+        cy += isUpper ? -mildBulge * curve : mildBulge * curve;
+        cy = clamp(cy, 4, ih - 4);
+
+        let tw = MIDLINE_BRACKET_SPACING_PX;
+        if (n === 1) {
+          tw = clamp(spanX(pts) / 2, 14, 36);
+        } else if (i === 0) {
+          tw = clamp(Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) * 0.88, 12, 40);
+        } else if (i === n - 1) {
+          tw = clamp(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y) * 0.88, 12, 40);
+        } else {
+          tw = clamp(((pts[i + 1].x - pts[i - 1].x) / 2) * 0.9, 12, 40);
+        }
+        const th = clamp(tw * 1.02, 11, 24);
+
+        return {
+          peak: { x: cx, y: cy },
+          bottom: { x: cx, y: cy },
+          bbox: {
+            minX: cx - tw * 0.5,
+            maxX: cx + tw * 0.5,
+            minY: cy - th * 0.5,
+            maxY: cy + th * 0.5,
+          },
+          center: { x: cx, y: cy },
+          toothHeight: th,
+          toothWidth: tw,
+        };
+      });
+    };
+
+    return {
+      upperTeeth: toothRow(upperPts, true, upperLab),
+      lowerTeeth: toothRow(lowerPts, false, lowerLab),
+      upperCount: upperPts.length,
+      lowerCount: lowerPts.length,
+    };
+  };
+
+  /**
+   * Iron Arch fallback: X from nose–chin (4+152) only; bracket count = round(mouth_width/28) → odd {9,11}; ±28px from midX.
    * Horizontal extent clamped to commissures (61/291) so end brackets sit at mouth corners, not canvas margin.
    * Y: lip-boundary means → enamel mid; parabola baseY ± bulge×(1−t²) bows labial (3D U).
    */
@@ -1170,7 +1276,8 @@ const SmileSimulatorAI = () => {
     const baseS = clamp(scale * 0.0092, 4, 8.5);
     const baseW = baseS;
     const baseH = baseS;
-    const biometric = getMidlineBracketRows(landmarks, iw, ih, oval);
+    const biometric =
+      getPerToothBracketRows(landmarks, iw, ih, oval) ?? getMidlineBracketRows(landmarks, iw, ih, oval);
     if (!biometric.upperCount && !biometric.lowerCount) return null;
 
     const buildAnchors = (teeth) => {
@@ -1282,9 +1389,10 @@ const SmileSimulatorAI = () => {
     };
 
     const charcoalWire = ctx.createLinearGradient(0, oval.cy - oval.ry, 0, oval.cy + oval.ry);
-    charcoalWire.addColorStop(0, "#4a4a4a");
-    charcoalWire.addColorStop(0.5, "#2c2c2c");
-    charcoalWire.addColorStop(1, "#0a0a0a");
+    charcoalWire.addColorStop(0, "#c5cad1");
+    charcoalWire.addColorStop(0.35, "#8b939e");
+    charcoalWire.addColorStop(0.7, "#4a5058");
+    charcoalWire.addColorStop(1, "#1c1f24");
 
     const drawWire = () => {
       ctx.save();
