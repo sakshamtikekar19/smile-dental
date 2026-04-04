@@ -59,16 +59,16 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Anatomical luminance center-lock: 18 columns × 3 sub-strips (brightest X) → mid-Y with 15% face clamp →
- * up to 8 upper peaks → narrow mouth subsamples to 6 then mirror lower → 3-pt moving avg → 1.2px Catmull.
+ * Luminance peak center-lock: 18 columns, brightest 3px-wide strip (mean enamel lum) → 15% face Y →
+ * peaks (≤8), narrow→6 + mirror lower → 3-pt moving avg → 1.2px solid Catmull (setLineDash []).
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
 /** Horizontal strips for column scan (higher density for wide smiles). */
 const GRID_ENAMEL_COLUMNS = 18;
-/** Sub-strips per column: mean luminance on enamel picks tooth center vs interdental gap. */
-const LUMINANCE_COLUMN_SUB_STRIPS = 3;
+/** Sliding window width (px) for horizontal luminance peak within each column (tooth center vs gap). */
+const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
 /** Clamp vertical stud away from gumline and incisal edge (fraction of tooth span). */
 const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.15;
 /** Lower-arch studs must sit at least this far below lip-opening Y (image px). */
@@ -1135,8 +1135,9 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Per column: 3 sub-strips → highest mean luminance on enamel wins X (strip center);
-   * Y = mid of top/bottom enamel in that strip, clamped 15% from gum/incisal.
+   * Per column: slide a 3px-wide window; highest mean luminance on enamel wins X (window center).
+   * Y = midpoint of top/bottom enamel in that window, clamped 15% from gum/incisal.
+   * `imgH` must be enamelSnap.height (same scope as `w`).
    */
   const pickColumnStudLuminancePeak = (
     data,
@@ -1150,34 +1151,40 @@ const SmileSimulatorAI = () => {
     xEnd,
     y0,
     y1,
-    nSub,
+    stripWidthPx,
   ) => {
     if (y0 > y1 || xEnd < xStart) return null;
     const colW = xEnd - xStart + 1;
+    const stripW = clamp(stripWidthPx | 0, 1, colW);
+    const colMidLx = (xStart + xEnd) * 0.5;
     let bestAvg = -1;
-    let bestSub = -1;
-    for (let s = 0; s < nSub; s++) {
-      const sx0 = xStart + Math.floor((s * colW) / nSub);
-      const sx1 = xStart + Math.floor(((s + 1) * colW) / nSub) - 1;
-      if (sx1 < sx0) continue;
+    let bestWx0 = xStart;
+    let bestWinMid = xStart + (stripW - 1) * 0.5;
+    for (let wx0 = xStart; wx0 <= xEnd - stripW + 1; wx0++) {
+      const wx1 = wx0 + stripW - 1;
       let sum = 0;
       let cnt = 0;
-      for (let lx = sx0; lx <= sx1; lx++) {
+      for (let lx = wx0; lx <= wx1; lx++) {
         for (let ly = y0; ly <= y1; ly++) {
           if (mask[ly * bw + lx] !== 1) continue;
           sum += sampleLuminanceGlobal(data, w, imgH, minX + lx, minY + ly);
           cnt++;
         }
       }
-      const avg = cnt > 0 ? sum / cnt : -1;
-      if (avg > bestAvg) {
+      if (cnt === 0) continue;
+      const avg = sum / cnt;
+      const winMid = wx0 + (stripW - 1) * 0.5;
+      const tie = Math.abs(winMid - colMidLx);
+      const bestTie = Math.abs(bestWinMid - colMidLx);
+      if (avg > bestAvg || (avg === bestAvg && tie < bestTie)) {
         bestAvg = avg;
-        bestSub = s;
+        bestWx0 = wx0;
+        bestWinMid = winMid;
       }
     }
-    if (bestAvg < 0 || bestSub < 0) return null;
-    const sx0 = xStart + Math.floor((bestSub * colW) / nSub);
-    const sx1 = xStart + Math.floor(((bestSub + 1) * colW) / nSub) - 1;
+    if (bestAvg < 0) return null;
+    const sx0 = bestWx0;
+    const sx1 = bestWx0 + stripW - 1;
     let topY = -1;
     let botY = -1;
     for (let lx = sx0; lx <= sx1; lx++) {
@@ -1301,7 +1308,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Enamel mask → 18-column density COG + face clamp → strict density peaks (upper) → lower mirrors → Laplacian → Catmull.
+   * Enamel mask → 18 cols × 3px lum peak strip → strict peaks → narrow→6 + mirror → 3-pt avg → Catmull.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
@@ -1355,7 +1362,7 @@ const SmileSimulatorAI = () => {
         xEnd,
         0,
         yUpperEnd,
-        LUMINANCE_COLUMN_SUB_STRIPS,
+        LUMINANCE_PEAK_STRIP_WIDTH_PX,
       );
       if (u) upperCands.push(u);
     }
