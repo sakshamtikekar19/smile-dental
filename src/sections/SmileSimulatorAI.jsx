@@ -61,15 +61,15 @@ const COMMISSURE_RIGHT_IDX = 291;
 const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78, 191, 80, 81, 82, 312, 311, 310];
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
-/** Bracket draw size: fraction of commissure span (px). */
-const BRACKET_SIZE_FROM_MOUTH_SPAN = 0.046;
-const BRACKET_SIDE_MIN_PX = 12;
-const BRACKET_SIDE_MAX_PX = 26;
-/** Geometric arch: brackets sampled along quadratic (0, 0.1, …, 1). */
+/** Mandate: ~12×12 px square studs (train-track read). */
+const BRACKET_DRAW_SIDE_PX = 12;
+/** Geometric arch: 11 samples = every 10% along each quadratic Bézier. */
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
-/** Labial peak offset as fraction of lip opening (quadratic control). */
+/** Labial U: control Y offset vs commissure chord (landmark 4 supplies peak X only; L4.y is not occlusal). */
 const ARCH_LABIAL_PEAK_FRAC = 0.44;
-/** Max px enamel snap may move a bracket off the analytic curve. */
+/** Vertical scan half-range for raster enamel snap (±20px). */
+const ENAMEL_SNAP_SCAN_PX = 20;
+/** Cap snap so studs stay near the analytic arch. */
 const ENAMEL_SNAP_MAX_DELTA_PX = 20;
 /** Archwire stroke (px); silver → black gradient. */
 const ARCHWIRE_LINE_WIDTH_PX = 2.5;
@@ -955,11 +955,11 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Square bracket: radial high-silver → gunmetal, 1px charcoal channel, sharp 1px white corner glint.
+   * 1:1 roundRect stud: radial #e8eaee → #2a2a2a, 1px slot, white highlight chip upper-left.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
-    const r = clamp(side * 0.1, 0.75, side * 0.16);
+    const r = clamp(side * 0.11, 0.8, side * 0.18);
     const hw = side * 0.5;
     ctx.save();
     ctx.translate(x, y);
@@ -970,12 +970,12 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1.5;
     }
-    const body = ctx.createRadialGradient(-hw * 0.34, -hw * 0.36, side * 0.02, 0, 0, hw * 1.12);
-    body.addColorStop(0, "#f0f2f5");
-    body.addColorStop(0.22, "#c5cad3");
-    body.addColorStop(0.48, "#6d737c");
-    body.addColorStop(0.74, "#3a3f47");
-    body.addColorStop(1, "#1a1a1a");
+    const body = ctx.createRadialGradient(-hw * 0.35, -hw * 0.38, side * 0.025, 0, 0, hw * 1.1);
+    body.addColorStop(0, "#e8eaee");
+    body.addColorStop(0.3, "#b8c0cc");
+    body.addColorStop(0.55, "#6b7280");
+    body.addColorStop(0.82, "#40454e");
+    body.addColorStop(1, "#2a2a2a");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
       ctx.roundRect(-hw, -hw, side, side, r);
@@ -985,18 +985,23 @@ const SmileSimulatorAI = () => {
     ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "#374151";
+    ctx.fillStyle = "#ffffff";
+    ctx.globalAlpha = 0.98;
+    const chip = side * 0.26;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-hw + side * 0.08, -hw + side * 0.08, chip, chip * 0.65, chip * 0.2);
+    } else {
+      ctx.rect(-hw + side * 0.08, -hw + side * 0.08, chip, chip * 0.65);
+    }
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#4b5563";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.47, 0);
-    ctx.lineTo(hw * 0.47, 0);
-    ctx.stroke();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(-hw * 0.48, -hw * 0.42);
-    ctx.lineTo(-hw * 0.28, -hw * 0.42);
+    ctx.moveTo(-hw * 0.46, 0);
+    ctx.lineTo(hw * 0.46, 0);
     ctx.stroke();
     if (starFlare) {
       ctx.strokeStyle = "rgba(255,255,255,0.5)";
@@ -1039,25 +1044,39 @@ const SmileSimulatorAI = () => {
     };
   };
 
-  /** Bright-column snap on whitened frame (enamel vs lip pink). */
+  const sampleLum = (data, width, height, sx, sy) => {
+    if (sy < 1 || sy > height - 2 || sx < 1 || sx > width - 2) return 0;
+    const i = (Math.floor(sy) * width + Math.floor(sx)) * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+
+  /**
+   * ±ENAMEL_SNAP_SCAN_PX vertical scan: pick Y with brightest 3-row “cluster” (whitened enamel), mild anti-lip bias.
+   */
   const snapBracketYToEnamelColumn = (data, width, height, cx, cyGuess) => {
     const x = Math.floor(clamp(cx, 2, width - 3));
-    const rScan = 38;
-    let bestY = cyGuess;
+    const rScan = ENAMEL_SNAP_SCAN_PX;
+    let bestY = Math.round(clamp(cyGuess, 2, height - 3));
     let bestScore = -1e9;
-    const y0 = Math.floor(clamp(cyGuess - rScan, 1, height - 2));
-    const y1 = Math.floor(clamp(cyGuess + rScan, 1, height - 2));
+    const y0 = Math.floor(clamp(cyGuess - rScan, 2, height - 3));
+    const y1 = Math.floor(clamp(cyGuess + rScan, 2, height - 3));
     for (let y = y0; y <= y1; y++) {
       const i = (y * width + x) * 4;
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
       const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const Lup = sampleLum(data, width, height, x, y - 1);
+      const Ldn = sampleLum(data, width, height, x, y + 1);
+      const clusterL = Math.max(L, Lup * 0.92, Ldn * 0.92);
       const maxc = Math.max(r, g, b);
       const minc = Math.min(r, g, b);
       const sat = maxc < 1 ? 0 : (maxc - minc) / maxc;
-      const lipPenalty = r > g + 28 && r > b + 18 ? 45 : 0;
-      const score = L - sat * 42 - lipPenalty;
+      const lipPenalty = r > g + 30 && r > b + 20 ? 28 : 0;
+      const score = clusterL - sat * 22 - lipPenalty;
       if (score > bestScore) {
         bestScore = score;
         bestY = y;
@@ -1086,7 +1105,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Smooth geometric arch: quadratic 61 → labial control (peak X from landmark 4) → 291; brackets every 10% of t.
+   * One quadratic Bézier per arch (ctx.quadraticCurveTo): P0=61, P2=291, P1.x=landmark 4, P1.y=labial peak (mouth).
+   * Brackets are placed only by sampling t — no landmark chains, so zigzags are structurally ruled out.
    */
   const buildGeometricBracesPack = (landmarks, iw, ih, oval) => {
     const lc = landmarks[COMMISSURE_LEFT_IDX];
@@ -1165,11 +1185,8 @@ const SmileSimulatorAI = () => {
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
-    const spanPx =
-      getCommissureArchSpanPx(landmarks, iw, ih) ?? Math.max(oval.rx * 2, 120);
-    const baseS = clamp(spanPx * BRACKET_SIZE_FROM_MOUTH_SPAN, BRACKET_SIDE_MIN_PX, BRACKET_SIDE_MAX_PX);
-    const baseW = baseS;
-    const baseH = baseS;
+    const baseW = BRACKET_DRAW_SIDE_PX;
+    const baseH = BRACKET_DRAW_SIDE_PX;
     const biometric = buildGeometricBracesPack(landmarks, iw, ih, oval);
     if (!biometric?.upperCount && !biometric?.lowerCount) return null;
 
