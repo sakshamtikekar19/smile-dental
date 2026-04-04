@@ -52,15 +52,17 @@ const MOUTH_LANDMARKS = TEETH_WHITEN_MASK_INDICES;
 const NOSE_MIDLINE_IDX = 4;
 const CHIN_MIDLINE_IDX = 152;
 const MIDLINE_BRACKET_SPACING_PX = 28;
-/** Commissures → mouth width (px) for bracket count = round(span/28), odd. */
+/** Commissures → mouth width (px); count snapped to odd professional set. */
 const COMMISSURE_LEFT_IDX = 61;
 const COMMISSURE_RIGHT_IDX = 291;
+/** Nearest odd count to span÷28 (always one column on nose–chin midline). */
+const PREFERRED_ODD_BRACKET_COUNTS = [9, 11, 13];
 /** Mean Y of these FaceMesh points → upper lip band (occlusal anchor, not generic mid-face). */
 const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78, 191, 80, 81, 82, 312, 311, 310];
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
-/** Labial parabola: center bulges toward lips (visible U-arch vs straight Catmull span). */
-const LABIAL_BOW_STRENGTH = 1;
+/** Labial parabola scale — keep mild so wire sits on enamel, not into lip tissue. */
+const LABIAL_BOW_STRENGTH = 0.48;
 /** Archwire stroke (px); readable on bright whitened enamel. */
 const ARCHWIRE_LINE_WIDTH_PX = 2.5;
 const ARCHWIRE_SHADOW_BLUR_PX = 5;
@@ -1006,7 +1008,13 @@ const SmileSimulatorAI = () => {
     ctx.beginPath();
     ctx.ellipse(-hw * 0.34, -hw * 0.34, side * 0.11, side * 0.11, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "#5a5f66";
+    ctx.fillStyle = "#ffffff";
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(-hw * 0.44, -hw * 0.44, Math.max(side * 0.065, 0.8), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#4a5058";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
@@ -1047,8 +1055,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Nose–chin midline X; bracket count ≈ mouth width ÷ 28 (odd); 28px columns; parabolic U bow toward lips.
-   * Vertical rows pinned from upper/lower lip mean Y (enamel band).
+   * Nose–chin midline X; odd bracket count in {9,11,13} from mouth width÷28; 28px symmetric columns.
+   * Vertical anchor: mean upper-lip Y + mean lower-lip Y → dead center of smile window; arches offset into enamel, mild parabola.
    */
   const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
     const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
@@ -1056,10 +1064,13 @@ const SmileSimulatorAI = () => {
     if (archSpanPx == null || archSpanPx < 48) {
       archSpanPx = Math.max(oval.rx * 1.9, 150);
     }
-    let nTarget = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 7, 17);
-    if (nTarget % 2 === 0) {
-      nTarget = nTarget < 17 ? nTarget + 1 : nTarget - 1;
+    let nGuess = clamp(Math.round(archSpanPx / MIDLINE_BRACKET_SPACING_PX), 9, 13);
+    if (nGuess % 2 === 0) {
+      nGuess = nGuess < 13 ? nGuess + 1 : nGuess - 1;
     }
+    const nTarget = PREFERRED_ODD_BRACKET_COUNTS.reduce((best, p) =>
+      Math.abs(p - nGuess) < Math.abs(best - nGuess) ? p : best
+    , 11);
 
     const upperMeanY = meanLandmarkYpx(landmarks, BRACES_UPPER_LIP_Y_INDICES, ih);
     const lowerMeanY = meanLandmarkYpx(landmarks, BRACES_LOWER_LIP_Y_INDICES, ih);
@@ -1068,25 +1079,28 @@ const SmileSimulatorAI = () => {
 
     let lipTop;
     let lipBot;
+    let enamelMidY;
     if (upperMeanY != null && lowerMeanY != null) {
       lipTop = Math.min(upperMeanY, lowerMeanY);
       lipBot = Math.max(upperMeanY, lowerMeanY);
+      enamelMidY = (upperMeanY + lowerMeanY) / 2;
     } else if (p13 && p14) {
       lipTop = Math.min(p13.y, p14.y) * ih;
       lipBot = Math.max(p13.y, p14.y) * ih;
+      enamelMidY = ((p13.y + p14.y) / 2) * ih;
     } else {
       lipTop = oval.cy - oval.ry * 0.55;
       lipBot = oval.cy + oval.ry * 0.55;
+      enamelMidY = (lipTop + lipBot) / 2;
     }
     const lipSpan = Math.max(lipBot - lipTop, 20);
-    const enamelMidY = (lipTop + lipBot) / 2;
+    const enamelHalf = lipSpan * 0.185;
+    const upperBaseY = clamp(enamelMidY - enamelHalf, 4, ih - 4);
+    const lowerBaseY = clamp(enamelMidY + enamelHalf, 4, ih - 4);
 
-    const upperBaseY = clamp(lipTop + (enamelMidY - lipTop) * 0.58, 4, ih - 4);
-    const lowerBaseY = clamp(enamelMidY + (lipBot - enamelMidY) * 0.42, 4, ih - 4);
-
-    const bowScale = lipSpan * 0.2 + Math.max(oval.ry * 0.34, 10);
-    const upperBulge = Math.max(8, bowScale * 0.95) * LABIAL_BOW_STRENGTH;
-    const lowerBulge = Math.max(9, bowScale) * LABIAL_BOW_STRENGTH;
+    const bowScale = lipSpan * 0.085 + Math.max(oval.ry * 0.16, 6);
+    const upperBulge = Math.max(3.5, bowScale * 0.92) * LABIAL_BOW_STRENGTH;
+    const lowerBulge = Math.max(4, bowScale) * LABIAL_BOW_STRENGTH;
 
     const makeRow = (baseY, isUpper) => {
       const row = [];
