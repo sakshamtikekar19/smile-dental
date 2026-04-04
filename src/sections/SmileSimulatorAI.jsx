@@ -61,8 +61,8 @@ const PREFERRED_ODD_BRACKET_COUNTS = [9, 11];
 const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78, 191, 80, 81, 82, 312, 311, 310];
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
-/** Labial parabola — slight U toward lips while rows stay enamel-anchored. */
-const LABIAL_BOW_STRENGTH = 0.42;
+/** Labial parabola: cy = baseY ± bulge×(1−t²); higher = clearer U-wrap toward lips (Iron Arch). */
+const LABIAL_BOW_STRENGTH = 0.68;
 /** Archwire stroke (px); high contrast on whitened enamel. */
 const ARCHWIRE_LINE_WIDTH_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 5;
@@ -967,7 +967,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Physical bracket: 1:1 roundRect body only (no circle studs) — radial steel → #0a0a0a, white corner facet, 1px slot, z-shadow.
+   * Iron Arch stud: ~1:1 roundRect (not a circle) — radial dark gray → #0a0a0a, #ffffff upper-left glint, 1px charcoal slot, 5px rgba shadow.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -1055,8 +1055,9 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Nose–chin midline X (4+152); 28px symmetric columns; odd count 9 or 11 — default 11 when span allows.
-   * Enamel Y: average of upper vs lower lip boundary means = smile-window center; arches bracket that band.
+   * Iron Arch: X from nose–chin (4+152) only; bracket count = round(mouth_width/28) → odd {9,11}; ±28px from midX.
+   * Horizontal extent clamped to commissures (61/291) so end brackets sit at mouth corners, not canvas margin.
+   * Y: lip-boundary means → enamel mid; parabola baseY ± bulge×(1−t²) bows labial (3D U).
    */
   const getMidlineBracketRows = (landmarks, iw, ih, oval) => {
     const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
@@ -1071,6 +1072,21 @@ const SmileSimulatorAI = () => {
     const nTarget = PREFERRED_ODD_BRACKET_COUNTS.reduce((best, p) =>
       Math.abs(p - nGuess) < Math.abs(best - nGuess) ? p : best
     , 11);
+
+    const lc = landmarks[COMMISSURE_LEFT_IDX];
+    const rc = landmarks[COMMISSURE_RIGHT_IDX];
+    let xLo = 4;
+    let xHi = iw - 4;
+    if (lc && rc && typeof lc.x === "number" && typeof rc.x === "number") {
+      const a = lc.x * iw;
+      const b = rc.x * iw;
+      xLo = Math.min(a, b) + 2;
+      xHi = Math.max(a, b) - 2;
+    }
+    if (xHi - xLo < MIDLINE_BRACKET_SPACING_PX * 2) {
+      xLo = 4;
+      xHi = iw - 4;
+    }
 
     const upperMeanY = meanLandmarkYpx(landmarks, BRACES_UPPER_LIP_Y_INDICES, ih);
     const lowerMeanY = meanLandmarkYpx(landmarks, BRACES_LOWER_LIP_Y_INDICES, ih);
@@ -1099,18 +1115,24 @@ const SmileSimulatorAI = () => {
     const upperBaseY = clamp(enamelMidY - enamelHalf, 4, ih - 4);
     const lowerBaseY = clamp(enamelMidY + enamelHalf, 4, ih - 4);
 
-    const bowScale = lipSpan * 0.078 + Math.max(oval.ry * 0.14, 5);
-    const upperBulge = Math.max(3.5, bowScale * 0.92) * LABIAL_BOW_STRENGTH;
-    const lowerBulge = Math.max(4, bowScale) * LABIAL_BOW_STRENGTH;
+    const bowScale = lipSpan * 0.11 + Math.max(oval.ry * 0.2, 7);
+    const upperBulge = Math.max(5, bowScale * 0.95) * LABIAL_BOW_STRENGTH;
+    const lowerBulge = Math.max(5.5, bowScale) * LABIAL_BOW_STRENGTH;
+
+    const half = (nTarget - 1) / 2;
+    const rawHalfSpan = half * MIDLINE_BRACKET_SPACING_PX;
+    let colStep = MIDLINE_BRACKET_SPACING_PX;
+    if (rawHalfSpan > 1e-6 && (midX - rawHalfSpan < xLo || midX + rawHalfSpan > xHi)) {
+      const scaleX = Math.min(1, (midX - xLo) / rawHalfSpan, (xHi - midX) / rawHalfSpan);
+      colStep = MIDLINE_BRACKET_SPACING_PX * Math.max(0.62, scaleX);
+    }
 
     const makeRow = (baseY, isUpper) => {
       const row = [];
-      const half = (nTarget - 1) / 2;
-      const margin = 6;
       for (let i = 0; i < nTarget; i++) {
-        const offset = (i - half) * MIDLINE_BRACKET_SPACING_PX;
+        const offset = (i - half) * colStep;
         let cx = midX + offset;
-        cx = clamp(cx, margin, iw - margin);
+        cx = clamp(cx, xLo, xHi);
         const t = half > 1e-6 ? (i - half) / half : 0;
         const curve = 1 - t * t;
         const cy = isUpper ? baseY - upperBulge * curve : baseY + lowerBulge * curve;
