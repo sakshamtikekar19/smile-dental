@@ -65,8 +65,10 @@ const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14
 const LABIAL_BOW_STRENGTH = 0.68;
 /** Archwire stroke (px); high contrast on whitened enamel. */
 const ARCHWIRE_LINE_WIDTH_PX = 3;
-const ARCHWIRE_SHADOW_BLUR_PX = 5;
-const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
+/** Unified hardware float: 3px black drop shadow (overlay composite in applyBracesOverlay). */
+const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
+const ARCHWIRE_SHADOW_BLUR_PX = 3;
+const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.88)";
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -967,7 +969,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Per-tooth stainless bracket: ~1:1 roundRect, silver radial (clinical reference), #ffffff labial glint, 1px slot, float shadow.
+   * Square stud: 1:1 roundRect — radial silver #e8eaee → charcoal #2a2a2a, #ffffff upper-left glint, 1px slot.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -982,12 +984,11 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1.5;
     }
-    const body = ctx.createRadialGradient(-hw * 0.38, -hw * 0.42, side * 0.02, 0, 0, hw * 1.18);
+    const body = ctx.createRadialGradient(-hw * 0.36, -hw * 0.4, side * 0.02, 0, 0, hw * 1.12);
     body.addColorStop(0, "#e8eaee");
-    body.addColorStop(0.18, "#b8bec8");
-    body.addColorStop(0.45, "#7a828d");
-    body.addColorStop(0.72, "#2e3238");
-    body.addColorStop(1, "#0a0a0a");
+    body.addColorStop(0.35, "#9aa3ad");
+    body.addColorStop(0.72, "#4a5058");
+    body.addColorStop(1, "#2a2a2a");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
       ctx.roundRect(-hw, -hw, side, side, r);
@@ -997,30 +998,21 @@ const SmileSimulatorAI = () => {
     ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
-    ctx.lineWidth = Math.max(0.28, side * 0.058);
+    ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    ctx.lineWidth = Math.max(0.28, side * 0.055);
     ctx.stroke();
-    const chipW = side * 0.34;
-    const chipH = side * 0.22;
-    const chipR = Math.min(chipW, chipH) * 0.35;
-    const chipX = -hw + side * 0.08;
-    const chipY = -hw + side * 0.08;
     ctx.fillStyle = "#ffffff";
-    ctx.globalAlpha = 0.95;
+    ctx.globalAlpha = 0.88;
     ctx.beginPath();
-    if (typeof ctx.roundRect === "function") {
-      ctx.roundRect(chipX, chipY, chipW, chipH, chipR);
-    } else {
-      ctx.rect(chipX, chipY, chipW, chipH);
-    }
+    ctx.arc(-hw * 0.38, -hw * 0.38, Math.max(side * 0.07, 0.9), 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.strokeStyle = "#2a2e35";
+    ctx.strokeStyle = "#3d434c";
     ctx.lineWidth = 1;
     ctx.lineCap = "butt";
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.47, 0);
-    ctx.lineTo(hw * 0.47, 0);
+    ctx.moveTo(-hw * 0.48, 0);
+    ctx.lineTo(hw * 0.48, 0);
     ctx.stroke();
     if (starFlare) {
       ctx.strokeStyle = "rgba(255,255,255,0.5)";
@@ -1056,8 +1048,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * One bracket per visible tooth: teeth-mask landmarks split by lip midline, sorted by x, merged if too close.
-   * Positions follow each person's arch geometry; mild labial bow layered on top. Falls back to midline grid if sparse.
+   * Geometric tooth centers from TEETH_WHITEN_MASK: strict X-sort → X-gap segmentation → centroid per segment.
+   * Commissures 61/291 extend full arch width; Laplacian Y smoothing kills zigzag before labial bow (toward lips).
    */
   const getPerToothBracketRows = (landmarks, iw, ih, oval) => {
     const p13 = landmarks[13];
@@ -1067,7 +1059,7 @@ const SmileSimulatorAI = () => {
     const midYNorm = (p13.y + p14.y) / 2;
     const midY = midYNorm * ih;
     const lipOpenPx = Math.abs(p14.y - p13.y) * ih;
-    const slack = clamp(lipOpenPx * 0.035, 2.5, 12);
+    const slack = clamp(lipOpenPx * 0.032, 2.5, 11);
 
     const toPx = (idx) => {
       const p = landmarks[idx];
@@ -1079,36 +1071,85 @@ const SmileSimulatorAI = () => {
     let upperPts = candidates.filter((p) => p.y < midY + slack);
     let lowerPts = candidates.filter((p) => p.y > midY - slack);
 
-    upperPts.sort((a, b) => a.x - b.x);
-    lowerPts.sort((a, b) => a.x - b.x);
+    upperPts.sort((a, b) => a.x - b.x || a.y - b.y);
+    lowerPts.sort((a, b) => a.x - b.x || a.y - b.y);
 
-    const minSep = clamp(iw * 0.013, 9, 21);
-    const mergeClose = (arr) => {
-      if (!arr.length) return [];
-      const out = [{ ...arr[0] }];
-      for (let k = 1; k < arr.length; k++) {
-        const p = arr[k];
-        const last = out[out.length - 1];
-        const d = Math.hypot(p.x - last.x, p.y - last.y);
-        if (d >= minSep) {
-          out.push({ ...p });
+    const segmentToothCentroids = (sorted) => {
+      if (!sorted.length) return [];
+      if (sorted.length === 1) return [{ x: sorted[0].x, y: sorted[0].y }];
+      const dxs = [];
+      for (let i = 1; i < sorted.length; i++) {
+        dxs.push(sorted[i].x - sorted[i - 1].x);
+      }
+      dxs.sort((a, b) => a - b);
+      const medDx = dxs[Math.floor(dxs.length / 2)] || 16;
+      const breakGap = clamp(medDx * 1.72, 13, 44);
+      const segs = [[sorted[0]]];
+      for (let i = 1; i < sorted.length; i++) {
+        const p = sorted[i];
+        const cur = segs[segs.length - 1];
+        const prev = cur[cur.length - 1];
+        if (p.x - prev.x >= breakGap * 0.92) {
+          segs.push([p]);
         } else {
-          last.x = (last.x + p.x) / 2;
-          last.y = (last.y + p.y) / 2;
+          cur.push(p);
         }
       }
-      return out;
+      return segs.map((seg) => ({
+        x: seg.reduce((s, q) => s + q.x, 0) / seg.length,
+        y: seg.reduce((s, q) => s + q.y, 0) / seg.length,
+      }));
     };
 
-    upperPts = mergeClose(upperPts);
-    lowerPts = mergeClose(lowerPts);
+    upperPts = segmentToothCentroids(upperPts);
+    lowerPts = segmentToothCentroids(lowerPts);
+
+    const lc = landmarks[COMMISSURE_LEFT_IDX];
+    const rc = landmarks[COMMISSURE_RIGHT_IDX];
+    if (lc && rc && typeof lc.x === "number" && typeof rc.x === "number") {
+      const xl = Math.min(lc.x, rc.x) * iw;
+      const xr = Math.max(lc.x, rc.x) * iw;
+      const extendEnds = (pts) => {
+        if (pts.length < 1) return pts;
+        const out = [...pts];
+        if (out[0].x > xl + 5) {
+          out.unshift({ x: xl, y: out[0].y });
+        }
+        if (out[out.length - 1].x < xr - 5) {
+          out.push({ x: xr, y: out[out.length - 1].y });
+        }
+        return out;
+      };
+      upperPts = extendEnds(upperPts);
+      lowerPts = extendEnds(lowerPts);
+    }
+
+    const smoothArchY = (pts) => {
+      const n = pts.length;
+      if (n < 3) return pts;
+      let cur = pts.map((p) => ({ ...p }));
+      for (let pass = 0; pass < 2; pass++) {
+        const next = cur.map((p) => ({ ...p }));
+        for (let i = 1; i < n - 1; i++) {
+          next[i].y = cur[i].y * 0.56 + (cur[i - 1].y + cur[i + 1].y) * 0.22;
+        }
+        cur = next;
+      }
+      return cur;
+    };
+
+    upperPts = smoothArchY(upperPts);
+    lowerPts = smoothArchY(lowerPts);
+
+    upperPts.sort((a, b) => a.x - b.x);
+    lowerPts.sort((a, b) => a.x - b.x);
 
     if (upperPts.length < 4 || lowerPts.length < 4) return null;
 
     const midX = getFacialMidlineXPx(landmarks, iw) ?? oval.cx;
     const spanX = (pts) => Math.max(...pts.map((q) => q.x)) - Math.min(...pts.map((q) => q.x));
     const archHalfW = Math.max(spanX(upperPts), spanX(lowerPts), oval.rx * 0.85) * 0.52;
-    const mildBulge = clamp(LABIAL_BOW_STRENGTH * lipOpenPx * 0.055, 2, 10);
+    const mildBulge = clamp(LABIAL_BOW_STRENGTH * lipOpenPx * 0.058, 2.2, 11);
 
     const upperLab = clamp(ih * 0.0065, 2, 6.5);
     const lowerLab = clamp(ih * 0.0075, 2, 7.5);
@@ -1128,11 +1169,11 @@ const SmileSimulatorAI = () => {
         if (n === 1) {
           tw = clamp(spanX(pts) / 2, 14, 36);
         } else if (i === 0) {
-          tw = clamp(Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) * 0.88, 12, 40);
+          tw = clamp(Math.abs(pts[1].x - pts[0].x) * 0.9, 12, 42);
         } else if (i === n - 1) {
-          tw = clamp(Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y) * 0.88, 12, 40);
+          tw = clamp(Math.abs(pts[i].x - pts[i - 1].x) * 0.9, 12, 42);
         } else {
-          tw = clamp(((pts[i + 1].x - pts[i - 1].x) / 2) * 0.9, 12, 40);
+          tw = clamp(((pts[i + 1].x - pts[i - 1].x) / 2) * 0.9, 12, 42);
         }
         const th = clamp(tw * 1.02, 11, 24);
 
@@ -1362,7 +1403,9 @@ const SmileSimulatorAI = () => {
      */
     const appendCatmullRomArchWire = (anchors, startNewPath) => {
       if (anchors.length < 2) return;
-      const pts = anchors.map((a) => ({ x: a.x, y: a.y }));
+      const pts = anchors
+        .map((a) => ({ x: a.x, y: a.y }))
+        .sort((a, b) => a.x - b.x || a.y - b.y);
       const n = pts.length;
       const get = (i) => {
         if (i < 0) return pts[0];
@@ -1389,10 +1432,11 @@ const SmileSimulatorAI = () => {
     };
 
     const charcoalWire = ctx.createLinearGradient(0, oval.cy - oval.ry, 0, oval.cy + oval.ry);
-    charcoalWire.addColorStop(0, "#c5cad1");
-    charcoalWire.addColorStop(0.35, "#8b939e");
-    charcoalWire.addColorStop(0.7, "#4a5058");
-    charcoalWire.addColorStop(1, "#1c1f24");
+    charcoalWire.addColorStop(0, "#e8eaee");
+    charcoalWire.addColorStop(0.3, "#b4bcc6");
+    charcoalWire.addColorStop(0.55, "#7a8490");
+    charcoalWire.addColorStop(0.8, "#454b54");
+    charcoalWire.addColorStop(1, "#2a2a2a");
 
     const drawWire = () => {
       ctx.save();
@@ -1487,8 +1531,7 @@ const SmileSimulatorAI = () => {
     });
 
   /**
-   * AI enamel → mouth pop on base only → triple-flush commits pixels → wire/stroke on a separate overlay (never filtered by pop).
-   * Composite last so archwires stay sharp; rgba(0,0,0,0.8) @ 5px shadow on overlay paths only.
+   * AI enamel → mouth pop → triple rAF → hardware on overlay (no per-path shadow) → composite with 3px black layer shadow.
    * fallbackGeometry: pre–AI-pass landmarks/oval/bounds if post-AI detectMouth fails.
    */
   const applyBracesOverlay = async (imageSrc, landmarks, iw, ih, oval, mouthBounds, fallbackGeometry = null) => {
@@ -1529,17 +1572,23 @@ const SmileSimulatorAI = () => {
     if (!octx) throw new Error("Could not get overlay context for braces");
 
     await flushPaintBeforeVectorHardware();
-    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: false, layers: "wire" });
+    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: true, layers: "wire" });
     await flushPaintBeforeVectorHardware();
     octx.save();
     octx.globalCompositeOperation = "destination-over";
     drawBracesContactShadows(lm, octx, iw, ih, ov);
     octx.restore();
-    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: false, omitWireShadow: true, layers: "studs" });
+    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, omitWireShadow: true, layers: "studs" });
 
     bctx.save();
     bctx.globalCompositeOperation = "source-over";
+    bctx.shadowColor = "rgba(0,0,0,0.9)";
+    bctx.shadowBlur = HARDWARE_LAYER_SHADOW_BLUR_PX;
+    bctx.shadowOffsetX = 0;
+    bctx.shadowOffsetY = 2;
     bctx.drawImage(overlay, 0, 0);
+    bctx.shadowBlur = 0;
+    bctx.shadowOffsetY = 0;
     bctx.restore();
 
     return base.toDataURL("image/jpeg", 0.95);
