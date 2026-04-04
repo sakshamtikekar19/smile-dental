@@ -59,20 +59,22 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Centroid-only: no Bézier fallback — if CC finds zero blobs after erosion, render no hardware.
- * High-contrast binary → 4× 3×3 erosion → CC (min blob 8px) → Catmull–Rom + 1px solid #e8eaee wire + studs.
+ * Computer-vision centroid anchors only (no landmarks / % placement, no Bézier): TEETH_WHITEN ∩ enamel → erosion → CC →
+ * one jet/silver stud per island; Catmull–Rom silver thread per arch (upper + lower). No hardware if zero blobs.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
-/** Catmull–Rom samples per inter-centroid segment (smooth archwire). */
-const CATMULL_WIRE_STEPS_PER_SEGMENT = 12;
-/** Aggressive 3×3 erosion passes before connected components (isolate tooth islands). */
-const TOOTH_MASK_ERODE_ITERATIONS = 4;
-/** Minimum CC blob area (px); tiny white specks still anchor a stud. */
+/** Catmull–Rom samples per inter-centroid segment (smooth curved archwire). */
+const CATMULL_WIRE_STEPS_PER_SEGMENT = 14;
+/** 3×3 binary erosion passes before CC (split merged enamel without erasing all signal). */
+const TOOTH_MASK_ERODE_ITERATIONS = 3;
+/** Minimum CC blob area (px). */
 const TOOTH_BLOB_MIN_AREA_PX = 8;
-/** Extra luminance floor on top of enamel rules for hard binary tooth mask. */
-const TOOTH_MASK_HIGH_CONTRAST_LUM_MIN = 62;
-/** Solid surgical wire (mandate: 1px). */
-const ARCHWIRE_LINE_WIDTH_PX = 1;
+/** Luminance floor on enamel-qualified pixels (inclusive of slightly yellow/dim teeth). */
+const TOOTH_MASK_HIGH_CONTRAST_LUM_MIN = 50;
+/** Surgical spline width (mandate: 1px–1.2px). */
+const ARCHWIRE_LINE_WIDTH_PX = 1.1;
+/** Cap studs per arch (wide smiles); raise to keep one stud per visible tooth. */
+const MAX_CENTROID_STUDS_PER_ARCH = 20;
 /** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
 const BRACES_HARDWARE_SETTLE_MS = 50;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
@@ -1189,7 +1191,38 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Erode enamel mask → CC → centroids. ≥4 blobs: centroid-only (no Bézier studs). <4 blobs: null → Bézier fallback.
+   * Split tooth blobs into upper / lower arches: prefer lip-opening Y; if one arch is empty, use largest vertical gap
+   * between sorted centroids, else split count in half on Y so both rows get a curved wire when possible.
+   */
+  const splitCompsIntoUpperLowerArches = (comps, ySplitPx) => {
+    let upper = comps.filter((c) => c.cy < ySplitPx).sort((a, b) => a.cx - b.cx);
+    let lower = comps.filter((c) => c.cy >= ySplitPx).sort((a, b) => a.cx - b.cx);
+    const broken = comps.length >= 2 && (upper.length === 0 || lower.length === 0);
+    if (broken) {
+      const byY = [...comps].sort((a, b) => a.cy - b.cy);
+      let bestIdx = 0;
+      let bestGap = -1;
+      for (let i = 0; i < byY.length - 1; i++) {
+        const g = byY[i + 1].cy - byY[i].cy;
+        if (g > bestGap) {
+          bestGap = g;
+          bestIdx = i;
+        }
+      }
+      if (bestGap >= 5) {
+        upper = byY.slice(0, bestIdx + 1).sort((a, b) => a.cx - b.cx);
+        lower = byY.slice(bestIdx + 1).sort((a, b) => a.cx - b.cx);
+      } else {
+        const mid = Math.max(1, Math.floor(byY.length / 2));
+        upper = byY.slice(0, mid).sort((a, b) => a.cx - b.cx);
+        lower = byY.slice(mid).sort((a, b) => a.cx - b.cx);
+      }
+    }
+    return { upper, lower };
+  };
+
+  /**
+   * Erode high-contrast tooth mask → CC → centroids → upper/lower arches → Catmull wire + studs.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
@@ -1232,11 +1265,12 @@ const SmileSimulatorAI = () => {
     if (comps.length === 0) return null;
 
     const ySplit = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
-    let upper = comps.filter((c) => c.cy < ySplit).sort((a, b) => a.cx - b.cx);
-    let lower = comps.filter((c) => c.cy >= ySplit).sort((a, b) => a.cx - b.cx);
+    const split = splitCompsIntoUpperLowerArches(comps, ySplit);
+    let upper = split.upper;
+    let lower = split.lower;
 
-    upper = trimCentroidRowByArea(upper, 14);
-    lower = trimCentroidRowByArea(lower, 14);
+    upper = trimCentroidRowByArea(upper, MAX_CENTROID_STUDS_PER_ARCH);
+    lower = trimCentroidRowByArea(lower, MAX_CENTROID_STUDS_PER_ARCH);
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
@@ -1276,7 +1310,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Centroid-only: no Bézier fallback — returns null if raster missing or zero tooth blobs after isolation.
+   * Centroid-only (no fallback): null if no raster or zero enamel islands after mask + erosion.
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
