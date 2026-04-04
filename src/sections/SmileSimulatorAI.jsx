@@ -59,16 +59,16 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Grid enamel scan: TEETH_WHITEN ROI → full enamel mask → 12-column top/bottom samples → min-spacing filter →
- * 1.2px #e8eaee Catmull (≥20 steps/segment). Two arches cannot cross; no watershed, no Bézier fallback.
+ * Center-lock grid scan: TEETH_WHITEN ROI → enamel mask → 18 columns → per-arch vertical mid on deepest X →
+ * min-spacing filter → 1.2px #e8eaee Catmull (≥20 steps/segment). No Bézier fallback.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
-/** Horizontal strips for column scan (mandate). */
-const GRID_ENAMEL_COLUMNS = 12;
+/** Horizontal strips for column scan (higher density for wide smiles). */
+const GRID_ENAMEL_COLUMNS = 18;
 /** Drop grid samples closer than this to the previous kept point (reduces bunched studs). */
-const GRID_SCAN_MIN_NEIGHBOR_DIST_PX = 15;
+const GRID_SCAN_MIN_NEIGHBOR_DIST_PX = 12;
 /** Surgical silver spline (mandate). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 /** Cap studs per arch (wide smiles); raise to keep one stud per visible tooth. */
@@ -1109,31 +1109,72 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * 12 vertical columns on the enamel mask: per column, top-most and bottom-most mask pixel → upper / lower rows.
+   * Grid columns on the enamel mask. Per column and per arch (split at mouth opening in ROI Y):
+   * pick the X with the longest contiguous vertical run of enamel, then place the stud at that run’s vertical mid.
    */
-  const gridScanEnamelTwoRows = (mask, bw, bh, minX, minY, cols) => {
+  const gridScanEnamelCenterLock = (mask, bw, bh, minX, minY, cols, ySplitLocalPx) => {
+    const split = clamp(Math.round(ySplitLocalPx), 1, Math.max(1, bh - 1));
+    const yUpperEnd = split - 1;
+    const yLowerStart = split;
     const upper = [];
     const lower = [];
+    const lxCenter = (xStart, xEnd) => (xStart + xEnd) * 0.5;
+
+    const pickStudInBand = (xStart, xEnd, y0, y1) => {
+      if (y0 > y1) return null;
+      const colCenter = lxCenter(xStart, xEnd);
+      let bestLx = -1;
+      let bestDepth = -1;
+      let bestMidY = 0;
+      for (let lx = xStart; lx <= xEnd; lx++) {
+        let runTop = -1;
+        let runLen = 0;
+        let bestRunTop = -1;
+        let bestRunBot = -1;
+        let bestRunLen = 0;
+        const flushRun = (top, len) => {
+          if (len <= 0 || top < 0) return;
+          const bot = top + len - 1;
+          if (len > bestRunLen) {
+            bestRunLen = len;
+            bestRunTop = top;
+            bestRunBot = bot;
+          }
+        };
+        for (let ly = y0; ly <= y1; ly++) {
+          if (mask[ly * bw + lx] === 1) {
+            if (runLen === 0) runTop = ly;
+            runLen++;
+          } else {
+            flushRun(runTop, runLen);
+            runLen = 0;
+            runTop = -1;
+          }
+        }
+        flushRun(runTop, runLen);
+        if (bestRunLen === 0) continue;
+        const depth = bestRunLen;
+        const midY = (bestRunTop + bestRunBot) * 0.5;
+        const tieBreak = Math.abs(lx - colCenter);
+        const bestTie = bestLx < 0 ? Infinity : Math.abs(bestLx - colCenter);
+        if (depth > bestDepth || (depth === bestDepth && tieBreak < bestTie)) {
+          bestDepth = depth;
+          bestLx = lx;
+          bestMidY = midY;
+        }
+      }
+      if (bestLx < 0) return null;
+      return { cx: minX + bestLx, cy: minY + bestMidY, area: 1 };
+    };
+
     for (let c = 0; c < cols; c++) {
       const xStart = Math.floor((c * bw) / cols);
       const xEnd = Math.min(bw - 1, Math.ceil(((c + 1) * bw) / cols) - 1);
       if (xEnd < xStart) continue;
-      let topY = -1;
-      let bottomY = -1;
-      for (let lx = xStart; lx <= xEnd; lx++) {
-        for (let ly = 0; ly < bh; ly++) {
-          if (mask[ly * bw + lx] !== 1) continue;
-          if (topY < 0 || ly < topY) topY = ly;
-          if (bottomY < 0 || ly > bottomY) bottomY = ly;
-        }
-      }
-      if (topY < 0) continue;
-      const lxMid = (xStart + xEnd) * 0.5;
-      const cx = minX + lxMid;
-      upper.push({ cx, cy: minY + topY, area: 1 });
-      if (bottomY > topY) {
-        lower.push({ cx, cy: minY + bottomY, area: 1 });
-      }
+      const u = pickStudInBand(xStart, xEnd, 0, yUpperEnd);
+      if (u) upper.push(u);
+      const lo = pickStudInBand(xStart, xEnd, yLowerStart, bh - 1);
+      if (lo) lower.push(lo);
     }
     upper.sort((a, b) => a.cx - b.cx);
     lower.sort((a, b) => a.cx - b.cx);
@@ -1160,7 +1201,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Full enamel mask in TEETH_WHITEN → 12-column grid top/bottom scan → spacing filter → Catmull wire + studs.
+   * Full enamel mask in TEETH_WHITEN → center-lock grid (18 cols, mid-Y on deepest X per arch) → spacing → Catmull wire + studs.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
@@ -1191,7 +1232,16 @@ const SmileSimulatorAI = () => {
       }
     }
 
-    let { upper, lower } = gridScanEnamelTwoRows(mask, bw, bh, minX, minY, GRID_ENAMEL_COLUMNS);
+    const ySplitLocal = ((landmarks[13].y + landmarks[14].y) / 2) * ih - minY;
+    let { upper, lower } = gridScanEnamelCenterLock(
+      mask,
+      bw,
+      bh,
+      minX,
+      minY,
+      GRID_ENAMEL_COLUMNS,
+      ySplitLocal,
+    );
     upper = filterArchPointsMinSpacing(upper, GRID_SCAN_MIN_NEIGHBOR_DIST_PX);
     lower = filterArchPointsMinSpacing(lower, GRID_SCAN_MIN_NEIGHBOR_DIST_PX);
     upper = capArchPointCount(upper, MAX_CENTROID_STUDS_PER_ARCH);
