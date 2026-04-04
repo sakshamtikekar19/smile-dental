@@ -59,14 +59,15 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Iron Arch (final mandate): 3-point Bézier only — no per-tooth kinks.
- * - ~1px ultra-thin wire × 2 arches: 61 → labial peak (13/14) → 291; chord gradient #f8f9fa / #4a5058 / #f8f9fa.
- * - 11 samples @ 10% t; ±20px column scan; whitest cluster wins; heavy pink/red penalty (anti-lip).
- * - 10×10 studs: radial #050505 → #e8eaee; sharp 1px white UL; 1px charcoal slot.
- * - 3px composite shadow rgba(0,0,0,0.7); triple rAF before hardware (on top of AI passes).
+ * Centroid Anchor (primary): TEETH_WHITEN polygon + raster enamel → 8-connected blobs → one stud per centroid;
+ * upper/lower split at 13/14; Catmull–Rom wire through centroids. Geometric Bézier fallback if no raster or CC weak.
+ * - 1px wire; chord gradient #f8f9fa → #4a5058 → #f8f9fa. Studs: radial #0a0a0a → #e8eaee + UL glint + slot.
+ * - 3px composite shadow rgba(0,0,0,0.7); triple rAF before hardware.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
+/** Catmull–Rom samples per inter-centroid segment (smooth archwire). */
+const CATMULL_WIRE_STEPS_PER_SEGMENT = 12;
 const ARCH_LABIAL_PEAK_FRAC = 0.42;
 const ENAMEL_SNAP_SCAN_PX = 20;
 const ENAMEL_SNAP_MAX_DELTA_PX = 20;
@@ -957,7 +958,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * 1:1 roundRect: radial jet (#050505) → polished silver rim (#e8eaee); sharp 1px white UL; charcoal slot.
+   * 1:1 roundRect: radial jet (#0a0a0a) → polished silver rim (#e8eaee); 1px white UL glint; charcoal slot.
    */
   const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
     const side = Math.min(w, h);
@@ -973,7 +974,7 @@ const SmileSimulatorAI = () => {
       ctx.shadowOffsetY = 1.2;
     }
     const body = ctx.createRadialGradient(0, 0, side * 0.04, 0, 0, hw * 1.06);
-    body.addColorStop(0, "#050505");
+    body.addColorStop(0, "#0a0a0a");
     body.addColorStop(0.52, "#4a5058");
     body.addColorStop(1, "#e8eaee");
     ctx.beginPath();
@@ -1125,6 +1126,245 @@ const SmileSimulatorAI = () => {
     }
   };
 
+  const pointInPolygonPx = (x, y, poly) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x;
+      const yi = poly[i].y;
+      const xj = poly[j].x;
+      const yj = poly[j].y;
+      const cross = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi;
+      if (cross) inside = !inside;
+    }
+    return inside;
+  };
+
+  const polygonAreaShoelace = (poly) => {
+    let a = 0;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      a += poly[j].x * poly[i].y - poly[i].x * poly[j].y;
+    }
+    return Math.abs(a * 0.5);
+  };
+
+  const pixelEnamelInTeethMask = (data, w, h, gx, gy) => {
+    if (gx < 1 || gy < 1 || gx >= w - 1 || gy >= h - 1) return false;
+    const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const maxc = Math.max(r, g, b);
+    const minc = Math.min(r, g, b);
+    const sat = maxc < 1 ? 0 : (maxc - minc) / maxc;
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    if (lum < ENAMEL_LUM_MIN || lum > ENAMEL_LUM_MAX || sat > ENAMEL_SAT_MAX) return false;
+    if (r > g + 14 && r > b + 10 && sat > 0.16) return false;
+    return true;
+  };
+
+  const catmullRomPoint2D = (p0, p1, p2, p3, t) => {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return {
+      x:
+        0.5 *
+        (2 * p1.x +
+          (-p0.x + p2.x) * t +
+          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+      y:
+        0.5 *
+        (2 * p1.y +
+          (-p0.y + p2.y) * t +
+          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+    };
+  };
+
+  const expandCatmullRomEnds = (pts) => {
+    if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
+    const n = pts.length;
+    return [
+      { x: 2 * pts[0].x - pts[1].x, y: 2 * pts[0].y - pts[1].y },
+      ...pts.map((p) => ({ x: p.x, y: p.y })),
+      { x: 2 * pts[n - 1].x - pts[n - 2].x, y: 2 * pts[n - 1].y - pts[n - 2].y },
+    ];
+  };
+
+  const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
+    if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
+    const steps = Math.max(4, stepsPerSeg | 0);
+    const chain = expandCatmullRomEnds(pts);
+    const out = [];
+    const segCount = chain.length - 3;
+    for (let i = 0; i < segCount; i++) {
+      const c0 = chain[i];
+      const c1 = chain[i + 1];
+      const c2 = chain[i + 2];
+      const c3 = chain[i + 3];
+      const t0 = i > 0 ? 1 : 0;
+      for (let s = t0; s <= steps; s++) {
+        out.push(catmullRomPoint2D(c0, c1, c2, c3, s / steps));
+      }
+    }
+    return out;
+  };
+
+  const labelEnamelBlobsCentroids = (mask, bw, bh, minX, minY, minA, maxA) => {
+    const labels = new Int32Array(bw * bh);
+    const comps = [];
+    let labelId = 0;
+    const tryPush = (stack, lx, ly) => {
+      if (lx < 0 || ly < 0 || lx >= bw || ly >= bh) return;
+      const idx = ly * bw + lx;
+      if (mask[idx] !== 1 || labels[idx] !== 0) return;
+      stack.push(idx);
+    };
+    for (let ly = 0; ly < bh; ly++) {
+      for (let lx = 0; lx < bw; lx++) {
+        const start = ly * bw + lx;
+        if (mask[start] !== 1 || labels[start] !== 0) continue;
+        labelId += 1;
+        const stack = [start];
+        let sumX = 0;
+        let sumY = 0;
+        let cnt = 0;
+        while (stack.length) {
+          const idx = stack.pop();
+          if (labels[idx] !== 0) continue;
+          if (mask[idx] !== 1) continue;
+          labels[idx] = labelId;
+          const x = idx % bw;
+          const y = (idx / bw) | 0;
+          sumX += x;
+          sumY += y;
+          cnt += 1;
+          tryPush(stack, x - 1, y);
+          tryPush(stack, x + 1, y);
+          tryPush(stack, x, y - 1);
+          tryPush(stack, x, y + 1);
+          tryPush(stack, x - 1, y - 1);
+          tryPush(stack, x + 1, y - 1);
+          tryPush(stack, x - 1, y + 1);
+          tryPush(stack, x + 1, y + 1);
+        }
+        if (cnt < minA || cnt > maxA) continue;
+        comps.push({ cx: minX + sumX / cnt, cy: minY + sumY / cnt, area: cnt });
+      }
+    }
+    return comps;
+  };
+
+  const trimCentroidRowByArea = (row, maxN) => {
+    if (row.length <= maxN) return row;
+    return [...row]
+      .sort((a, b) => b.area - a.area)
+      .slice(0, maxN)
+      .sort((a, b) => a.cx - b.cx);
+  };
+
+  /**
+   * TEETH_WHITEN_MASK polygon ∩ enamel-like pixels → connected components → centroids (one stud per tooth blob).
+   */
+  const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
+    if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
+    const { data, width: w, height: h } = enamelSnap;
+    const poly = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+    if (!poly || poly.length < 3) return null;
+
+    let minX = Math.floor(Math.min(...poly.map((p) => p.x)));
+    let minY = Math.floor(Math.min(...poly.map((p) => p.y)));
+    let maxX = Math.ceil(Math.max(...poly.map((p) => p.x)));
+    let maxY = Math.ceil(Math.max(...poly.map((p) => p.y)));
+    minX = clamp(minX - 2, 0, w - 2);
+    minY = clamp(minY - 2, 0, h - 2);
+    maxX = clamp(maxX + 2, minX + 2, w - 1);
+    maxY = clamp(maxY + 2, minY + 2, h - 1);
+    const bw = maxX - minX + 1;
+    const bh = maxY - minY + 1;
+    if (bw < 10 || bh < 10) return null;
+
+    const mask = new Uint8Array(bw * bh);
+    for (let ly = 0; ly < bh; ly++) {
+      for (let lx = 0; lx < bw; lx++) {
+        const gx = minX + lx;
+        const gy = minY + ly;
+        if (!pointInPolygonPx(gx + 0.5, gy + 0.5, poly)) continue;
+        if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) continue;
+        mask[ly * bw + lx] = 1;
+      }
+    }
+
+    const polyArea = polygonAreaShoelace(poly);
+    const minA = clamp(Math.round(polyArea * 0.0025), 28, 160);
+    const maxA = clamp(Math.round(polyArea * 0.15), 500, 16000);
+    const comps = labelEnamelBlobsCentroids(mask, bw, bh, minX, minY, minA, maxA);
+    if (comps.length < 6) return null;
+
+    const ySplit = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
+    let upper = comps.filter((c) => c.cy < ySplit).sort((a, b) => a.cx - b.cx);
+    let lower = comps.filter((c) => c.cy >= ySplit).sort((a, b) => a.cx - b.cx);
+    if (upper.length < 3 || lower.length < 3) return null;
+
+    upper = trimCentroidRowByArea(upper, 12);
+    lower = trimCentroidRowByArea(lower, 12);
+    if (upper.length < 3 || lower.length < 3) return null;
+
+    const anchorsFromCentroidRow = (row) =>
+      row.map((c, i, arr) => {
+        const edge = clamp(Math.abs((c.cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
+        const perspective = 0.72 + 0.28 * (1 - edge);
+        let ang;
+        if (arr.length === 1) ang = 0;
+        else if (i === 0) ang = Math.atan2(arr[1].cy - arr[0].cy, arr[1].cx - arr[0].cx);
+        else if (i === arr.length - 1) ang = Math.atan2(arr[i].cy - arr[i - 1].cy, arr[i].cx - arr[i - 1].cx);
+        else ang = Math.atan2(arr[i + 1].cy - arr[i - 1].cy, arr[i + 1].cx - arr[i - 1].cx);
+        return {
+          x: clamp(c.cx, 4, iw - 5),
+          y: clamp(c.cy, 4, ih - 5),
+          ang,
+          wMult: Math.max(0.96, perspective),
+          star: false,
+          skipStud: false,
+        };
+      });
+
+    const upperPts = upper.map((c) => ({ x: c.cx, y: c.cy }));
+    const lowerPts = lower.map((c) => ({ x: c.cx, y: c.cy }));
+    const wireSamplesUpper = sampleOpenCatmullRomChain(upperPts, CATMULL_WIRE_STEPS_PER_SEGMENT);
+    const wireSamplesLower = sampleOpenCatmullRomChain(lowerPts, CATMULL_WIRE_STEPS_PER_SEGMENT);
+
+    const lc = landmarks[COMMISSURE_LEFT_IDX];
+    const rc = landmarks[COMMISSURE_RIGHT_IDX];
+    let g0x = ((lc?.x ?? 0.5) * iw + (rc?.x ?? 0.5) * iw) * 0.5;
+    let g0y = ((lc?.y ?? 0.5) * ih + (rc?.y ?? 0.5) * ih) * 0.5;
+    let g2x = g0x;
+    let g2y = g0y;
+    if (lc && rc && typeof lc.x === "number" && typeof rc.x === "number") {
+      g0x = lc.x * iw;
+      g0y = lc.y * ih;
+      g2x = rc.x * iw;
+      g2y = rc.y * ih;
+    } else {
+      g0x = upperPts[0].x;
+      g0y = upperPts[0].y;
+      g2x = upperPts[upperPts.length - 1].x;
+      g2y = upperPts[upperPts.length - 1].y;
+    }
+
+    return {
+      wireMode: "catmull",
+      upperAnchors: anchorsFromCentroidRow(upper),
+      lowerAnchors: anchorsFromCentroidRow(lower),
+      wireSamplesUpper,
+      wireSamplesLower,
+      wireGradientP0: { x: g0x, y: g0y },
+      wireGradientP2: { x: g2x, y: g2y },
+      upperQuad: null,
+      lowerQuad: null,
+    };
+  };
+
   /**
    * One quadratic per arch: P0=61, P2=291; P1 from midline opening (13/14). No per-tooth geometry.
    */
@@ -1189,12 +1429,22 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Geometric curve first; studs sampled on that curve only. Optional raster enamel snap + lip nudge.
+   * Prefer centroid-anchored studs from TEETH_WHITEN ∩ enamel CC; else geometric Bézier + optional column snap.
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
+
+    const centroidPack = buildCentroidBracesPack(landmarks, iw, ih, oval, enamelSnap);
+    if (centroidPack) {
+      return {
+        ...centroidPack,
+        baseW,
+        baseH,
+      };
+    }
+
     const quads = buildGeometricArchQuads(landmarks, iw, ih, oval);
     if (!quads) return null;
 
@@ -1216,6 +1466,11 @@ const SmileSimulatorAI = () => {
       lowerAnchors,
       baseW,
       baseH,
+      wireMode: "bezier",
+      wireSamplesUpper: null,
+      wireSamplesLower: null,
+      wireGradientP0: null,
+      wireGradientP2: null,
       upperQuad: quads.upperQuad,
       lowerQuad: quads.lowerQuad,
     };
@@ -1262,23 +1517,46 @@ const SmileSimulatorAI = () => {
     const wireDarkW = ARCHWIRE_LINE_WIDTH_PX;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval, enamelSnap);
     if (!pack) return;
-    const { upperAnchors, lowerAnchors, baseW, baseH, upperQuad, lowerQuad } = pack;
+    const {
+      upperAnchors,
+      lowerAnchors,
+      baseW,
+      baseH,
+      upperQuad,
+      lowerQuad,
+      wireMode,
+      wireSamplesUpper,
+      wireSamplesLower,
+      wireGradientP0,
+      wireGradientP2,
+    } = pack;
 
     ctx.save();
 
-    /** Silver → steel → silver along commissure chord (labial perspective; avoids flat screen-vertical banding). */
-    const silverWire = ctx.createLinearGradient(
-      upperQuad.p0.x,
-      upperQuad.p0.y,
-      upperQuad.p2.x,
-      upperQuad.p2.y
-    );
+    const gx0 =
+      wireMode === "catmull" && wireGradientP0
+        ? wireGradientP0.x
+        : upperQuad?.p0.x ?? 0;
+    const gy0 =
+      wireMode === "catmull" && wireGradientP0
+        ? wireGradientP0.y
+        : upperQuad?.p0.y ?? 0;
+    const gx1 =
+      wireMode === "catmull" && wireGradientP2
+        ? wireGradientP2.x
+        : upperQuad?.p2.x ?? gx0 + 1;
+    const gy1 =
+      wireMode === "catmull" && wireGradientP2
+        ? wireGradientP2.y
+        : upperQuad?.p2.y ?? gy0;
+
+    /** Silver → steel → silver along commissure chord (or 61–291 when centroid wire). */
+    const silverWire = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
     silverWire.addColorStop(0, "#f8f9fa");
     silverWire.addColorStop(0.5, "#4a5058");
     silverWire.addColorStop(1, "#f8f9fa");
 
     const drawWire = () => {
-      if (!upperQuad || !lowerQuad) return;
       ctx.save();
       if (!omitWireShadow) {
         ctx.shadowColor = HARDWARE_SHADOW_COLOR;
@@ -1287,10 +1565,26 @@ const SmileSimulatorAI = () => {
         ctx.shadowOffsetY = 1.5;
       }
       ctx.beginPath();
-      ctx.moveTo(upperQuad.p0.x, upperQuad.p0.y);
-      ctx.quadraticCurveTo(upperQuad.p1.x, upperQuad.p1.y, upperQuad.p2.x, upperQuad.p2.y);
-      ctx.moveTo(lowerQuad.p0.x, lowerQuad.p0.y);
-      ctx.quadraticCurveTo(lowerQuad.p1.x, lowerQuad.p1.y, lowerQuad.p2.x, lowerQuad.p2.y);
+      if (wireMode === "catmull" && wireSamplesUpper?.length >= 2) {
+        ctx.moveTo(wireSamplesUpper[0].x, wireSamplesUpper[0].y);
+        for (let i = 1; i < wireSamplesUpper.length; i++) {
+          ctx.lineTo(wireSamplesUpper[i].x, wireSamplesUpper[i].y);
+        }
+        if (wireSamplesLower?.length >= 2) {
+          ctx.moveTo(wireSamplesLower[0].x, wireSamplesLower[0].y);
+          for (let j = 1; j < wireSamplesLower.length; j++) {
+            ctx.lineTo(wireSamplesLower[j].x, wireSamplesLower[j].y);
+          }
+        }
+      } else if (upperQuad && lowerQuad) {
+        ctx.moveTo(upperQuad.p0.x, upperQuad.p0.y);
+        ctx.quadraticCurveTo(upperQuad.p1.x, upperQuad.p1.y, upperQuad.p2.x, upperQuad.p2.y);
+        ctx.moveTo(lowerQuad.p0.x, lowerQuad.p0.y);
+        ctx.quadraticCurveTo(lowerQuad.p1.x, lowerQuad.p1.y, lowerQuad.p2.x, lowerQuad.p2.y);
+      } else {
+        ctx.restore();
+        return;
+      }
       ctx.strokeStyle = silverWire;
       ctx.lineWidth = wireDarkW;
       ctx.lineCap = "round";
