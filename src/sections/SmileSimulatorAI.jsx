@@ -59,9 +59,9 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Tooth-first hardware: TEETH_WHITEN polygon ∩ bright enamel → CC blobs → one stud per centroid (no interval sampling).
- * Catmull–Rom spline threads centroids (must-pass); 1–1.5px wire; Bézier only as fallback when raster/CC unavailable.
- * Studs: 10×10 roundRect, radial #0a0a0a → #e8eaee, 1px white UL chip + charcoal channel. Composite 3px rgba(0,0,0,0.8).
+ * Computer Vision Centroid Anchoring: TEETH_WHITEN polygon ∩ enamel-bright pixels → 8-connected CC → one stud per blob centroid.
+ * No landmark/% sampling for stud placement when raster exists. Catmull–Rom archwire (1.2px) through centroids; Bézier fallback if CC weak.
+ * Studs: 10×10 roundRect, jet #0a0a0a → polished rim #e8eaee, 1px white chip + charcoal slot. Final composite: 3px shadow after triple rAF.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 const ARCH_BRACKET_SAMPLE_COUNT = 11;
@@ -74,8 +74,8 @@ const ENAMEL_SNAP_MAX_DELTA_PX = 20;
 const ENAMEL_SNAP_MIN_LUM = 82;
 /** Lip-like sample → nudge stud X toward mouth midline (px, clamped). */
 const LIP_PINK_NUDGE_MAX_PX = 5;
-/** Surgical steel wire (mandate: 1px–1.5px). */
-const ARCHWIRE_LINE_WIDTH_PX = 1.25;
+/** Surgical spline width (mandate: 1.2px). */
+const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 3;
 const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
@@ -974,7 +974,7 @@ const SmileSimulatorAI = () => {
     }
     const body = ctx.createRadialGradient(0, 0, side * 0.04, 0, 0, hw * 1.06);
     body.addColorStop(0, "#0a0a0a");
-    body.addColorStop(0.52, "#4a5058");
+    body.addColorStop(0.58, "#6d737c");
     body.addColorStop(1, "#e8eaee");
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
@@ -1265,7 +1265,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * TEETH_WHITEN_MASK polygon ∩ enamel-like pixels → connected components → centroids (one stud per tooth blob).
+   * CV tooth blobs: raster inside TEETH_WHITEN mask → CC labeling → geometric centroid per component → one stud each.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
@@ -1300,16 +1300,16 @@ const SmileSimulatorAI = () => {
     const minA = clamp(Math.round(polyArea * 0.0025), 28, 160);
     const maxA = clamp(Math.round(polyArea * 0.15), 500, 16000);
     const comps = labelEnamelBlobsCentroids(mask, bw, bh, minX, minY, minA, maxA);
-    if (comps.length < 6) return null;
+    if (comps.length < 4) return null;
 
     const ySplit = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
     let upper = comps.filter((c) => c.cy < ySplit).sort((a, b) => a.cx - b.cx);
     let lower = comps.filter((c) => c.cy >= ySplit).sort((a, b) => a.cx - b.cx);
-    if (upper.length < 3 || lower.length < 3) return null;
+    if (upper.length < 2 || lower.length < 2) return null;
 
-    upper = trimCentroidRowByArea(upper, 12);
-    lower = trimCentroidRowByArea(lower, 12);
-    if (upper.length < 3 || lower.length < 3) return null;
+    upper = trimCentroidRowByArea(upper, 14);
+    lower = trimCentroidRowByArea(lower, 14);
+    if (upper.length < 2 || lower.length < 2) return null;
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
@@ -1430,7 +1430,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Tooth-first: studs only on enamel CC centroids when raster exists; else legacy Bézier + column snap (no centroid data).
+   * CV centroid path when `enamelSnap` yields enough tooth blobs; else Bézier + column snap (no imageData / weak CC).
    * @param {{ data: Uint8ClampedArray, width: number, height: number } | null} enamelSnap
    */
   const computeBracesAnchors = (landmarks, iw, ih, oval, enamelSnap = null) => {
