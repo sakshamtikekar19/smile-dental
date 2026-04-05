@@ -73,8 +73,6 @@ const CATMULL_WIRE_STEPS_PER_SEGMENT = 26;
 const GRID_ENAMEL_COLUMNS = 24;
 /** 3px-wide horizontal window: luminance refinement at each density peak (gap avoidance). */
 const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
-/** Vertical safe zone on tooth face (gum / occlusal) after (top+bottom)/2 midpoint in peak strip. */
-const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.25;
 /** 1D box half-width (px) on summed luminance density before local-max scan. */
 const ENAMEL_DENSITY_BLUR_HALF_WX = 2;
 /** Local peak vs arch max; lower = keep dimmer molars at left/right. */
@@ -1077,7 +1075,6 @@ const SmileSimulatorAI = () => {
     const pack = buildGeometricBracesPack(landmarks, iw, ih, oval, {
       bracketCountUpper: MORPH_MAX_UPPER_BRACKETS,
       bracketCountLower: MORPH_MAX_LOWER_BRACKETS,
-      faceSafeFrac: BRACKET_VERTICAL_FACE_SAFE_FRAC,
     });
     if (!pack) return null;
     return { ...pack, baseW, baseH };
@@ -1159,7 +1156,26 @@ const SmileSimulatorAI = () => {
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         ctx.setLineDash([]);
-        ctx.strokeStyle = "#c6ccd6";
+        let xMin = Infinity;
+        let xMax = -Infinity;
+        if (hasUpper) for (const q of up) {
+          xMin = Math.min(xMin, q.x);
+          xMax = Math.max(xMax, q.x);
+        }
+        if (hasLower) for (const q of lo) {
+          xMin = Math.min(xMin, q.x);
+          xMax = Math.max(xMax, q.x);
+        }
+        if (xMax > xMin + 4) {
+          const g = ctx.createLinearGradient(xMin, 0, xMax, 0);
+          g.addColorStop(0, "#959daa");
+          g.addColorStop(0.45, "#e4e8ef");
+          g.addColorStop(0.55, "#e4e8ef");
+          g.addColorStop(1, "#959daa");
+          ctx.strokeStyle = g;
+        } else {
+          ctx.strokeStyle = "#c6ccd6";
+        }
         ctx.lineWidth = wireDarkW;
         ctx.shadowColor = HARDWARE_SHADOW_COLOR;
         ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
