@@ -85,8 +85,8 @@ const MORPH_VALLEY_NEIGHBOR_MAX_FRAC = 0.6;
 /** Looser neighbor test for secondary split on wide arches. */
 const MORPH_VALLEY_NEIGHBOR_LOOSE_FRAC = 0.72;
 const MORPH_SIGNAL_BLUR_HALF = 2;
-/** Allow single-column distal segments so molars at arch ends still get a bracket. */
-const MORPH_MIN_SEGMENT_WIDTH_PX = 1;
+/** Min segment width (columns) — 3 suppresses single-pixel “ghost” brackets in noisy dark corners. */
+const MORPH_MIN_SEGMENT_WIDTH_PX = 3;
 /** Relaxed COM threshold; thin edge enamel uses pickColumnStudLuminancePeak fallback. */
 const MORPH_MIN_TOOTH_BLOB_PX = 6;
 /** Never merge below natural segment count up to this cap (full molar-to-molar coverage). */
@@ -101,6 +101,10 @@ const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_UPPER_BRACKETS;
 const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
 /** Solid silver archwire (px). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
+/** >0 mirrors Catmull endpoints (wire extends past last stud). 0 = duplicate endpoints so wire tucks at terminal brackets. */
+const ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0;
+/** Match stud drop shadow so wire reads threaded through brackets, not floating in front. */
+const ARCHWIRE_SHADOW_OFFSET_Y_PX = 1.35;
 /** Smile-curve depth: upper arch dips at center (+Y), lower rises (−Y); scales with half-arch width. */
 const SMILE_CURVE_DEPTH_FRAC_OF_HALF_ARCH = 0.062;
 const SMILE_CURVE_DEPTH_MIN_PX = 3;
@@ -1062,9 +1066,9 @@ const SmileSimulatorAI = () => {
     ctx.rotate(tangentRad + Math.PI / 2);
     if (!omitDropShadow) {
       ctx.shadowColor = HARDWARE_SHADOW_COLOR;
-      ctx.shadowBlur = 3;
+      ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
       ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 1.35;
+      ctx.shadowOffsetY = ARCHWIRE_SHADOW_OFFSET_Y_PX;
     }
     const cxg = -hw * 0.2;
     const cyg = -hh * 0.22;
@@ -1179,9 +1183,13 @@ const SmileSimulatorAI = () => {
   const expandCatmullRomEnds = (pts) => {
     if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
     const n = pts.length;
+    const body = pts.map((p) => ({ x: p.x, y: p.y }));
+    if (ARCHWIRE_EXTEND_BEYOND_STUDS_PX <= 0) {
+      return [{ x: pts[0].x, y: pts[0].y }, ...body, { x: pts[n - 1].x, y: pts[n - 1].y }];
+    }
     return [
       { x: 2 * pts[0].x - pts[1].x, y: 2 * pts[0].y - pts[1].y },
-      ...pts.map((p) => ({ x: p.x, y: p.y })),
+      ...body,
       { x: 2 * pts[n - 1].x - pts[n - 2].x, y: 2 * pts[n - 1].y - pts[n - 2].y },
     ];
   };
@@ -1722,21 +1730,34 @@ const SmileSimulatorAI = () => {
     });
   };
 
-  /** 5-point weighted moving average on cy only (1–4–6–4–1); preserves cx from geometric segment lock. */
+  /**
+   * 5-point weighted cy smooth (1–4–6–4–1) with molar clamp: terminal indices keep raw cy;
+   * penultimate use 50% blend so distal tilt isn’t flattened toward the arch mean.
+   */
   const smoothArchCyOnlyWeightedMovingAvg5 = (row) => {
     if (row.length === 0) return [];
     if (row.length < 5) return smoothArchCyOnlyMovingAvg3(row);
     const wts = [1, 4, 6, 4, 1];
-    return row.map((_, i) => {
+    const n = row.length;
+    const blended = row.map((_, i) => {
       let sy = 0;
       let tw = 0;
       for (let d = -2; d <= 2; d++) {
-        const j = clamp(i + d, 0, row.length - 1);
+        const j = clamp(i + d, 0, n - 1);
         const wt = wts[d + 2];
         sy += row[j].cy * wt;
         tw += wt;
       }
-      return { cx: row[i].cx, cy: sy / tw, area: row[i].area ?? 1 };
+      return sy / tw;
+    });
+    return row.map((orig, i) => {
+      const s = blended[i];
+      const o = orig.cy;
+      let cy;
+      if (i === 0 || i === n - 1) cy = o;
+      else if (i === 1 || i === n - 2) cy = 0.5 * s + 0.5 * o;
+      else cy = s;
+      return { cx: orig.cx, cy, area: orig.area ?? 1 };
     });
   };
 
@@ -2571,7 +2592,7 @@ const SmileSimulatorAI = () => {
         ctx.shadowColor = HARDWARE_SHADOW_COLOR;
         ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
         ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0.65;
+        ctx.shadowOffsetY = ARCHWIRE_SHADOW_OFFSET_Y_PX;
         if (path2d) ctx.stroke(path2d);
         else {
           ctx.beginPath();
