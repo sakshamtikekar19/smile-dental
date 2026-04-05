@@ -2201,10 +2201,12 @@ const SmileSimulatorAI = () => {
       for (let lx = 0; lx < bw; lx++) {
         const gx = minX + lx;
         const gy = minY + ly;
-        const inFullEnamelSweep = gx >= spanGxL && gx <= spanGxR && gy >= stripY0 && gy <= stripY1;
-        const hasEnamel = inFullEnamelSweep
-          ? pixelEnamelBracesLateral(data, w, h, gx, gy)
-          : pixelEnamelInTeethMask(data, w, h, gx, gy);
+        const inVertBand = gy >= stripY0 && gy <= stripY1;
+        const inWideSpan = gx >= spanGxL && gx <= spanGxR && inVertBand;
+        const lat = pixelEnamelBracesLateral(data, w, h, gx, gy);
+        const strict = pixelEnamelInTeethMask(data, w, h, gx, gy);
+        /** Lateral OR strict in band — lateral-only was dropping bright tooth centers and emptying the mask. */
+        const hasEnamel = inVertBand ? lat || strict : strict;
         if (!hasEnamel) continue;
         const inPoly = pointInPolygonPx(gx + 0.5, gy + 0.5, poly);
         const inExpandedArch =
@@ -2212,7 +2214,7 @@ const SmileSimulatorAI = () => {
           gx <= polyMaxX + archPadX &&
           gy >= polyMinY - archPadY &&
           gy <= polyMaxY + archPadY;
-        if (inPoly || inExpandedArch || inFullEnamelSweep) mask[ly * bw + lx] = 1;
+        if (inPoly || inExpandedArch || inWideSpan || (inVertBand && hasEnamel)) mask[ly * bw + lx] = 1;
       }
     }
 
@@ -2242,10 +2244,12 @@ const SmileSimulatorAI = () => {
     const yU0 = 0;
     const yU1 = Math.max(0, yUpperEnd);
 
-    /** Horizontal span: mask extent per band ∪ full-image enamel scan (no commissure / oval widening). */
-    const uBand = enamelLxExtentInBand(mask, bw, bh, yU0, yU1);
-    const lBand = enamelLxExtentInBand(mask, bw, bh, yLowerStart, bh - 1);
-    if (!uBand || !lBand) return null;
+    /** Horizontal span: mask extent per band ∪ full-image enamel scan. Fallback = full enamel bbox so split never nulls the arch. */
+    const bboxLR = { L: enamelMinLx, R: enamelMaxLx };
+    let uBand = enamelLxExtentInBand(mask, bw, bh, yU0, yU1);
+    let lBand = enamelLxExtentInBand(mask, bw, bh, yLowerStart, bh - 1);
+    if (!uBand) uBand = bboxLR;
+    if (!lBand) lBand = bboxLR;
 
     const imgYUpperLo = clamp(minY + yU0, 0, h - 1);
     const imgYUpperHi = clamp(minY + yU1, 0, h - 1);
@@ -2387,7 +2391,7 @@ const SmileSimulatorAI = () => {
       );
     }
 
-    if (upper.length === 0 || lower.length === 0) return null;
+    if (upper.length === 0 && lower.length === 0) return null;
 
     /** 3-point weighted cy smooth — continuous archwire without zig-zag jitter. */
     upper = smoothArchCyOnlyWeightedMovingAvg3(upper);
@@ -2401,7 +2405,9 @@ const SmileSimulatorAI = () => {
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
-        const edge = clamp(Math.abs((c.cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
+        const ocx = oval?.cx != null ? oval.cx : c.cx;
+        const orx = Math.max(oval?.rx ?? 1, 1);
+        const edge = clamp(Math.abs((c.cx - ocx) / orx), 0, 1);
         const perspective = 0.56 + 0.44 * (1 - edge);
         const wMult = Math.max(0.88, perspective);
         const hMult = wMult * (0.68 + 0.32 * (1 - edge));
@@ -2612,11 +2618,29 @@ const SmileSimulatorAI = () => {
         } else if (type === "braces") {
           doWhitening();
           runPop();
-          if (landmarks) renderBraces(landmarks, ctx, iw, ih, oval);
+          if (landmarks) {
+            let enamelSnap = null;
+            try {
+              const id = ctx.getImageData(0, 0, iw, ih);
+              enamelSnap = { data: id.data, width: iw, height: ih };
+            } catch {
+              /* cross-origin / tainted canvas */
+            }
+            renderBraces(landmarks, ctx, iw, ih, oval, { enamelSnap });
+          }
         } else if (type === "whitening_braces") {
           doWhitening();
           runPop();
-          if (landmarks) renderBraces(landmarks, ctx, iw, ih, oval);
+          if (landmarks) {
+            let enamelSnap = null;
+            try {
+              const id = ctx.getImageData(0, 0, iw, ih);
+              enamelSnap = { data: id.data, width: iw, height: ih };
+            } catch {
+              /* cross-origin / tainted canvas */
+            }
+            renderBraces(landmarks, ctx, iw, ih, oval, { enamelSnap });
+          }
         }
       },
     };
