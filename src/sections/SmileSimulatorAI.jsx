@@ -59,8 +59,9 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Extreme lateral arch: every-row full-snap enamel X scan (lip/commissure-free), grid + morph segments with
- * edge molar fallback, 5-pt (1–4–6–4–1) cy smooth after smile curve, 1.2px wire + 3px rgba(0,0,0,0.8) depth.
+ * Geometric segmentation lock: full-snap enamel horizontal ROI (lip corners ignored), morphological valley
+ * segments only (independent upper/lower), segment-mid X + 20% face Y, 5-pt cy MA, ≤14 / ≤12 studs,
+ * 1.2px wire + 3px rgba(0,0,0,0.8).
  */
 /** Base clear-bracket size (reference: ~10–11px ceramic squares on tooth center). */
 const BRACKET_DRAW_SIDE_PX = 11;
@@ -89,11 +90,11 @@ const MORPH_SIGNAL_BLUR_HALF = 2;
 const MORPH_MIN_SEGMENT_WIDTH_PX = 3;
 /** Relaxed COM threshold; thin edge enamel uses pickColumnStudLuminancePeak fallback. */
 const MORPH_MIN_TOOTH_BLOB_PX = 6;
-/** Never merge below natural segment count up to this cap (full molar-to-molar coverage). */
-const MORPH_SEGMENT_CAP_UPPER = 18;
-const MORPH_SEGMENT_CAP_LOWER = 16;
-const MORPH_MAX_UPPER_BRACKETS = 16;
-const MORPH_MAX_LOWER_BRACKETS = 14;
+/** Segment merge caps align with bracket targets (molar-to-molar within 14 / 12). */
+const MORPH_SEGMENT_CAP_UPPER = 14;
+const MORPH_SEGMENT_CAP_LOWER = 12;
+const MORPH_MAX_UPPER_BRACKETS = 14;
+const MORPH_MAX_LOWER_BRACKETS = 12;
 /** Narrower so distal columns can register interdental valleys near commissures. */
 const MORPH_EDGE_VALLEY_IGNORE_PX = 2;
 /** Legacy density merge cap. */
@@ -2203,8 +2204,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Extreme lateral stretch: every-row enamel X, 24-col grid + morph segments (per-segment brackets),
-   * 5-pt weighted cy after smile curve, merge caps 16 / 14 aligned with segment caps 18 / 16.
+   * Universal geometric arch-lock: enamel-driven horizontal ROI, independent morph valley rows (≤14 / ≤12),
+   * segment geometric center + 20% Y clamp, 5-pt cy MA after smile curve.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -2228,19 +2229,19 @@ const SmileSimulatorAI = () => {
       clamp(stripY0Pre, 0, h - 1),
       clamp(stripY1Pre, 0, h - 1),
     );
-    const xPadGeom = Math.max(36, (polyMaxX - polyMinX) * 0.14);
-    let minX = Math.floor(polyMinX - archPadX);
-    let minY = Math.floor(polyMinY - 2);
-    let maxX = Math.ceil(polyMaxX + archPadX);
-    let maxY = Math.ceil(polyMaxY + 2);
+    const xPadGeom = Math.max(40, (polyMaxX - polyMinX) * 0.15);
+    /** Horizontal ROI from absolute enamel L/R only (inner lip polygon does not clip width). */
+    let minX;
+    let maxX;
     if (fullXExtent) {
-      minX = Math.min(minX, fullXExtent.L - xPadGeom);
-      maxX = Math.max(maxX, fullXExtent.R + xPadGeom);
+      minX = Math.floor(clamp(fullXExtent.L - xPadGeom, 0, w - 2));
+      maxX = Math.ceil(clamp(fullXExtent.R + xPadGeom, minX + 2, w - 1));
+    } else {
+      minX = Math.floor(clamp(polyMinX - archPadX, 0, w - 2));
+      maxX = Math.ceil(clamp(polyMaxX + archPadX, minX + 2, w - 1));
     }
-    minX = clamp(minX, 0, w - 2);
-    minY = clamp(minY, 0, h - 2);
-    maxX = clamp(maxX, minX + 2, w - 1);
-    maxY = clamp(maxY, minY + 2, h - 1);
+    const minY = Math.floor(clamp(polyMinY - 2, 0, h - 2));
+    const maxY = Math.ceil(clamp(polyMaxY + 2, minY + 2, h - 1));
     const bw = maxX - minX + 1;
     const bh = maxY - minY + 1;
     if (bw < 10 || bh < 10) return null;
@@ -2312,6 +2313,8 @@ const SmileSimulatorAI = () => {
 
     const globUpper = globalEnamelExtentLocalX(data, w, h, imgYUpperLo, imgYUpperHi, minX, bw);
     const globLower = globalEnamelExtentLocalX(data, w, h, imgYLowerLo, imgYLowerHi, minX, bw);
+    const extUpperImg = fullImageEnamelGxExtent(data, w, h, imgYUpperLo, imgYUpperHi);
+    const extLowerImg = fullImageEnamelGxExtent(data, w, h, imgYLowerLo, imgYLowerHi);
 
     let archLx0_u = uBand.L;
     let archLx1_u = uBand.R;
@@ -2319,12 +2322,24 @@ const SmileSimulatorAI = () => {
       archLx0_u = Math.min(archLx0_u, globUpper.locL);
       archLx1_u = Math.max(archLx1_u, globUpper.locR);
     }
+    if (extUpperImg) {
+      const lLoc = clamp(Math.floor(extUpperImg.L - minX), 0, bw - 1);
+      const rLoc = clamp(Math.ceil(extUpperImg.R - minX), 0, bw - 1);
+      archLx0_u = Math.min(archLx0_u, lLoc);
+      archLx1_u = Math.max(archLx1_u, rLoc);
+    }
 
     let archLx0_l = lBand.L;
     let archLx1_l = lBand.R;
     if (globLower) {
       archLx0_l = Math.min(archLx0_l, globLower.locL);
       archLx1_l = Math.max(archLx1_l, globLower.locR);
+    }
+    if (extLowerImg) {
+      const lLocL = clamp(Math.floor(extLowerImg.L - minX), 0, bw - 1);
+      const rLocL = clamp(Math.ceil(extLowerImg.R - minX), 0, bw - 1);
+      archLx0_l = Math.min(archLx0_l, lLocL);
+      archLx1_l = Math.max(archLx1_l, rLocL);
     }
 
     archLx0_u = clamp(archLx0_u, 0, bw - 1);
@@ -2368,48 +2383,49 @@ const SmileSimulatorAI = () => {
       MORPH_MAX_LOWER_BRACKETS,
     );
 
-    let upper = buildArchRowFromHighDensityGrid(
-      data,
-      w,
-      h,
-      mask,
-      bw,
-      minX,
-      minY,
-      archLx0_u,
-      archLx1_u,
-      yU0,
-      yU1,
-      GRID_ENAMEL_COLUMNS,
-      MORPH_MAX_UPPER_BRACKETS,
-      ySplitImg,
-      false,
-    );
-    upper = mergeUpperStudRowsByMinSep(upper, morphUpper, MORPH_MAX_UPPER_BRACKETS, 2);
-    if (upper.length < 5) {
-      upper = mergeUpperStudRowsByMinSep(morphUpper, upper, MORPH_MAX_UPPER_BRACKETS, 2);
+    /** Geometric lock: valley segments are primary; grid is fallback only (no lip-clipped density as main path). */
+    let upper = morphUpper;
+    if (upper.length < 2) {
+      const gridU = buildArchRowFromHighDensityGrid(
+        data,
+        w,
+        h,
+        mask,
+        bw,
+        minX,
+        minY,
+        archLx0_u,
+        archLx1_u,
+        yU0,
+        yU1,
+        GRID_ENAMEL_COLUMNS,
+        MORPH_MAX_UPPER_BRACKETS,
+        ySplitImg,
+        false,
+      );
+      upper = mergeUpperStudRowsByMinSep(morphUpper, gridU, MORPH_MAX_UPPER_BRACKETS, 3);
     }
 
-    let lower = buildArchRowFromHighDensityGrid(
-      data,
-      w,
-      h,
-      mask,
-      bw,
-      minX,
-      minY,
-      archLx0_l,
-      archLx1_l,
-      yLowerStart,
-      bh - 1,
-      GRID_ENAMEL_COLUMNS,
-      MORPH_MAX_LOWER_BRACKETS,
-      ySplitImg,
-      true,
-    );
-    lower = mergeUpperStudRowsByMinSep(lower, morphLower, MORPH_MAX_LOWER_BRACKETS, 2);
-    if (lower.length < 5) {
-      lower = mergeUpperStudRowsByMinSep(morphLower, lower, MORPH_MAX_LOWER_BRACKETS, 2);
+    let lower = morphLower;
+    if (lower.length < 2) {
+      const gridL = buildArchRowFromHighDensityGrid(
+        data,
+        w,
+        h,
+        mask,
+        bw,
+        minX,
+        minY,
+        archLx0_l,
+        archLx1_l,
+        yLowerStart,
+        bh - 1,
+        GRID_ENAMEL_COLUMNS,
+        MORPH_MAX_LOWER_BRACKETS,
+        ySplitImg,
+        true,
+      );
+      lower = mergeUpperStudRowsByMinSep(morphLower, gridL, MORPH_MAX_LOWER_BRACKETS, 3);
     }
 
     if (upper.length < 3) {
@@ -2447,15 +2463,12 @@ const SmileSimulatorAI = () => {
 
     if (upper.length === 0 && lower.length === 0) return null;
 
-    upper = refineArchRowHorizontalEnamelCOM(upper, mask, bw, bh, minX, minY);
-    lower = refineArchRowHorizontalEnamelCOM(lower, mask, bw, bh, minX, minY);
-
     upper = applySmileCurveVerticalToArchRow(upper, true, oval);
     lower = applySmileCurveVerticalToArchRow(lower, false, oval);
 
-    /** Final 1–4–6–4–1 weighted cy smooth on smile-corrected path — professional continuous arc. */
-    upper = smoothArchCyOnlyWeightedMovingAvg5(upper);
-    lower = smoothArchCyOnlyWeightedMovingAvg5(lower);
+    /** 5-point moving average on cy (preserves segment-mid X); no horizontal COM refine — geometric lock. */
+    upper = smoothArchCyOnlyMovingAvg5(upper);
+    lower = smoothArchCyOnlyMovingAvg5(lower);
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
