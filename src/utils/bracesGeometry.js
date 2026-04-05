@@ -22,6 +22,10 @@ const COMMISSURE_RIGHT_IDX = 291;
 const WIRE_SAMPLES = 100;
 /** 0 = wire terminates at terminal bracket centers (no run-out into cheeks). */
 const WIRE_MOLAR_END_EXTEND_PX = 0;
+/**
+ * Inward bend in the last ~10–12% of arc length (endpoints fixed) toward stud centroid — buccal-tube tuck vs flat tangent.
+ */
+const ARCHWIRE_TERMINAL_TUCK_PX = 2;
 /** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */
 const CENTROID_BRACKET_MIN = 12;
 const CENTROID_BRACKET_MAX = 14;
@@ -454,9 +458,72 @@ export function resampleCurveEqualArcLength(pts, nOut) {
   return out;
 }
 
+/**
+ * Nudge interior wire samples near each terminal toward the arch centroid (first/last points unchanged).
+ * @param {{ x: number, y: number }[]} wirePts
+ * @param {{ x: number, y: number }[]} studs — same arch, for centroid reference
+ */
+function applyTerminalWireTuck(wirePts, studs, tuckPx) {
+  if (!wirePts || wirePts.length < 4 || tuckPx <= 0 || !studs || studs.length < 2) {
+    return wirePts?.map((p) => ({ ...p })) ?? [];
+  }
+  const n = wirePts.length;
+  let cx = 0;
+  let cy = 0;
+  for (const s of studs) {
+    cx += s.x;
+    cy += s.y;
+  }
+  cx /= studs.length;
+  cy /= studs.length;
+
+  const p0 = wirePts[0];
+  const pN = wirePts[n - 1];
+  const len0 = Math.hypot(cx - p0.x, cy - p0.y) || 1;
+  const lenN = Math.hypot(cx - pN.x, cy - pN.y) || 1;
+  const d0x = (cx - p0.x) / len0;
+  const d0y = (cy - p0.y) / len0;
+  const dNx = (cx - pN.x) / lenN;
+  const dNy = (cy - pN.y) / lenN;
+
+  const arc = [0];
+  for (let i = 1; i < n; i++) {
+    arc.push(arc[i - 1] + Math.hypot(wirePts[i].x - wirePts[i - 1].x, wirePts[i].y - wirePts[i - 1].y));
+  }
+  const total = arc[n - 1] || 1;
+  const win = clamp(Math.min(total * 0.12, 28), 8, total * 0.45);
+
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    if (i === 0 || i === n - 1) {
+      out.push({ x: wirePts[i].x, y: wirePts[i].y });
+      continue;
+    }
+    const s0 = arc[i];
+    const s1 = total - arc[i];
+    let dx = 0;
+    let dy = 0;
+    if (s0 < win) {
+      const f = 1 - s0 / win;
+      const t = tuckPx * f * f;
+      dx += d0x * t;
+      dy += d0y * t;
+    }
+    if (s1 < win) {
+      const f = 1 - s1 / win;
+      const t = tuckPx * f * f;
+      dx += dNx * t;
+      dy += dNy * t;
+    }
+    out.push({ x: wirePts[i].x + dx, y: wirePts[i].y + dy });
+  }
+  return out;
+}
+
 export function sampleWireFromStuds(studs, stepsPerSeg) {
   if (!studs || studs.length < 2) return studs?.map((p) => ({ x: p.x, y: p.y })) ?? [];
-  return smoothOpenCatmull(studs, stepsPerSeg).map(({ x, y }) => ({ x, y }));
+  const base = smoothOpenCatmull(studs, stepsPerSeg).map(({ x, y }) => ({ x, y }));
+  return applyTerminalWireTuck(base, studs, ARCHWIRE_TERMINAL_TUCK_PX);
 }
 
 /** Fallback when tooth landmarks are missing or degenerate. */
@@ -482,9 +549,10 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
     hMult: (a.hMult ?? 1) * ((bp[i]?.scale ?? 1) / centerScale),
   }));
 
-  const wireSamplesUpper = sampleParametricArc(left, right, upperLip, lowerLip, WIRE_SAMPLES, {
+  let wireSamplesUpper = sampleParametricArc(left, right, upperLip, lowerLip, WIRE_SAMPLES, {
     extendEndsPx: WIRE_MOLAR_END_EXTEND_PX,
   });
+  wireSamplesUpper = applyTerminalWireTuck(wireSamplesUpper, upperStuds, ARCHWIRE_TERMINAL_TUCK_PX);
 
   const bpLo = getBracketPoints(left, right, upperLip, lowerLip, nLower);
   let lowerStuds = [];
