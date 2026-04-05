@@ -59,7 +59,7 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Exactly 10 upper + 10 lower studs: symmetric arch about nose midline; 10 luminance segments; 20% face; 5-pt smooth; 1.2px + 3px shadow.
+ * 10 upper + 10 lower: arch X uses enamel ∪ commissure ∪ full-image mouth scan ∪ mouth oval for left–right extremes; 5-pt smooth; 1.2px + 3px shadow.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
@@ -1699,6 +1699,32 @@ const SmileSimulatorAI = () => {
     return out.slice(0, maxN);
   };
 
+  /**
+   * Scan several horizontal lines across the mouth band on the full image to find left/right enamel extremes
+   * (molars outside the brace ROI still count).
+   */
+  const globalEnamelExtentLocalX = (data, w, h, yLoImg, yHiImg, minXVal, bwVal) => {
+    const y0 = clamp(Math.min(yLoImg, yHiImg), 0, h - 1);
+    const y1 = clamp(Math.max(yLoImg, yHiImg), 0, h - 1);
+    const rows = 6;
+    let gl = w;
+    let gr = -1;
+    for (let r = 0; r < rows; r++) {
+      const gy = Math.round(y0 + (rows <= 1 ? 0 : (r / (rows - 1)) * (y1 - y0)));
+      if (gy < 1 || gy >= h - 1) continue;
+      for (let gx = 1; gx < w - 1; gx++) {
+        if (!pixelEnamelBracesLateral(data, w, h, gx, gy)) continue;
+        if (gx < gl) gl = gx;
+        if (gx > gr) gr = gx;
+      }
+    }
+    if (gr < gl) return null;
+    return {
+      locL: clamp(Math.floor(gl - minXVal), 0, bwVal - 1),
+      locR: clamp(Math.ceil(gr - minXVal), 0, bwVal - 1),
+    };
+  };
+
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
     if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
     const steps = Math.max(20, stepsPerSeg | 0);
@@ -1719,7 +1745,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Exactly 10 upper / 10 lower: symmetric arch, 10 segments, column merge, even slot fill; density fallback if sparse.
+   * 10 upper / 10 lower: horizontal arch widened to global enamel + oval; expand-only midline pad; slots at t=0..1 extremes.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -1738,7 +1764,7 @@ const SmileSimulatorAI = () => {
     const lm291 = landmarks[COMMISSURE_RIGHT_IDX];
     const cl = lm61?.x != null ? lm61.x * iw : polyMinX;
     const cr = lm291?.x != null ? lm291.x * iw : polyMaxX;
-    const comPad = Math.max(32, (polyMaxX - polyMinX) * 0.14);
+    const comPad = Math.max(44, (polyMaxX - polyMinX) * 0.2);
     const comMin = Math.min(cl, cr) - comPad;
     const comMax = Math.max(cl, cr) + comPad;
 
@@ -1799,20 +1825,37 @@ const SmileSimulatorAI = () => {
     let archLx0 = Math.min(enamelMinLx, locComMin);
     let archLx1 = Math.max(enamelMaxLx, locComMax);
 
-    /** Symmetric span about nose midline so mirrored / uneven commissures still reach both corners. */
+    /** Expand weak side from midline without ever shrinking past enamel ∪ commissure. */
     const midNormX =
       landmarks[NOSE_MIDLINE_IDX]?.x != null
         ? landmarks[NOSE_MIDLINE_IDX].x * iw
         : (polyMinX + polyMaxX) * 0.5;
     const midLx = clamp(Math.round(midNormX - minX), 0, bw - 1);
-    const halfL = midLx - archLx0;
-    const halfR = archLx1 - midLx;
-    let halfSpan = Math.max(halfL, halfR, Math.ceil((archLx1 - archLx0) * 0.5), 4);
     const comHalfL = midLx - locComMin;
     const comHalfR = locComMax - midLx;
-    halfSpan = Math.max(halfSpan, comHalfL, comHalfR);
-    archLx0 = clamp(midLx - halfSpan, 0, bw - 1);
-    archLx1 = clamp(midLx + halfSpan, 0, bw - 1);
+    const halfL = midLx - archLx0;
+    const halfR = archLx1 - midLx;
+    const symPad = Math.max(halfL, halfR, comHalfL, comHalfR, Math.ceil((archLx1 - archLx0) * 0.52), 6);
+    archLx0 = Math.min(archLx0, midLx - symPad);
+    archLx1 = Math.max(archLx1, midLx + symPad);
+    archLx0 = clamp(archLx0, 0, bw - 1);
+    archLx1 = clamp(archLx1, 0, bw - 1);
+
+    const yScan0 = clamp(stripY0, 0, h - 1);
+    const yScan1 = clamp(stripY1, 0, h - 1);
+    const globX = globalEnamelExtentLocalX(data, w, h, yScan0, yScan1, minX, bw);
+    if (globX) {
+      archLx0 = Math.min(archLx0, globX.locL);
+      archLx1 = Math.max(archLx1, globX.locR);
+    }
+
+    if (oval?.rx > 0 && typeof oval.cx === "number") {
+      const ol = clamp(Math.floor(oval.cx - oval.rx * 1.05 - minX), 0, bw - 1);
+      const or = clamp(Math.ceil(oval.cx + oval.rx * 1.05 - minX), 0, bw - 1);
+      archLx0 = Math.min(archLx0, ol);
+      archLx1 = Math.max(archLx1, or);
+    }
+
     const archEw = archLx1 - archLx0 + 1;
 
     const cols = GRID_ENAMEL_COLUMNS;
