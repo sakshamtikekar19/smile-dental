@@ -106,27 +106,27 @@ export async function prepareBracesAtlasCanvas(sourceDataUrl, segmentCount) {
 }
 
 /**
- * @param {CanvasRenderingContext2D} ctx
- * @param {HTMLCanvasElement} atlas
- * @param {object} pack — from buildGeometricBracesPack (upperStuds, upperAnchors)
- * @param {object} [opts]
+ * One arch: AI atlas slices placed on landmark-resampled studs (not AI placement).
+ * @param {'upper'|'lower'} arch
  */
-export function drawWarpedBracesSegments(ctx, atlas, pack, opts = {}) {
-  const toothDepthPx = typeof opts.toothDepthPx === "number" ? opts.toothDepthPx : 4.2;
-  const baseHScale = typeof opts.baseHScale === "number" ? opts.baseHScale : 0.9;
+function drawWarpedArchSegments(ctx, atlas, studs, anchors, opts = {}) {
+  const arch = opts.arch ?? "upper";
+  const baseToothDepth = typeof opts.toothDepthPx === "number" ? opts.toothDepthPx : 4.2;
+  const depth =
+    arch === "lower" ? -Math.abs(baseToothDepth) * 0.92 : Math.abs(baseToothDepth);
+  const baseHScale = typeof opts.baseHScale === "number" ? opts.baseHScale : arch === "lower" ? 0.86 : 0.9;
 
-  const { upperAnchors, upperStuds } = pack;
-  if (!atlas || !upperAnchors?.length || !upperStuds?.length) return;
+  if (!atlas || !anchors?.length || !studs?.length) return;
 
-  const n = Math.min(upperAnchors.length, upperStuds.length);
+  const n = Math.min(anchors.length, studs.length);
   const aw = atlas.width;
   const ah = atlas.height;
   const slotW = aw / n;
   const maxD = Math.max((n - 1) / 2, 0.5);
 
   for (let i = 0; i < n; i++) {
-    const a = upperAnchors[i];
-    const s = upperStuds[i];
+    const a = anchors[i];
+    const s = studs[i];
     const sx = i * slotW;
     const dist = Math.abs(i - (n - 1) / 2);
     const persp = Math.max(0.55, 1 - (dist / maxD) * 0.2);
@@ -135,7 +135,7 @@ export function drawWarpedBracesSegments(ctx, atlas, pack, opts = {}) {
     const dw = slotW * sc * 0.96;
     const dh = ah * baseHScale * sc;
     const x = s.x;
-    const y = s.y + toothDepthPx;
+    const y = s.y + depth;
 
     ctx.save();
     ctx.globalAlpha *= clamp(a.depthOpacity ?? 1, 0.62, 1);
@@ -144,12 +144,43 @@ export function drawWarpedBracesSegments(ctx, atlas, pack, opts = {}) {
     ctx.shadowColor = "rgba(0,0,0,0.28)";
     ctx.shadowBlur = 3;
     ctx.shadowOffsetX = 0.5;
-    ctx.shadowOffsetY = 2;
+    ctx.shadowOffsetY = arch === "lower" ? -1.5 : 2;
     ctx.drawImage(atlas, sx, 0, slotW, ah, -dw * 0.5, -dh * 0.5, dw, dh);
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
     ctx.shadowOffsetX = 0;
     ctx.restore();
+  }
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {HTMLCanvasElement} atlas — upper arch (segment count = upper brackets)
+ * @param {object} pack — from buildGeometricBracesPack
+ * @param {object} [opts] — toothDepthPx, baseHScale; pass lowerAtlas + drawLower:true to paint lower arch
+ */
+export function drawWarpedBracesSegments(ctx, atlas, pack, opts = {}) {
+  const toothDepthPx = typeof opts.toothDepthPx === "number" ? opts.toothDepthPx : 4.2;
+  const { upperStuds, upperAnchors, lowerStuds, lowerAnchors } = pack;
+
+  drawWarpedArchSegments(ctx, atlas, upperStuds, upperAnchors, {
+    ...opts,
+    arch: "upper",
+    toothDepthPx,
+  });
+
+  const lowerAtlas = opts.lowerAtlas;
+  if (
+    opts.drawLower !== false &&
+    lowerAtlas &&
+    lowerStuds?.length &&
+    lowerAnchors?.length
+  ) {
+    drawWarpedArchSegments(ctx, lowerAtlas, lowerStuds, lowerAnchors, {
+      ...opts,
+      arch: "lower",
+      toothDepthPx,
+    });
   }
 }
 

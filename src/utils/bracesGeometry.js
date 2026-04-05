@@ -1,11 +1,14 @@
 /**
- * Upper-arch-only braces: parametric dental arc from commissures + inner lips (math-based, not raw tooth curves).
- * Legacy curve utilities kept for Catmull resampling / exports.
+ * Dual-arch braces: bracket sites from MediaPipe tooth/lip landmarks (per-tooth curve), resampled evenly by arc length;
+ * wires follow smoothed landmark splines; molar span extended along end tangents. Parametric fallback if landmarks sparse.
  */
 
-import { getBracketPoints, sampleParametricArc } from "./bracesDentalArc";
+import { getBracketPoints, sampleParametricArc, extendWireSamplesAlongTangents } from "./bracesDentalArc";
 
+/** Upper arch: inner upper lip + upper teeth ridge, left→right in image space (after sort by x). */
 const UPPER_TEETH_ARCH_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
+/** Lower arch: lower lip / lower teeth-facing contour (same 468-style indices as whitening mask lower set). */
+const LOWER_TEETH_ARCH_INDICES = [78, 191, 80, 81, 82, 87, 178, 88, 95, 14];
 const INNER_LIP_UPPER_IDX = 13;
 const INNER_LIP_LOWER_IDX = 14;
 const COMMISSURE_LEFT_IDX = 61;
@@ -116,6 +119,74 @@ function extractUpperTeethControls(landmarks, iw, ih) {
   }
   pts.sort((a, b) => a.x - b.x);
   return { pts, mouthOpen, bandDepth };
+}
+
+/** Lower teeth band: shift landmarks slightly toward the bite (smaller y) for facial surface of lower crowns. */
+function extractLowerTeethControls(landmarks, iw, ih) {
+  const lipL = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  const lipU = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  if (!lipL) return { pts: [], mouthOpen: 0 };
+
+  const mouthOpen = lipU ? Math.abs(lipL.y - lipU.y) : Math.max(28, ih * 0.04);
+  const bandDepth = clamp(mouthOpen * 0.15, 5, 24);
+
+  const pts = [];
+  for (const idx of LOWER_TEETH_ARCH_INDICES) {
+    const p = landmarkToPx(landmarks, idx, iw, ih);
+    if (!p) continue;
+    pts.push({
+      x: p.x,
+      y: p.y - bandDepth,
+      z: p.z ?? 0,
+    });
+  }
+  pts.sort((a, b) => a.x - b.x);
+  return { pts, mouthOpen, bandDepth };
+}
+
+/** Push polyline ends outward ~molar/buccal tube (along end tangents). */
+function extendArchEnds(pts, padPx) {
+  if (!pts || pts.length < 2 || padPx <= 0) return pts;
+  const out = pts.map((p) => ({ ...p }));
+  const f = out[0];
+  const s = out[1];
+  const lenL = Math.hypot(f.x - s.x, f.y - s.y) || 1;
+  const ux = (f.x - s.x) / lenL;
+  const uy = (f.y - s.y) / lenL;
+  out[0] = { x: f.x + ux * padPx, y: f.y + uy * padPx, z: f.z ?? 0 };
+
+  const L = out.length;
+  const la = out[L - 1];
+  const pr = out[L - 2];
+  const lenR = Math.hypot(la.x - pr.x, la.y - pr.y) || 1;
+  const vx = (la.x - pr.x) / lenR;
+  const vy = (la.y - pr.y) / lenR;
+  out[L - 1] = { x: la.x + vx * padPx, y: la.y + vy * padPx, z: la.z ?? 0 };
+  return out;
+}
+
+function applyPerspectiveScaleToAnchors(anchors, studs) {
+  if (!studs?.length) return anchors;
+  const xs = studs.map((p) => p.x);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const centerX = (xMin + xMax) * 0.5;
+  const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);
+  const mid = Math.floor(studs.length / 2);
+  const centerScale = Math.max(
+    Math.max(0.55, 1 - (Math.abs(studs[mid].x - centerX) / halfW) * 0.25),
+    0.01,
+  );
+  return anchors.map((a, i) => {
+    const dist = Math.abs(studs[i].x - centerX);
+    const s = Math.max(0.55, 1 - (dist / halfW) * 0.25);
+    const ratio = s / centerScale;
+    return {
+      ...a,
+      wMult: (a.wMult ?? 1) * ratio,
+      hMult: (a.hMult ?? 1) * ratio,
+    };
+  });
 }
 
 function medianSmoothY(pts) {
@@ -274,17 +345,11 @@ function buildWirePolyline(x0, x1, q, yMedian, yHalfBand) {
   return out;
 }
 
-/** Upper arch polyline for legacy callers (same parametric arc as braces pack). */
+/** Upper arch polyline for legacy callers (landmark tooth curve). */
 export function buildTeethMidlineControlPoints(landmarks, iw, ih) {
-  const left = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
-  const right = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
-  const upperLip = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
-  const lowerLip = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
-  if (!left || !right || !upperLip || !lowerLip) {
-    const r = extractUpperTeethControls(landmarks, iw, ih);
-    return r.pts ? medianSmoothY(removeYSpikes(r.pts)) : [];
-  }
-  return sampleParametricArc(left, right, upperLip, lowerLip, 24).map((p) => ({ ...p, z: 0 }));
+  const r = extractUpperTeethControls(landmarks, iw, ih);
+  if (!r.pts?.length) return [];
+  return medianSmoothY(removeYSpikes(r.pts)).map((p) => ({ ...p, z: p.z ?? 0 }));
 }
 
 export function getTeethArchControlPoints(landmarks, iw, ih, _isUpper) {
@@ -293,7 +358,10 @@ export function getTeethArchControlPoints(landmarks, iw, ih, _isUpper) {
 
 export function getTeethCenterline(landmarks, iw, ih) {
   const u = buildTeethMidlineControlPoints(landmarks, iw, ih);
-  return { upperCtrl: u, lowerCtrl: [] };
+  const lo = extractLowerTeethControls(landmarks, iw, ih);
+  const lowerCtrl =
+    lo.pts?.length >= 2 ? medianSmoothY(removeYSpikes(lo.pts)).map((p) => ({ ...p, z: p.z ?? 0 })) : [];
+  return { upperCtrl: u, lowerCtrl };
 }
 
 export function smoothOpenCatmull(pts, stepsPerSeg) {
@@ -379,32 +447,21 @@ export function sampleWireFromStuds(studs, stepsPerSeg) {
   return smoothOpenCatmull(studs, stepsPerSeg).map(({ x, y }) => ({ x, y }));
 }
 
-/**
- * Upper arch only: bracket row + wire from parametric smile arc (landmarks → corners + lips only).
- */
-export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
-  if (!landmarks?.length) return null;
-
-  const nBrackets = clamp(
-    Math.round(opts.bracketCountUpper ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT),
-    8,
-    12,
-  );
-
+/** Fallback when tooth landmarks are missing or degenerate. */
+function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
   const left = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
   const right = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
   const upperLip = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
   const lowerLip = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
   if (!left || !right || !upperLip || !lowerLip) return null;
 
-  const bp = getBracketPoints(left, right, upperLip, lowerLip, nBrackets);
+  const bp = getBracketPoints(left, right, upperLip, lowerLip, nUpper);
   if (!bp?.length) return null;
 
   const mouthOpen = Math.abs(lowerLip.y - upperLip.y);
-
   const upperStuds = bp.map((p) => ({ x: p.x, y: p.y, z: 0 }));
   let upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
-  const mid = Math.floor(nBrackets / 2);
+  const mid = Math.floor(nUpper / 2);
   const centerScale = Math.max(bp[mid]?.scale ?? 1, 0.01);
   upperAnchors = upperAnchors.map((a, i) => ({
     ...a,
@@ -417,13 +474,113 @@ export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
     extendEndsPx: WIRE_MOLAR_END_EXTEND_PX,
   });
 
+  const bpLo = getBracketPoints(left, right, upperLip, lowerLip, nLower);
+  let lowerStuds = [];
+  let lowerAnchors = [];
+  let wireSamplesLower = [];
+  if (bpLo?.length) {
+    const teethYLo = lowerLip.y - mouthOpen * 0.38;
+    const arcH = mouthOpen * 0.12;
+    const centerX = (left.x + right.x) * 0.5;
+    const width = Math.max((right.x - left.x) * 0.5, 1e-3);
+    const lowerAngs = [];
+    lowerStuds = bpLo.map((_, i) => {
+      const t = nLower === 1 ? 0.5 : i / (nLower - 1);
+      const x = left.x + t * (right.x - left.x);
+      const u = (x - centerX) / width;
+      const y = teethYLo - arcH * (1 - u * u);
+      const dydx = (-2 * arcH * (x - centerX)) / (width * width);
+      lowerAngs.push(Math.atan2(dydx, 1));
+      return { x, y, z: 0 };
+    });
+    lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval).map((a, i) => ({
+      ...a,
+      ang: (lowerAngs[i] ?? a.ang) + Math.PI,
+    }));
+    lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
+    const lowerDense = [];
+    for (let s = 0; s <= 48; s++) {
+      const t = s / 48;
+      const x = left.x + t * (right.x - left.x);
+      const u = (x - centerX) / width;
+      const y = teethYLo - arcH * (1 - u * u);
+      lowerDense.push({ x, y });
+    }
+    wireSamplesLower = extendWireSamplesAlongTangents(sampleWireFromStuds(lowerDense, 6), WIRE_MOLAR_END_EXTEND_PX);
+  }
+
   return {
     wireMode: "polyline",
     upperStuds,
     upperAnchors,
-    lowerAnchors: [],
+    lowerStuds: lowerStuds.map(({ x, y, z }) => ({ x, y, z })),
+    lowerAnchors,
     wireSamplesUpper,
-    wireSamplesLower: [],
+    wireSamplesLower,
+    mouthOpen,
+  };
+}
+
+/**
+ * Upper + lower arches: brackets on resampled landmark tooth curves (molar-to-molar); wires = Catmull splines.
+ */
+export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
+  if (!landmarks?.length) return null;
+
+  const nUpper = clamp(Math.round(opts.bracketCountUpper ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT), 8, 12);
+  const nLower = clamp(Math.round(opts.bracketCountLower ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT), 8, 12);
+
+  const upperEx = extractUpperTeethControls(landmarks, iw, ih);
+  const lowerEx = extractLowerTeethControls(landmarks, iw, ih);
+  const upperLip = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  const lowerLip = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  const mouthOpen =
+    upperLip && lowerLip ? Math.abs(lowerLip.y - upperLip.y) : Math.max(upperEx.mouthOpen, lowerEx.mouthOpen, 24);
+
+  if (!upperEx.pts?.length || upperEx.pts.length < 2) {
+    return buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower);
+  }
+
+  let upperCtrl = medianSmoothY(removeYSpikes(upperEx.pts));
+  if (upperCtrl.length < 2) return buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower);
+
+  const endPad = clamp(mouthOpen * 0.055, 4, 18);
+  upperCtrl = extendArchEnds(upperCtrl, endPad);
+
+  const upperBracketSites = resampleCurveEqualArcLength(upperCtrl, nUpper);
+  const upperStuds = upperBracketSites.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
+  let upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
+  upperAnchors = applyPerspectiveScaleToAnchors(upperAnchors, upperStuds);
+
+  let wireSamplesUpper = extendWireSamplesAlongTangents(
+    sampleWireFromStuds(upperCtrl, 7),
+    WIRE_MOLAR_END_EXTEND_PX,
+  );
+
+  let lowerStuds = [];
+  let lowerAnchors = [];
+  let wireSamplesLower = [];
+  if (lowerEx.pts?.length >= 2) {
+    let lowerCtrl = medianSmoothY(removeYSpikes(lowerEx.pts));
+    lowerCtrl = extendArchEnds(lowerCtrl, endPad);
+    const lowerBracketSites = resampleCurveEqualArcLength(lowerCtrl, nLower);
+    lowerStuds = lowerBracketSites.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
+    lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval);
+    lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds).map((a) => ({
+      ...a,
+      ang: (a.ang ?? 0) + Math.PI,
+    }));
+    wireSamplesLower = extendWireSamplesAlongTangents(sampleWireFromStuds(lowerCtrl, 7), WIRE_MOLAR_END_EXTEND_PX);
+  }
+
+  return {
+    wireMode: "polyline",
+    upperStuds,
+    upperAnchors,
+    lowerStuds,
+    lowerAnchors,
+    wireSamplesUpper,
+    wireSamplesLower,
     mouthOpen,
   };
 }

@@ -1063,8 +1063,10 @@ const SmileSimulatorAI = () => {
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
+    const nBr = Math.min(12, Math.max(8, MORPH_MAX_UPPER_BRACKETS));
     const pack = buildGeometricBracesPack(landmarks, iw, ih, oval, {
-      bracketCountUpper: Math.min(12, Math.max(8, MORPH_MAX_UPPER_BRACKETS)),
+      bracketCountUpper: nBr,
+      bracketCountLower: nBr,
     });
     if (!pack) return null;
     return { ...pack, baseW, baseH };
@@ -1239,7 +1241,11 @@ const SmileSimulatorAI = () => {
       throw new Error("Could not compute dental arc for braces placement.");
     }
 
-    const atlas = await prepareBracesAtlasCanvas(bracesTextureDataUrl, pack.upperAnchors.length);
+    const nUpper = pack.upperAnchors.length;
+    const nLower = pack.lowerAnchors?.length ?? 0;
+    const atlasUpper = await prepareBracesAtlasCanvas(bracesTextureDataUrl, nUpper);
+    const atlasLower =
+      nLower > 0 ? await prepareBracesAtlasCanvas(bracesTextureDataUrl, nLower) : null;
     const toothDepthPx = clamp((pack.mouthOpen || 20) * 0.065, 3.2, 10);
 
     const overlay = document.createElement("canvas");
@@ -1253,7 +1259,11 @@ const SmileSimulatorAI = () => {
 
     octx.save();
     octx.globalAlpha = 0.92;
-    drawWarpedBracesSegments(octx, atlas, pack, { toothDepthPx, baseHScale: 0.9 });
+    drawWarpedBracesSegments(octx, atlasUpper, pack, {
+      toothDepthPx,
+      baseHScale: 0.9,
+      lowerAtlas: atlasLower ?? undefined,
+    });
     octx.restore();
 
     renderBraces(lm, octx, iw, ih, ov, {
