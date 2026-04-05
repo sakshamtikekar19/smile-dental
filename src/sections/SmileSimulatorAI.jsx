@@ -1073,8 +1073,7 @@ const SmileSimulatorAI = () => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
     const pack = buildGeometricBracesPack(landmarks, iw, ih, oval, {
-      bracketCountUpper: MORPH_MAX_UPPER_BRACKETS,
-      bracketCountLower: MORPH_MAX_LOWER_BRACKETS,
+      bracketCountUpper: Math.min(12, Math.max(8, MORPH_MAX_UPPER_BRACKETS)),
     });
     if (!pack) return null;
     return { ...pack, baseW, baseH };
@@ -1204,6 +1203,7 @@ const SmileSimulatorAI = () => {
     };
 
     const drawAnchors = (anchors) => {
+      if (!anchors?.length) return;
       anchors.forEach(({ x, y, ang, wMult, hMult, star }) => {
         const hm = hMult ?? wMult;
         drawCeramicClearStud(ctx, x, y, ang, baseW * wMult, baseH * hm, star, omitStudShadow);

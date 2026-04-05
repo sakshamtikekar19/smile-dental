@@ -1,20 +1,16 @@
 /**
- * Teeth-locked braces: pure inner-lip pair midpoints (not raw lip anchors), outlier removal,
- * Catmull + parabolic U-fit, arc-length resample, shared midline with occlusal split for upper/lower.
+ * Upper-arch-only braces: horizontal dental parabola in pixel space.
+ * No upper+lower midpoints (fixes V-collapse). Mouth width from commissures; y band locked to upper teeth.
  */
 
-const UPPER_INNER_ARCH = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
-const LOWER_INNER_ARCH = [14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
-
+const UPPER_TEETH_ARCH_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
 const INNER_LIP_UPPER_IDX = 13;
 const INNER_LIP_LOWER_IDX = 14;
+const COMMISSURE_LEFT_IDX = 61;
+const COMMISSURE_RIGHT_IDX = 291;
 
-const CATMULL_STEPS_PER_SEGMENT = 24;
-const CATMULL_CTRL_STEPS = 20;
-const ARCH_EXTEND_ZERO = true;
-const PARABOLA_BLEND = 0.42;
-const DEFAULT_UPPER_COUNT = 12;
-const DEFAULT_LOWER_COUNT = 12;
+const WIRE_SAMPLES = 100;
+const DEFAULT_BRACKET_COUNT = 10;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -30,82 +26,32 @@ export function landmarkToPx(landmarks, idx, iw, ih) {
   };
 }
 
-/** True teeth centerline: only (upperInner[i] + lowerInner[i]) / 2 in pixel space, L→R by x. */
-export function buildTeethMidlineControlPoints(landmarks, iw, ih) {
-  const out = [];
-  for (let i = 0; i < UPPER_INNER_ARCH.length; i++) {
-    const u = landmarkToPx(landmarks, UPPER_INNER_ARCH[i], iw, ih);
-    const l = landmarkToPx(landmarks, LOWER_INNER_ARCH[i], iw, ih);
-    if (!u || !l) continue;
-    out.push({
-      x: (u.x + l.x) * 0.5,
-      y: (u.y + l.y) * 0.5,
-      z: (u.z + l.z) * 0.5,
-    });
-  }
-  out.sort((a, b) => a.x - b.x);
-  return out;
-}
-
-/** @deprecated use buildTeethMidlineControlPoints */
-export function getTeethArchControlPoints(landmarks, iw, ih, _isUpper) {
-  return buildTeethMidlineControlPoints(landmarks, iw, ih);
-}
-
-export function getTeethCenterline(landmarks, iw, ih) {
-  const mid = buildTeethMidlineControlPoints(landmarks, iw, ih);
-  return { upperCtrl: mid, lowerCtrl: mid };
-}
-
-function angleAt(p0, p1, p2) {
-  const ax = p1.x - p0.x;
-  const ay = p1.y - p0.y;
-  const bx = p2.x - p1.x;
-  const by = p2.y - p1.y;
-  const la = Math.hypot(ax, ay);
-  const lb = Math.hypot(bx, by);
-  if (la < 1e-6 || lb < 1e-6) return Math.PI;
-  const c = clamp((ax * bx + ay * by) / (la * lb), -1, 1);
-  return Math.acos(c);
-}
-
-/** Drop points that create sharp kinks (straight ≈ π; smaller = sharper). */
-function removeSharpTurns(pts, minInteriorRad = 2.05) {
-  if (pts.length < 4) return pts;
-  let cur = pts.map((p) => ({ ...p }));
-  let changed = true;
-  while (changed && cur.length >= 4) {
-    changed = false;
-    const next = [cur[0]];
-    for (let i = 1; i < cur.length - 1; i++) {
-      const th = angleAt(cur[i - 1], cur[i], cur[i + 1]);
-      if (th < minInteriorRad) {
-        changed = true;
-        continue;
-      }
-      next.push(cur[i]);
+function gaussianSolve3(A, b) {
+  const M = [[...A[0], b[0]], [...A[1], b[1]], [...A[2], b[2]]];
+  for (let col = 0; col < 3; col++) {
+    let piv = col;
+    for (let r = col + 1; r < 3; r++) {
+      if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
     }
-    next.push(cur[cur.length - 1]);
-    if (next.length === cur.length) break;
-    cur = next;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    const v = M[col][col];
+    if (Math.abs(v) < 1e-12) return null;
+    for (let c = col; c < 4; c++) M[col][c] /= v;
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const f = M[r][col];
+      for (let c = col; c < 4; c++) M[r][c] -= f * M[col][c];
+    }
   }
-  return cur.length >= 2 ? cur : pts;
+  return [M[0][3], M[1][3], M[2][3]];
 }
 
-/** Drop points far from median y (lip outliers). */
-function removeYOutliers(pts, maxDevRatio = 2.2) {
-  if (pts.length < 4) return pts;
-  const ys = pts.map((p) => p.y).sort((a, b) => a - b);
-  const med = ys[Math.floor(ys.length / 2)];
-  const dev = ys.map((y) => Math.abs(y - med)).sort((a, b) => a - b);
-  const mad = dev[Math.floor(dev.length / 2)] || 1;
-  const lim = Math.max(mad * maxDevRatio, 12);
-  return pts.filter((p) => Math.abs(p.y - med) <= lim);
-}
-
-/** Least-squares y ≈ a*x² + b*x + c for a smooth U-shaped dental arc. */
+/** y ≈ a*x² + b*x + c */
 function fitQuadraticYofX(pts) {
-  if (pts.length < 3) return { a: 0, b: 0, c: pts[0]?.y ?? 0 };
+  if (pts.length < 3) {
+    const y0 = pts[0]?.y ?? 0;
+    return { a: 0, b: 0, c: y0 };
+  }
   let s0 = 0;
   let s1 = 0;
   let s2 = 0;
@@ -141,92 +87,217 @@ function fitQuadraticYofX(pts) {
   return { a: sol[0], b: sol[1], c: sol[2] };
 }
 
-function gaussianSolve3(A, b) {
-  const M = [[...A[0], b[0]], [...A[1], b[1]], [...A[2], b[2]]];
-  for (let col = 0; col < 3; col++) {
-    let piv = col;
-    for (let r = col + 1; r < 3; r++) {
-      if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
-    }
-    [M[col], M[piv]] = [M[piv], M[col]];
-    const v = M[col][col];
-    if (Math.abs(v) < 1e-12) return null;
-    for (let c = col; c < 4; c++) M[col][c] /= v;
-    for (let r = 0; r < 3; r++) {
-      if (r === col) continue;
-      const f = M[r][col];
-      for (let c = col; c < 4; c++) M[r][c] -= f * M[col][c];
-    }
-  }
-  return [M[0][3], M[1][3], M[2][3]];
-}
-
 function evalQuad(q, x) {
   return q.a * x * x + q.b * x + q.c;
 }
 
-/** Fewer brackets: evenly spaced indices along same underlying arc (keeps upper/lower alignment). */
-function resampleSubsetEvenly(pts, nOut) {
-  if (!pts.length || nOut < 2) return pts;
-  if (pts.length <= nOut) return pts.map((p) => ({ ...p }));
+/** Upper teeth band: x from inner upper lip arch; y = lip y + offset into tooth (no lower lip). */
+function extractUpperTeethControls(landmarks, iw, ih) {
+  const lipU = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  const lipL = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  if (!lipU) return { pts: [], mouthOpen: 0, bandDepth: 0 };
+
+  const mouthOpen = lipL ? Math.abs(lipL.y - lipU.y) : Math.max(28, ih * 0.04);
+  const bandDepth = clamp(mouthOpen * 0.16, 6, 28);
+
+  const pts = [];
+  for (const idx of UPPER_TEETH_ARCH_INDICES) {
+    const p = landmarkToPx(landmarks, idx, iw, ih);
+    if (!p) continue;
+    pts.push({
+      x: p.x,
+      y: p.y + bandDepth,
+      z: p.z ?? 0,
+    });
+  }
+  pts.sort((a, b) => a.x - b.x);
+  return { pts, mouthOpen, bandDepth };
+}
+
+function medianSmoothY(pts) {
+  if (pts.length < 3) return pts.map((p) => ({ ...p }));
+  const n = pts.length;
+  return pts.map((p, i) => {
+    const lo = Math.max(0, i - 1);
+    const hi = Math.min(n - 1, i + 1);
+    const ys = [];
+    for (let j = lo; j <= hi; j++) ys.push(pts[j].y);
+    ys.sort((a, b) => a - b);
+    return { ...p, y: ys[Math.floor(ys.length / 2)] };
+  });
+}
+
+/** Remove points whose y deviates strongly from neighbors along x (zig-zag). */
+function removeYSpikes(pts, maxJumpPx = 18) {
+  if (pts.length < 4) return pts;
   const out = [];
-  for (let j = 0; j < nOut; j++) {
-    const ix = Math.round((j * (pts.length - 1)) / Math.max(nOut - 1, 1));
-    out.push({ ...pts[ix] });
+  for (let i = 0; i < pts.length; i++) {
+    if (i === 0 || i === pts.length - 1) {
+      out.push(pts[i]);
+      continue;
+    }
+    const prev = pts[i - 1];
+    const next = pts[i + 1];
+    const mid = (prev.y + next.y) * 0.5;
+    if (Math.abs(pts[i].y - mid) > maxJumpPx) continue;
+    out.push(pts[i]);
+  }
+  if (out.length < 2) return pts;
+  return out;
+}
+
+function mouthWidthX(landmarks, iw, ih, ctrlPts) {
+  const cl = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
+  const cr = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
+  let x0 = ctrlPts.length ? Math.min(...ctrlPts.map((p) => p.x)) : iw * 0.35;
+  let x1 = ctrlPts.length ? Math.max(...ctrlPts.map((p) => p.x)) : iw * 0.65;
+  if (cl && cr) {
+    x0 = Math.min(x0, cl.x, cr.x);
+    x1 = Math.max(x1, cl.x, cr.x);
+  }
+  const w = x1 - x0;
+  const pad = clamp(w * 0.045, 4, 22);
+  x0 += pad;
+  x1 -= pad;
+  if (x1 - x0 < iw * 0.12) {
+    const cx = (x0 + x1) * 0.5;
+    const half = iw * 0.18;
+    x0 = cx - half;
+    x1 = cx + half;
+  }
+  return { x0, x1 };
+}
+
+function sampleZatX(ctrl, x) {
+  if (!ctrl.length) return 0;
+  let best = ctrl[0];
+  let bd = Math.abs(ctrl[0].x - x);
+  for (let i = 1; i < ctrl.length; i++) {
+    const d = Math.abs(ctrl[i].x - x);
+    if (d < bd) {
+      bd = d;
+      best = ctrl[i];
+    }
+  }
+  return best.z ?? 0;
+}
+
+function tangentAngleAt(row, i) {
+  const n = row.length;
+  if (n < 2) return 0;
+  if (i === 0) return Math.atan2(row[1].y - row[0].y, row[1].x - row[0].x);
+  if (i === n - 1) return Math.atan2(row[n - 1].y - row[n - 2].y, row[n - 1].x - row[n - 2].x);
+  return Math.atan2(row[i + 1].y - row[i - 1].y, row[i + 1].x - row[i - 1].x);
+}
+
+/** scale = max(0.52, 1 - |i - center| * 0.04); oval + Z. */
+export function computeBracketTransforms(row, iw, ih, oval) {
+  const n = row.length;
+  const centerIndex = (n - 1) / 2;
+  const ocx = oval?.cx != null ? oval.cx : row[Math.floor(n / 2)]?.x ?? iw * 0.5;
+  const orx = Math.max(oval?.rx ?? iw * 0.18, 1);
+
+  const zs = row.map((r) => r.z ?? 0);
+  const zMin = Math.min(...zs);
+  const zMax = Math.max(...zs);
+  const zSpan = Math.max(zMax - zMin, 1e-6);
+  const zMed = (zMin + zMax) * 0.5;
+
+  return row.map((p, i) => {
+    const ang = tangentAngleAt(row, i);
+    const edge = clamp(Math.abs((p.x - ocx) / orx), 0, 1);
+    const perspective = 0.58 + 0.42 * (1 - edge);
+
+    const distFromCenter = Math.abs(i - centerIndex);
+    const scaleIdx = Math.max(0.52, 1 - distFromCenter * 0.04);
+
+    const zDist = Math.abs((p.z ?? 0) - zMed) / zSpan;
+    const zScale = clamp(1.03 - 0.16 * zDist, 0.88, 1.04);
+
+    const wMult = Math.max(0.66, perspective * scaleIdx * zScale);
+    const hMult = wMult * (0.72 + 0.28 * (1 - edge));
+
+    return {
+      x: clamp(p.x, 4, iw - 5),
+      y: clamp(p.y, 4, ih - 5),
+      ang,
+      wMult,
+      hMult,
+      star: false,
+      skipStud: false,
+    };
+  });
+}
+
+function evalArchY(q, x, yMedian, yHalfBand) {
+  const y = evalQuad(q, x);
+  return clamp(y, yMedian - yHalfBand, yMedian + yHalfBand);
+}
+
+function buildStudRow(x0, x1, n, q, yMedian, yHalfBand, ctrl) {
+  const studs = [];
+  for (let k = 0; k < n; k++) {
+    const t = n === 1 ? 0.5 : k / (n - 1);
+    const x = x0 + t * (x1 - x0);
+    const y = evalArchY(q, x, yMedian, yHalfBand);
+    const z = sampleZatX(ctrl, x);
+    studs.push({ x, y, z });
+  }
+  return studs;
+}
+
+function buildWirePolyline(x0, x1, q, yMedian, yHalfBand) {
+  const out = [];
+  for (let i = 0; i <= WIRE_SAMPLES; i++) {
+    const t = i / WIRE_SAMPLES;
+    const x = x0 + t * (x1 - x0);
+    const y = evalArchY(q, x, yMedian, yHalfBand);
+    out.push({ x, y });
   }
   return out;
 }
 
-/** Blend dense Catmull chain toward quadratic U to kill jagged segments. */
-function blendParabolicU(dense, quad, alpha) {
-  const a = clamp(alpha, 0, 1);
-  if (a < 1e-6) return dense;
-  return dense.map((p) => ({
-    ...p,
-    y: (1 - a) * p.y + a * evalQuad(quad, p.x),
-  }));
+/** Legacy: upper-only controls for exports. */
+export function buildTeethMidlineControlPoints(landmarks, iw, ih) {
+  const r = extractUpperTeethControls(landmarks, iw, ih);
+  return r.pts ? medianSmoothY(removeYSpikes(r.pts)) : [];
 }
 
-function catmullRom2D(p0, p1, p2, p3, t) {
-  const t2 = t * t;
-  const t3 = t2 * t;
-  return {
-    x:
-      0.5 *
-      (2 * p1.x +
-        (-p0.x + p2.x) * t +
-        (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-        (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
-    y:
-      0.5 *
-      (2 * p1.y +
-        (-p0.y + p2.y) * t +
-        (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-        (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
-    z: (p1.z ?? 0) + t * ((p2.z ?? 0) - (p1.z ?? 0)),
-  };
+export function getTeethArchControlPoints(landmarks, iw, ih, _isUpper) {
+  return buildTeethMidlineControlPoints(landmarks, iw, ih);
 }
 
-function expandCatmullEnds(pts) {
-  if (pts.length < 2) return pts.map((p) => ({ ...p }));
-  const n = pts.length;
-  const body = pts.map((p) => ({ ...p }));
-  if (ARCH_EXTEND_ZERO) {
-    return [{ ...pts[0] }, ...body, { ...pts[n - 1] }];
-  }
-  return [
-    { x: 2 * pts[0].x - pts[1].x, y: 2 * pts[0].y - pts[1].y, z: pts[0].z ?? 0 },
-    ...body,
-    { x: 2 * pts[n - 1].x - pts[n - 2].x, y: 2 * pts[n - 1].y - pts[n - 2].y, z: pts[n - 1].z ?? 0 },
-  ];
+export function getTeethCenterline(landmarks, iw, ih) {
+  const u = buildTeethMidlineControlPoints(landmarks, iw, ih);
+  return { upperCtrl: u, lowerCtrl: [] };
 }
 
 export function smoothOpenCatmull(pts, stepsPerSeg) {
   if (pts.length === 0) return [];
   if (pts.length === 1) return [{ ...pts[0] }];
   const steps = Math.max(10, stepsPerSeg | 0);
-  const chain = expandCatmullEnds(pts);
+  const dup0 = { ...pts[0] };
+  const dup1 = { ...pts[pts.length - 1] };
+  const chain = [dup0, ...pts.map((p) => ({ ...p })), dup1];
   const out = [];
+  const catmullRom2D = (p0, p1, p2, p3, t) => {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return {
+      x:
+        0.5 *
+        (2 * p1.x +
+          (-p0.x + p2.x) * t +
+          (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+          (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+      y:
+        0.5 *
+        (2 * p1.y +
+          (-p0.y + p2.y) * t +
+          (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+          (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+    };
+  };
   const segCount = chain.length - 3;
   for (let i = 0; i < segCount; i++) {
     const c0 = chain[i];
@@ -279,128 +350,49 @@ export function resampleCurveEqualArcLength(pts, nOut) {
   return out;
 }
 
-function tangentAngleAt(row, i) {
-  const n = row.length;
-  if (n < 2) return 0;
-  if (i === 0) return Math.atan2(row[1].y - row[0].y, row[1].x - row[0].x);
-  if (i === n - 1) return Math.atan2(row[n - 1].y - row[n - 2].y, row[n - 1].x - row[n - 2].x);
-  return Math.atan2(row[i + 1].y - row[i - 1].y, row[i + 1].x - row[i - 1].x);
-}
-
-/**
- * Tangent from neighbors; scale = max(0.5, 1 - |i - center| * 0.05); light Z + oval depth.
- */
-export function computeBracketTransforms(row, iw, ih, oval) {
-  const n = row.length;
-  const centerIndex = (n - 1) / 2;
-  const ocx = oval?.cx != null ? oval.cx : row[Math.floor(n / 2)]?.x ?? iw * 0.5;
-  const orx = Math.max(oval?.rx ?? iw * 0.18, 1);
-
-  const zs = row.map((r) => r.z ?? 0);
-  const zMin = Math.min(...zs);
-  const zMax = Math.max(...zs);
-  const zSpan = Math.max(zMax - zMin, 1e-6);
-  const zMed = (zMin + zMax) * 0.5;
-
-  return row.map((p, i) => {
-    const ang = tangentAngleAt(row, i);
-    const edge = clamp(Math.abs((p.x - ocx) / orx), 0, 1);
-    const perspective = 0.58 + 0.42 * (1 - edge);
-
-    const distFromCenter = Math.abs(i - centerIndex);
-    const scaleIdx = Math.max(0.5, 1 - distFromCenter * 0.05);
-
-    const zDist = Math.abs((p.z ?? 0) - zMed) / zSpan;
-    const zScale = clamp(1.04 - 0.18 * zDist, 0.86, 1.04);
-
-    const wMult = Math.max(0.68, perspective * scaleIdx * zScale);
-    const hMult = wMult * (0.7 + 0.3 * (1 - edge));
-
-    return {
-      x: clamp(p.x, 4, iw - 5),
-      y: clamp(p.y, 4, ih - 5),
-      ang,
-      wMult,
-      hMult,
-      star: false,
-      skipStud: false,
-    };
-  });
-}
-
 export function sampleWireFromStuds(studs, stepsPerSeg) {
   if (!studs || studs.length < 2) return studs?.map((p) => ({ x: p.x, y: p.y })) ?? [];
   return smoothOpenCatmull(studs, stepsPerSeg).map(({ x, y }) => ({ x, y }));
 }
 
-function occlusalMidYpx(landmarks, iw, ih) {
-  const u = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
-  const l = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
-  if (!u || !l) return null;
-  return (u.y + l.y) * 0.5;
-}
-
 /**
- * One smooth dental midline → upper/lower studs by vertical split (aligned arcs, no lip zig-zag).
+ * Upper arch only. Parabola y(x) on mouth width; y clamped to narrow band around median (anti V-collapse).
  */
 export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
   if (!landmarks?.length) return null;
 
-  const bracketCountUpper = clamp(Math.round(opts.bracketCountUpper ?? DEFAULT_UPPER_COUNT), 8, 16);
-  const bracketCountLower = clamp(Math.round(opts.bracketCountLower ?? DEFAULT_LOWER_COUNT), 8, 16);
+  const nBrackets = clamp(
+    Math.round(opts.bracketCountUpper ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT),
+    8,
+    12,
+  );
 
-  let ctrl = buildTeethMidlineControlPoints(landmarks, iw, ih);
-  if (ctrl.length < 2) return null;
+  const extracted = extractUpperTeethControls(landmarks, iw, ih);
+  if (!extracted.pts?.length || extracted.pts.length < 2) return null;
 
-  ctrl = removeYOutliers(ctrl);
-  ctrl = removeSharpTurns(ctrl);
+  let ctrl = medianSmoothY(removeYSpikes(extracted.pts));
   if (ctrl.length < 2) return null;
 
   const quad = fitQuadraticYofX(ctrl);
-  let dense = smoothOpenCatmull(ctrl, CATMULL_CTRL_STEPS);
-  dense = blendParabolicU(dense, quad, PARABOLA_BLEND);
 
-  const nMax = Math.max(bracketCountUpper, bracketCountLower);
-  let baseStuds = resampleCurveEqualArcLength(dense, nMax);
-  if (baseStuds.length < 2) return null;
+  const ys = ctrl.map((p) => p.y).sort((a, b) => a - b);
+  const yMedian = ys[Math.floor(ys.length / 2)];
+  const mouthOpen = extracted.mouthOpen;
+  const yHalfBand = clamp(mouthOpen * 0.11, 3.5, 14);
 
-  const midY = occlusalMidYpx(landmarks, iw, ih);
-  const u13 = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
-  const l14 = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
-  let mouthGap = 18;
-  if (u13 && l14) mouthGap = Math.abs(l14.y - u13.y);
-  const halfStep = clamp(mouthGap * 0.19, 7, 26);
-  const margin = 3;
+  const { x0, x1 } = mouthWidthX(landmarks, iw, ih, ctrl);
 
-  const offsetUpper = (p) => {
-    const y = p.y - halfStep;
-    const yy = midY != null ? Math.min(y, midY - margin) : y;
-    return { ...p, y: yy };
-  };
-  const offsetLower = (p) => {
-    const y = p.y + halfStep;
-    const yy = midY != null ? Math.max(y, midY + margin) : y;
-    return { ...p, y: yy };
-  };
-
-  let upperStuds = baseStuds.map(offsetUpper);
-  let lowerStuds = baseStuds.map(offsetLower);
-
-  if (bracketCountUpper < nMax) upperStuds = resampleSubsetEvenly(upperStuds, bracketCountUpper);
-  if (bracketCountLower < nMax) lowerStuds = resampleSubsetEvenly(lowerStuds, bracketCountLower);
-
+  const upperStuds = buildStudRow(x0, x1, nBrackets, quad, yMedian, yHalfBand, ctrl);
   const upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
-  const lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval);
 
-  const wireSamplesUpper = sampleWireFromStuds(upperStuds, CATMULL_STEPS_PER_SEGMENT);
-  const wireSamplesLower = sampleWireFromStuds(lowerStuds, CATMULL_STEPS_PER_SEGMENT);
+  const wireSamplesUpper = buildWirePolyline(x0, x1, quad, yMedian, yHalfBand);
 
   return {
-    wireMode: "catmull",
+    wireMode: "polyline",
     upperAnchors,
-    lowerAnchors,
+    lowerAnchors: [],
     wireSamplesUpper,
-    wireSamplesLower,
+    wireSamplesLower: [],
   };
 }
 
