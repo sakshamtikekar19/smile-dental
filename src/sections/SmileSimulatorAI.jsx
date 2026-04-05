@@ -97,6 +97,11 @@ const MORPH_MAX_UPPER_BRACKETS = 16;
 const MORPH_MAX_LOWER_BRACKETS = 14;
 /** Narrower so distal columns can register interdental valleys near commissures. */
 const MORPH_EDGE_VALLEY_IGNORE_PX = 2;
+/** Typical enamel column span per visible tooth in mouth ROI — estimates slot count when valleys merge to one segment. */
+const EST_TOOTH_COL_WIDTH_PX = 10;
+/** Minimum studs per arch when guessing from width only (fallback). */
+const MIN_BRACKETS_UPPER_FALLBACK = 6;
+const MIN_BRACKETS_LOWER_FALLBACK = 6;
 /** Legacy density merge cap. */
 const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_UPPER_BRACKETS;
 const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
@@ -1776,6 +1781,27 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
+  /**
+   * Left→right order, one stud per tooth: drop near-duplicate X (refine/smooth can merge neighbors); keep stronger blob.
+   */
+  const orderAndDedupeArchStuds = (row, archLx0, archLx1, maxBrackets) => {
+    if (!row || row.length === 0) return row;
+    const archW = Math.max(1, archLx1 - archLx0 + 1);
+    const minSep = clamp(Math.floor(archW / Math.max(maxBrackets + 3, 9)), 4, 12);
+    const sorted = [...row].sort((a, b) => a.cx - b.cx);
+    const out = [];
+    for (const p of sorted) {
+      const last = out[out.length - 1];
+      if (last && Math.abs(p.cx - last.cx) < minSep) {
+        if ((p.area ?? 1) >= (last.area ?? 1)) out[out.length - 1] = { ...p, area: p.area ?? 1 };
+        continue;
+      }
+      out.push({ ...p, area: p.area ?? 1 });
+    }
+    if (out.length <= maxBrackets) return out;
+    return subsampleArchRowToCount(out, maxBrackets);
+  };
+
   /** Snap each stud’s X to horizontal center of enamel mass in a small window (per-tooth centering). */
   const refineArchRowHorizontalEnamelCOM = (row, mask, bw, bh, minX, minY, halfWin = 9, bandHalfY = 6, minMaskPx = 6) => {
     if (row.length === 0) return row;
@@ -2113,10 +2139,10 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Geometric segment lock: X = horizontal midpoint of segment columns; Y = vertical midpoint of enamel
-   * (mean row of mask pixels) then BRACKET_VERTICAL_FACE_SAFE_FRAC clamp to gums/occlusal.
+   * True tooth-face center: horizontal + vertical centroid of mask pixels in segment (not segment mid-X).
    */
   const bracketCenterForToothSegment = (mask, bw, minX, minY, xL, xR, y0, y1) => {
+    let sumX = 0;
     let sumY = 0;
     let cnt = 0;
     let topY = 1e9;
@@ -2124,6 +2150,7 @@ const SmileSimulatorAI = () => {
     for (let lx = xL; lx <= xR; lx++) {
       for (let ly = y0; ly <= y1; ly++) {
         if (mask[ly * bw + lx] !== 1) continue;
+        sumX += lx + 0.5;
         sumY += ly + 0.5;
         cnt++;
         if (ly < topY) topY = ly;
@@ -2131,11 +2158,18 @@ const SmileSimulatorAI = () => {
       }
     }
     if (cnt < MORPH_MIN_TOOTH_BLOB_PX) return null;
-    const cx = minX + (xL + xR) * 0.5;
+    const midLx = sumX / cnt;
     const midLy = sumY / cnt;
     const midClamped = clampBracketMidYFrac(midLy, topY, botY, BRACKET_VERTICAL_FACE_SAFE_FRAC);
+    const cx = minX + midLx;
     const cy = minY + midClamped;
     return { cx, cy, area: cnt };
+  };
+
+  const estimateToothSlotCount = (lx0, lx1, minSlots, maxSlots) => {
+    const span = lx1 - lx0 + 1;
+    if (span < 8) return clamp(minSlots, minSlots, maxSlots);
+    return clamp(Math.round(span / EST_TOOTH_COL_WIDTH_PX), minSlots, maxSlots);
   };
 
   /**
@@ -2264,6 +2298,26 @@ const SmileSimulatorAI = () => {
     if (mergedSegs.length === 0) {
       mergedSegs = [[archLx0, archLx1]];
     }
+
+    /** Valleys missed: one segment across molars — subdivide by ~EST_TOOTH_COL_WIDTH_PX so count tracks arch width. */
+    if (mergedSegs.length === 1) {
+      const [a, b] = mergedSegs[0];
+      const span = b - a + 1;
+      const minF = isLower ? MIN_BRACKETS_LOWER_FALLBACK : MIN_BRACKETS_UPPER_FALLBACK;
+      if (span >= 24) {
+        const n = estimateToothSlotCount(a, b, minF, maxBrackets);
+        if (n > 1) {
+          const pieces = [];
+          for (let i = 0; i < n; i++) {
+            const x0 = a + Math.floor((i * span) / n);
+            const x1 = i === n - 1 ? b : a + Math.floor(((i + 1) * span) / n) - 1;
+            if (x1 >= x0 && x1 - x0 + 1 >= MORPH_MIN_SEGMENT_WIDTH_PX) pieces.push([x0, x1]);
+          }
+          if (pieces.length >= 2) mergedSegs = pieces;
+        }
+      }
+    }
+
     const row = [];
     const stripPk = LUMINANCE_PEAK_STRIP_WIDTH_PX;
     for (const [xL, xR] of mergedSegs) {
@@ -2371,8 +2425,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Per-tooth alignment: morph studs first + grid fill, widen arch if band bbox is too narrow, horizontal enamel COM
-   * refine, mask-band wire ends + X-clamped Catmull samples; 3-pt weighted cy smooth after smile curve (≤16 / ≤14).
+   * Molar-to-molar per band: morph arch = mask L/R in upper/lower rows; tooth count from segments (or width ÷
+   * EST_TOOTH_COL_WIDTH_PX); one stud per tooth via 2D segment centroid + refine; wire still mask-band locked.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -2531,6 +2585,36 @@ const SmileSimulatorAI = () => {
     archLx0_l = clamp(archLx0_l, 0, bw - 1);
     archLx1_l = clamp(archLx1_l, archLx0_l, bw - 1);
 
+    /** Molar-to-molar: morph + studs only across visible enamel in each arch band (not extra full-image slack). */
+    const uMm = enamelLxExtentInBand(mask, bw, bh, yU0, yU1);
+    let morphArch0_u = uMm && uMm.R >= uMm.L ? uMm.L : archLx0_u;
+    let morphArch1_u = uMm && uMm.R >= uMm.L ? uMm.R : archLx1_u;
+    if (morphArch1_u - morphArch0_u + 1 < 8) {
+      morphArch0_u = archLx0_u;
+      morphArch1_u = archLx1_u;
+    }
+
+    const lMm = enamelLxExtentInBand(mask, bw, bh, yLowerStart, bh - 1);
+    let morphArch0_l = lMm && lMm.R >= lMm.L ? lMm.L : archLx0_l;
+    let morphArch1_l = lMm && lMm.R >= lMm.L ? lMm.R : archLx1_l;
+    if (morphArch1_l - morphArch0_l + 1 < 8) {
+      morphArch0_l = archLx0_l;
+      morphArch1_l = archLx1_l;
+    }
+
+    const nUpperTarget = estimateToothSlotCount(
+      morphArch0_u,
+      morphArch1_u,
+      MIN_BRACKETS_UPPER_FALLBACK,
+      MORPH_MAX_UPPER_BRACKETS,
+    );
+    const nLowerTarget = estimateToothSlotCount(
+      morphArch0_l,
+      morphArch1_l,
+      MIN_BRACKETS_LOWER_FALLBACK,
+      MORPH_MAX_LOWER_BRACKETS,
+    );
+
     const morphUpper = buildMorphologicalArchRow(
       mask,
       bw,
@@ -2540,8 +2624,8 @@ const SmileSimulatorAI = () => {
       h,
       minX,
       minY,
-      archLx0_u,
-      archLx1_u,
+      morphArch0_u,
+      morphArch1_u,
       yU0,
       yU1,
       ySplitImg,
@@ -2558,8 +2642,8 @@ const SmileSimulatorAI = () => {
       h,
       minX,
       minY,
-      archLx0_l,
-      archLx1_l,
+      morphArch0_l,
+      morphArch1_l,
       yLowerStart,
       bh - 1,
       ySplitImg,
@@ -2567,7 +2651,6 @@ const SmileSimulatorAI = () => {
       MORPH_MAX_LOWER_BRACKETS,
     );
 
-    /** Local maxima per bin across full arch span (not one global 1D average); morph fills interdental gaps. */
     const gridU = buildArchRowFromHighDensityGrid(
       data,
       w,
@@ -2576,16 +2659,21 @@ const SmileSimulatorAI = () => {
       bw,
       minX,
       minY,
-      archLx0_u,
-      archLx1_u,
+      morphArch0_u,
+      morphArch1_u,
       yU0,
       yU1,
       GRID_ENAMEL_COLUMNS,
-      MORPH_MAX_UPPER_BRACKETS,
+      nUpperTarget,
       ySplitImg,
       false,
     );
-    let upper = mergeArchStudsPreferMorph(morphUpper, gridU, MORPH_MAX_UPPER_BRACKETS, 3);
+
+    /** ≥3 morph segments ⇒ one stud per tooth along molar–molar span; else morph+grid merge capped to target count. */
+    let upper =
+      morphUpper.length >= 3
+        ? morphUpper.map((p) => ({ cx: p.cx, cy: p.cy, area: p.area ?? 1 }))
+        : mergeArchStudsPreferMorph(morphUpper, gridU, nUpperTarget, 3);
 
     const gridL = buildArchRowFromHighDensityGrid(
       data,
@@ -2595,20 +2683,24 @@ const SmileSimulatorAI = () => {
       bw,
       minX,
       minY,
-      archLx0_l,
-      archLx1_l,
+      morphArch0_l,
+      morphArch1_l,
       yLowerStart,
       bh - 1,
       GRID_ENAMEL_COLUMNS,
-      MORPH_MAX_LOWER_BRACKETS,
+      nLowerTarget,
       ySplitImg,
       true,
     );
-    let lower = mergeArchStudsPreferMorph(morphLower, gridL, MORPH_MAX_LOWER_BRACKETS, 3);
 
-    if (upper.length < 3) {
+    let lower =
+      morphLower.length >= 3
+        ? morphLower.map((p) => ({ cx: p.cx, cy: p.cy, area: p.area ?? 1 }))
+        : mergeArchStudsPreferMorph(morphLower, gridL, nLowerTarget, 3);
+
+    if (upper.length < 2) {
       upper = buildUpperEvenlySpacedSlots(
-        MORPH_MAX_UPPER_BRACKETS,
+        nUpperTarget,
         data,
         w,
         h,
@@ -2616,15 +2708,15 @@ const SmileSimulatorAI = () => {
         bw,
         minX,
         minY,
-        archLx0_u,
-        archLx1_u,
+        morphArch0_u,
+        morphArch1_u,
         yU0,
         yU1,
       );
     }
-    if (lower.length < 3) {
+    if (lower.length < 2) {
       lower = buildUpperEvenlySpacedSlots(
-        MORPH_MAX_LOWER_BRACKETS,
+        nLowerTarget,
         data,
         w,
         h,
@@ -2632,8 +2724,8 @@ const SmileSimulatorAI = () => {
         bw,
         minX,
         minY,
-        archLx0_l,
-        archLx1_l,
+        morphArch0_l,
+        morphArch1_l,
         yLowerStart,
         bh - 1,
       );
@@ -2644,6 +2736,9 @@ const SmileSimulatorAI = () => {
     /** Horizontal COM on mask enamel — centers each bracket on the tooth blob under it. */
     upper = refineArchRowHorizontalEnamelCOM(upper, mask, bw, bh, minX, minY, 9, 6, 6);
     lower = refineArchRowHorizontalEnamelCOM(lower, mask, bw, bh, minX, minY, 9, 6, 6);
+
+    upper = orderAndDedupeArchStuds(upper, morphArch0_u, morphArch1_u, MORPH_MAX_UPPER_BRACKETS);
+    lower = orderAndDedupeArchStuds(lower, morphArch0_l, morphArch1_l, MORPH_MAX_LOWER_BRACKETS);
 
     upper = applySmileCurveVerticalToArchRow(upper, true, oval);
     lower = applySmileCurveVerticalToArchRow(lower, false, oval);
