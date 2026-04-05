@@ -1004,33 +1004,61 @@ const SmileSimulatorAI = () => {
     ctx.restore();
   };
 
+  /** Smooth quadratic chain; optional skipMoveTo when current point is already pts[0]. */
+  const traceQuadraticArchPath = (ctx, pts, { skipMoveTo = false } = {}) => {
+    if (!pts || pts.length < 2) return;
+    if (!skipMoveTo) ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 2) {
+      ctx.lineTo(pts[1].x, pts[1].y);
+      return;
+    }
+    for (let i = 1; i < pts.length - 1; i++) {
+      const xc = (pts[i].x + pts[i + 1].x) * 0.5;
+      const yc = (pts[i].y + pts[i + 1].y) * 0.5;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+    }
+    const last = pts[pts.length - 1];
+    ctx.quadraticCurveTo(pts[pts.length - 2].x, pts[pts.length - 2].y, last.x, last.y);
+  };
+
   /**
-   * Clear / ceramic bracket: frosted glass body, bright rim, subtle wire slot, specular; optional w≠h for lateral perspective.
+   * Metallic 3D bracket illusion: top-left light, Z scale, depth opacity, groove + rim highlight.
    */
-  const drawCeramicClearStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
-    const side = Math.max(2, Math.min(w, h));
-    const deep = Math.max(side * 0.92, Math.max(w, h));
-    const r = clamp(side * 0.14, 0.85, side * 0.24);
+  const drawMetallicBracket3D = (ctx, br, baseW, baseH, starFlare = false, omitDropShadow = false) => {
+    const {
+      x,
+      y,
+      ang,
+      wMult = 1,
+      hMult,
+      scaleZ = 1,
+      depthOpacity = 1,
+    } = br;
+    const hm = hMult ?? wMult;
+    const sz = clamp(scaleZ, 0.7, 1.15);
+    const side = Math.max(2.5, baseW * wMult * sz);
+    const deep = Math.max(side * 0.9, baseH * hm * sz);
+    const r = clamp(side * 0.12, 0.8, side * 0.22);
     const hw = side * 0.5;
     const hh = deep * 0.5;
+
     ctx.save();
-    ctx.globalAlpha = 0.98;
+    ctx.globalAlpha *= clamp(depthOpacity, 0.62, 1);
     ctx.translate(x, y);
-    ctx.rotate(tangentRad + Math.PI / 2);
+    ctx.rotate((ang ?? 0) + Math.PI / 2);
+
     if (!omitDropShadow) {
-      ctx.shadowColor = HARDWARE_SHADOW_COLOR;
-      ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = ARCHWIRE_SHADOW_OFFSET_Y_PX;
+      ctx.shadowColor = "rgba(0,0,0,0.32)";
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 2;
     }
-    const cxg = -hw * 0.2;
-    const cyg = -hh * 0.22;
-    const body = ctx.createRadialGradient(cxg, cyg, 0, 0, 0, Math.hypot(hw, hh) * 1.08);
-    body.addColorStop(0, "rgba(255,255,255,0.94)");
-    body.addColorStop(0.35, "rgba(252,253,255,0.72)");
-    body.addColorStop(0.65, "rgba(232,238,248,0.5)");
-    body.addColorStop(0.9, "rgba(210,220,235,0.42)");
-    body.addColorStop(1, "rgba(188,202,222,0.36)");
+
+    const grad = ctx.createLinearGradient(-hw, -hh, hw, hh);
+    grad.addColorStop(0, "#ffffff");
+    grad.addColorStop(0.28, "#d8d8dc");
+    grad.addColorStop(0.55, "#8e9098");
+    grad.addColorStop(1, "#3a3c44");
 
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
@@ -1038,32 +1066,46 @@ const SmileSimulatorAI = () => {
     } else {
       ctx.rect(-hw, -hh, side, deep);
     }
-    ctx.fillStyle = body;
+    ctx.fillStyle = grad;
     ctx.fill();
     ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.shadowOffsetX = 0;
 
-    ctx.strokeStyle = "rgba(255,255,255,0.82)";
-    ctx.lineWidth = 1.05;
-    ctx.stroke();
-
-    ctx.strokeStyle = "rgba(160,176,198,0.4)";
-    ctx.lineWidth = 0.75;
+    ctx.fillStyle = "rgba(22,24,30,0.82)";
+    const gw = side * 0.38;
+    const gh = Math.max(1.2, deep * 0.12);
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.42, 0);
-    ctx.lineTo(hw * 0.42, 0);
-    ctx.stroke();
-
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.beginPath();
-    ctx.ellipse(-hw * 0.12, -hh * 0.52, side * 0.14, deep * 0.09, 0, 0, Math.PI * 2);
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-gw * 0.5, -gh * 0.5, gw, gh, gh * 0.35);
+    } else {
+      ctx.rect(-gw * 0.5, -gh * 0.5, gw, gh);
+    }
     ctx.fill();
 
+    ctx.strokeStyle = "rgba(255,255,255,0.42)";
+    ctx.lineWidth = Math.max(0.55, side * 0.06);
+    ctx.beginPath();
+    ctx.moveTo(-hw * 0.88, -hh * 0.88);
+    ctx.lineTo(hw * 0.55, -hh * 0.88);
+    ctx.stroke();
+
+    ctx.beginPath();
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-hw, -hh, side, deep, r);
+    } else {
+      ctx.rect(-hw, -hh, side, deep);
+    }
+    ctx.strokeStyle = "rgba(0,0,0,0.32)";
+    ctx.lineWidth = 0.85;
+    ctx.stroke();
+
     if (starFlare) {
-      ctx.strokeStyle = "rgba(255,255,255,0.45)";
-      ctx.lineWidth = Math.max(0.3, side * 0.045);
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = Math.max(0.35, side * 0.04);
       ctx.beginPath();
-      ctx.moveTo(-hw * 0.12, -hh * 0.42);
-      ctx.lineTo(-hw * 0.02, -hh * 0.32);
+      ctx.moveTo(-hw * 0.1, -hh * 0.35);
+      ctx.lineTo(hw * 0.08, -hh * 0.22);
       ctx.stroke();
     }
     ctx.restore();
@@ -1087,12 +1129,14 @@ const SmileSimulatorAI = () => {
     const all = [...upperAnchors, ...lowerAnchors];
     ctx.save();
     ctx.filter = "blur(3.5px)";
-    all.forEach(({ x, y, wMult, hMult, ang }) => {
+    all.forEach(({ x, y, wMult, hMult, ang, scaleZ = 1, depthOpacity = 1 }) => {
       const wm = wMult ?? 1;
       const hm = hMult ?? wm;
-      const side = baseW * Math.max(wm, hm) * 1.06;
+      const sz = clamp(scaleZ, 0.7, 1.15);
+      const side = baseW * Math.max(wm, hm) * 1.06 * sz;
       const rr = clamp(side * 0.12, 1, 5);
       ctx.save();
+      ctx.globalAlpha *= clamp(depthOpacity, 0.62, 1);
       ctx.translate(x, y + 0.5);
       ctx.rotate((ang ?? 0) + Math.PI / 2);
       const g = ctx.createRadialGradient(0, 0, 0, 0, 0, side * 0.72);
@@ -1125,8 +1169,9 @@ const SmileSimulatorAI = () => {
     const { upperAnchors, lowerAnchors, baseW, baseH, wireSamplesUpper, wireSamplesLower } = pack;
 
     ctx.save();
+    ctx.globalAlpha = 0.95;
 
-    /** Solid silver archwire + soft depth shadow (ARCHWIRE_LINE_WIDTH_PX, ARCHWIRE_SHADOW_BLUR_PX). */
+    /** Curved archwire: shadow stroke → metallic body → highlight (quadratic path). */
     const drawWire = () => {
       const up = wireSamplesUpper;
       const lo = wireSamplesLower;
@@ -1134,79 +1179,48 @@ const SmileSimulatorAI = () => {
       const hasLower = lo?.length >= 2;
       if (!hasUpper && !hasLower) return;
 
-      const strokeBase = () => {
-        if (typeof Path2D !== "undefined") {
-          const path = new Path2D();
-          if (hasUpper) {
-            path.moveTo(up[0].x, up[0].y);
-            for (let i = 1; i < up.length; i++) path.lineTo(up[i].x, up[i].y);
-          }
-          if (hasLower) {
-            path.moveTo(lo[0].x, lo[0].y);
-            for (let j = 1; j < lo.length; j++) path.lineTo(lo[j].x, lo[j].y);
-          }
-          return path;
+      const buildPath = () => {
+        ctx.beginPath();
+        if (hasUpper) traceQuadraticArchPath(ctx, up);
+        if (hasLower) {
+          ctx.moveTo(lo[0].x, lo[0].y);
+          traceQuadraticArchPath(ctx, lo, { skipMoveTo: true });
         }
-        return null;
       };
 
-      const paint = (path2d) => {
-        ctx.save();
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.setLineDash([]);
-        let xMin = Infinity;
-        let xMax = -Infinity;
-        if (hasUpper) for (const q of up) {
-          xMin = Math.min(xMin, q.x);
-          xMax = Math.max(xMax, q.x);
-        }
-        if (hasLower) for (const q of lo) {
-          xMin = Math.min(xMin, q.x);
-          xMax = Math.max(xMax, q.x);
-        }
-        if (xMax > xMin + 4) {
-          const g = ctx.createLinearGradient(xMin, 0, xMax, 0);
-          g.addColorStop(0, "#959daa");
-          g.addColorStop(0.45, "#e4e8ef");
-          g.addColorStop(0.55, "#e4e8ef");
-          g.addColorStop(1, "#959daa");
-          ctx.strokeStyle = g;
-        } else {
-          ctx.strokeStyle = "#c6ccd6";
-        }
-        ctx.lineWidth = wireDarkW;
-        ctx.shadowColor = HARDWARE_SHADOW_COLOR;
-        ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = ARCHWIRE_SHADOW_OFFSET_Y_PX;
-        if (path2d) ctx.stroke(path2d);
-        else {
-          ctx.beginPath();
-          if (hasUpper) {
-            ctx.moveTo(up[0].x, up[0].y);
-            for (let i = 1; i < up.length; i++) ctx.lineTo(up[i].x, up[i].y);
-          }
-          if (hasLower) {
-            ctx.moveTo(lo[0].x, lo[0].y);
-            for (let j = 1; j < lo.length; j++) ctx.lineTo(lo[j].x, lo[j].y);
-          }
-          ctx.stroke();
-        }
-        ctx.shadowBlur = 0;
-        ctx.restore();
-      };
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.setLineDash([]);
 
-      const p = strokeBase();
-      if (p) paint(p);
-      else paint(null);
+      buildPath();
+      ctx.strokeStyle = "rgba(48,50,54,0.92)";
+      ctx.lineWidth = wireDarkW + 2.6;
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 5;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 2.2;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+
+      buildPath();
+      ctx.strokeStyle = "rgba(158,160,168,1)";
+      ctx.lineWidth = wireDarkW + 0.35;
+      ctx.stroke();
+
+      buildPath();
+      ctx.strokeStyle = "rgba(255,255,255,0.82)";
+      ctx.lineWidth = Math.max(0.5, wireDarkW * 0.36);
+      ctx.stroke();
+
+      ctx.restore();
     };
 
     const drawAnchors = (anchors) => {
       if (!anchors?.length) return;
-      anchors.forEach(({ x, y, ang, wMult, hMult, star }) => {
-        const hm = hMult ?? wMult;
-        drawCeramicClearStud(ctx, x, y, ang, baseW * wMult, baseH * hm, star, omitStudShadow);
+      anchors.forEach((br) => {
+        drawMetallicBracket3D(ctx, br, baseW, baseH, br.star, omitStudShadow);
       });
     };
 

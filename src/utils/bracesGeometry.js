@@ -190,10 +190,14 @@ function tangentAngleAt(row, i) {
   return Math.atan2(row[i + 1].y - row[i - 1].y, row[i + 1].x - row[i - 1].x);
 }
 
-/** scale = max(0.52, 1 - |i - center| * 0.04); oval + Z. */
+/**
+ * Perspective + MediaPipe z: scaleZ = 1/(1+z*1.5); depthOpacity fades molars;
+ * slight y nudge at arch ends (face curvature).
+ */
 export function computeBracketTransforms(row, iw, ih, oval) {
   const n = row.length;
   const centerIndex = (n - 1) / 2;
+  const maxDist = Math.max(centerIndex, 1e-6);
   const ocx = oval?.cx != null ? oval.cx : row[Math.floor(n / 2)]?.x ?? iw * 0.5;
   const orx = Math.max(oval?.rx ?? iw * 0.18, 1);
 
@@ -214,15 +218,24 @@ export function computeBracketTransforms(row, iw, ih, oval) {
     const zDist = Math.abs((p.z ?? 0) - zMed) / zSpan;
     const zScale = clamp(1.03 - 0.16 * zDist, 0.88, 1.04);
 
-    const wMult = Math.max(0.66, perspective * scaleIdx * zScale);
+    const scaleZ = clamp(1 / (1 + (p.z ?? 0) * 1.5), 0.7, 1.14);
+    const normD = distFromCenter / maxDist;
+    const depthOpacity = clamp(1 - normD * 0.3, 0.62, 1);
+
+    const wMult = Math.max(0.62, perspective * scaleIdx * zScale);
     const hMult = wMult * (0.72 + 0.28 * (1 - edge));
+
+    const yPersp = -edge * 1.4 * normD;
 
     return {
       x: clamp(p.x, 4, iw - 5),
-      y: clamp(p.y, 4, ih - 5),
+      y: clamp(p.y + yPersp, 4, ih - 5),
       ang,
       wMult,
       hMult,
+      z: p.z ?? 0,
+      scaleZ,
+      depthOpacity,
       star: false,
       skipStud: false,
     };
