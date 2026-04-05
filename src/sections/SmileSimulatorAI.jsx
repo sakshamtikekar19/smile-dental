@@ -7,6 +7,11 @@ import PremiumButton from "../components/PremiumButton";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
 import { buildGeometricBracesPack } from "../utils/bracesGeometry";
+import {
+  prepareBracesAtlasCanvas,
+  drawWarpedBracesSegments,
+  applyUpperLipBracesOcclusion,
+} from "../utils/bracesTextureWarp";
 
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
@@ -314,6 +319,32 @@ const SmileSimulatorAI = () => {
     const maskScaled = c2.toDataURL("image/png");
 
     return { mouth: mouthScaled, mask: maskScaled };
+  };
+
+  /** Flat gray strip + full white mask for Replicate `braces_texture` (texture only; placement is geometry). */
+  const createBracesTextureAtlasPayload = () => {
+    const w = 512;
+    const h = 128;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d");
+    if (!ctx) throw new Error("Could not create braces atlas canvas");
+    ctx.fillStyle = "#c6c8d0";
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = "#a8aab4";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
+    const image = c.toDataURL("image/jpeg", 0.92);
+    const mc = document.createElement("canvas");
+    mc.width = w;
+    mc.height = h;
+    const mctx = mc.getContext("2d");
+    if (!mctx) throw new Error("Could not create braces atlas mask");
+    mctx.fillStyle = "#ffffff";
+    mctx.fillRect(0, 0, w, h);
+    const mask = mc.toDataURL("image/png");
+    return { image, mask };
   };
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -1159,17 +1190,17 @@ const SmileSimulatorAI = () => {
 
   /**
    * Wire → contact shadows → studs. `layers`: 'wire' | 'shadows' | 'studs' | 'both'.
-   * @param {{ omitStudShadow?: boolean, layers?: 'wire' | 'shadows' | 'studs' | 'both' }} opts
+   * @param {{ omitStudShadow?: boolean, outerAlpha?: number, layers?: 'wire' | 'shadows' | 'studs' | 'both' }} opts
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
-    const { omitStudShadow = false, layers = "both" } = opts;
+    const { omitStudShadow = false, layers = "both", outerAlpha = 0.95 } = opts;
     const wireDarkW = ARCHWIRE_LINE_WIDTH_PX;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW, baseH, wireSamplesUpper, wireSamplesLower } = pack;
 
     ctx.save();
-    ctx.globalAlpha = 0.95;
+    ctx.globalAlpha = outerAlpha;
 
     /** Curved archwire: shadow stroke → metallic body → highlight (quadratic path). */
     const drawWire = () => {
@@ -1300,7 +1331,12 @@ const SmileSimulatorAI = () => {
   /**
    * Redetect landmarks on merged full-frame image only; geometry-based braces (no pre-AI landmark drift).
    */
-  const applyBracesOverlay = async (imageSrc, iw, ih) => {
+  /**
+   * AI texture on dental arc (geometry) + vector archwire; lip occlusion; no vector studs (avoids double brackets).
+   * @param {{ bracesTextureDataUrl?: string | null }} [opts]
+   */
+  const applyBracesOverlay = async (imageSrc, iw, ih, opts = {}) => {
+    const { bracesTextureDataUrl = null } = opts;
     const det = await detectMouth(imageSrc);
     if (!det?.landmarks || !det?.oval || !det?.bounds) {
       throw new Error("Could not detect face landmarks on merged image for braces.");
@@ -1329,6 +1365,14 @@ const SmileSimulatorAI = () => {
     applyMouthPopFilter(bctx, mb);
     await flushPaintBeforeVectorHardware();
 
+    const pack = computeBracesAnchors(lm, iw, ih, ov);
+    if (!pack?.upperAnchors?.length) {
+      throw new Error("Could not compute dental arc for braces placement.");
+    }
+
+    const atlas = await prepareBracesAtlasCanvas(bracesTextureDataUrl, pack.upperAnchors.length);
+    const toothDepthPx = clamp((pack.mouthOpen || 20) * 0.065, 3.2, 10);
+
     const overlay = document.createElement("canvas");
     overlay.width = iw;
     overlay.height = ih;
@@ -1337,13 +1381,19 @@ const SmileSimulatorAI = () => {
 
     await flushPaintBeforeVectorHardware();
     await delayMs(BRACES_HARDWARE_SETTLE_MS);
-    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, layers: "wire" });
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    await flushPaintBeforeVectorHardware();
-    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: true, layers: "shadows" });
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    await flushPaintBeforeVectorHardware();
-    renderBraces(lm, octx, iw, ih, ov, { omitStudShadow: false, layers: "studs" });
+
+    octx.save();
+    octx.globalAlpha = 0.92;
+    drawWarpedBracesSegments(octx, atlas, pack, { toothDepthPx, baseHScale: 0.9 });
+    octx.restore();
+
+    renderBraces(lm, octx, iw, ih, ov, {
+      omitStudShadow: true,
+      layers: "wire",
+      outerAlpha: 0.88,
+    });
+
+    applyUpperLipBracesOcclusion(octx, lm, iw, ih, pack.mouthOpen);
 
     bctx.save();
     bctx.globalCompositeOperation = "source-over";
@@ -1622,10 +1672,22 @@ const SmileSimulatorAI = () => {
       const useReplicatePolish = true;
 
       let aiPolishedCrop = null;
+      let bracesTexturePromise = null;
       if (useReplicatePolish && AI_SMILE_API) {
         /** Braces: AI pass = transformation (subtle straightening); brackets/wire are drawn locally after merge. */
         const replicateTreatment = selectedTreatment === "braces" ? "transformation" : selectedTreatment;
         const midlineXNorm = getFacialMidlineXNorm(landmarks);
+        if (selectedTreatment === "braces") {
+          bracesTexturePromise = (async () => {
+            try {
+              const { image: btImg, mask: btMask } = createBracesTextureAtlasPayload();
+              const { mouth: btMouth, mask: btMaskScaled } = await scaleMouthAndMaskForApi(btImg, btMask, 512);
+              return await enhanceWithAI(btMouth, btMaskScaled, "braces_texture", midlineXNorm);
+            } catch {
+              return null;
+            }
+          })();
+        }
         const midlineFullX =
           midlineXNorm != null ? midlineXNorm * fullFrame.width : null;
         let ovalInCrop = {
@@ -1662,7 +1724,8 @@ const SmileSimulatorAI = () => {
       /** Structure layer: braces/wire only after merged texture (Replicate + local enamel) — never in the AI pass. */
       if (selectedTreatment === "braces") {
         await flushPaintBeforeVectorHardware();
-        merged = await applyBracesOverlay(merged, imgRef.width, imgRef.height);
+        const bracesTextureDataUrl = bracesTexturePromise ? await bracesTexturePromise : null;
+        merged = await applyBracesOverlay(merged, imgRef.width, imgRef.height, { bracesTextureDataUrl });
       }
 
       const previewRect = squareCropRect(imgRef.width, imgRef.height, oval);

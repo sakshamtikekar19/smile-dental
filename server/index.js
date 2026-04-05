@@ -73,6 +73,12 @@ app.post('/api/smile', async (req, res) => {
       }
       negative_prompt = `${baseNegative}, ${alignmentNegativeExtra}`;
       prompt_strength = 0.40;
+    } else if (activeTreatment === 'braces_texture') {
+      prompt =
+        'Photorealistic straight orthodontic hardware: continuous metal archwire with evenly spaced small clear ceramic brackets in a single horizontal row, flat frontal product view, studio lighting, neutral gray background, sharp metallic specular highlights, isolated dental appliance only';
+      negative_prompt =
+        'human face, lips, skin, mouth interior, portrait, teeth, gums, tongue, cartoon, illustration, blurry, distorted, extra wires';
+      prompt_strength = 0.52;
     } else if (activeTreatment === 'transformation' || activeTreatment === 'braces') {
       prompt =
         'Subtle professional orthodontic alignment, original human tooth positions preserved, straightened natural edges, high-definition dental photography.';

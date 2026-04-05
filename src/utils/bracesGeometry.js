@@ -402,10 +402,12 @@ export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
 
   return {
     wireMode: "polyline",
+    upperStuds,
     upperAnchors,
     lowerAnchors: [],
     wireSamplesUpper,
     wireSamplesLower: [],
+    mouthOpen: extracted.mouthOpen,
   };
 }
 

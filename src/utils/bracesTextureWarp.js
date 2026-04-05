@@ -1,0 +1,178 @@
+/**
+ * AI texture (or synthetic atlas) + geometry: slice horizontal strip, place each segment on dental arc.
+ * Placement uses buildGeometricBracesPack upperStuds / upperAnchors only — not AI coordinates.
+ */
+
+import { landmarkToPx } from "./bracesGeometry";
+
+const UPPER_LIP_OCCLUDER = [61, 185, 40, 39, 37, 267, 269, 270, 409, 291];
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w * 0.5, h * 0.5);
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, rr);
+  } else {
+    ctx.rect(x, y, w, h);
+  }
+}
+
+/** Procedural straight “front” braces strip when no Replicate texture is returned. */
+export function createSyntheticBracesAtlas(segmentCount = 12, aw = 720, ah = 112) {
+  const c = document.createElement("canvas");
+  c.width = aw;
+  c.height = ah;
+  const g = c.getContext("2d");
+  if (!g) return c;
+
+  g.fillStyle = "#e4e6ed";
+  g.fillRect(0, 0, aw, ah);
+
+  const cy = ah * 0.5;
+  g.strokeStyle = "rgba(55,58,68,0.92)";
+  g.lineWidth = 5;
+  g.lineCap = "round";
+  g.beginPath();
+  g.moveTo(10, cy);
+  g.lineTo(aw - 10, cy);
+  g.stroke();
+
+  g.strokeStyle = "rgba(210,212,222,0.85)";
+  g.lineWidth = 1.4;
+  g.beginPath();
+  g.moveTo(10, cy - 2.5);
+  g.lineTo(aw - 10, cy - 2.5);
+  g.stroke();
+
+  const n = Math.max(4, Math.min(16, segmentCount | 0));
+  const innerW = aw - 20;
+  const sw = innerW / n;
+
+  for (let i = 0; i < n; i++) {
+    const x = 10 + i * sw;
+    const bw = sw * 0.64;
+    const bh = ah * 0.56;
+    const gx = x + (sw - bw) * 0.5;
+    const gy = cy - bh * 0.5;
+    const grd = g.createLinearGradient(gx, gy, gx + bw, gy + bh);
+    grd.addColorStop(0, "#ffffff");
+    grd.addColorStop(0.28, "#d4d4dc");
+    grd.addColorStop(0.58, "#8c8e98");
+    grd.addColorStop(1, "#3a3c44");
+    g.fillStyle = grd;
+    roundRectPath(g, gx, gy, bw, bh, 3.2);
+    g.fill();
+    g.strokeStyle = "rgba(0,0,0,0.28)";
+    g.lineWidth = 0.85;
+    g.stroke();
+    g.fillStyle = "rgba(18,20,26,0.78)";
+    g.fillRect(gx + bw * 0.28, cy - 1.3, bw * 0.44, 2.6);
+  }
+
+  return c;
+}
+
+export function loadImageFromSrc(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("braces texture load failed"));
+    img.src = src;
+  });
+}
+
+/** Rasterize remote / data URL texture to canvas (equal column slicing at draw time). */
+export async function prepareBracesAtlasCanvas(sourceDataUrl, segmentCount) {
+  if (!sourceDataUrl || typeof sourceDataUrl !== "string") {
+    return createSyntheticBracesAtlas(segmentCount);
+  }
+  try {
+    const img = await loadImageFromSrc(sourceDataUrl);
+    const c = document.createElement("canvas");
+    c.width = Math.max(320, Math.min(1024, img.naturalWidth || img.width));
+    c.height = Math.max(56, Math.min(200, img.naturalHeight || img.height));
+    const x = c.getContext("2d");
+    if (!x) return createSyntheticBracesAtlas(segmentCount);
+    x.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  } catch {
+    return createSyntheticBracesAtlas(segmentCount);
+  }
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {HTMLCanvasElement} atlas
+ * @param {object} pack — from buildGeometricBracesPack (upperStuds, upperAnchors)
+ * @param {object} [opts]
+ */
+export function drawWarpedBracesSegments(ctx, atlas, pack, opts = {}) {
+  const toothDepthPx = typeof opts.toothDepthPx === "number" ? opts.toothDepthPx : 4.2;
+  const baseHScale = typeof opts.baseHScale === "number" ? opts.baseHScale : 0.9;
+
+  const { upperAnchors, upperStuds } = pack;
+  if (!atlas || !upperAnchors?.length || !upperStuds?.length) return;
+
+  const n = Math.min(upperAnchors.length, upperStuds.length);
+  const aw = atlas.width;
+  const ah = atlas.height;
+  const slotW = aw / n;
+  const maxD = Math.max((n - 1) / 2, 0.5);
+
+  for (let i = 0; i < n; i++) {
+    const a = upperAnchors[i];
+    const s = upperStuds[i];
+    const sx = i * slotW;
+    const dist = Math.abs(i - (n - 1) / 2);
+    const persp = Math.max(0.55, 1 - (dist / maxD) * 0.2);
+    const sz = clamp(a.scaleZ ?? 1, 0.7, 1.12);
+    const sc = persp * sz;
+    const dw = slotW * sc * 0.96;
+    const dh = ah * baseHScale * sc;
+    const x = s.x;
+    const y = s.y + toothDepthPx;
+
+    ctx.save();
+    ctx.globalAlpha *= clamp(a.depthOpacity ?? 1, 0.62, 1);
+    ctx.translate(x, y);
+    ctx.rotate((a.ang ?? 0) + Math.PI / 2);
+    ctx.shadowColor = "rgba(0,0,0,0.28)";
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 0.5;
+    ctx.shadowOffsetY = 2;
+    ctx.drawImage(atlas, sx, 0, slotW, ah, -dw * 0.5, -dh * 0.5, dw, dh);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.restore();
+  }
+}
+
+/** Erase overlay above upper lip line so brackets appear tucked behind lip (soft edge). */
+export function applyUpperLipBracesOcclusion(ctx, landmarks, iw, ih, mouthOpen = 24) {
+  if (!landmarks?.length) return;
+  const pts = UPPER_LIP_OCCLUDER.map((idx) => landmarkToPx(landmarks, idx, iw, ih)).filter(Boolean);
+  if (pts.length < 3) return;
+
+  const dy = clamp((mouthOpen || 24) * 0.11, 5, 20);
+
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(iw, 0);
+  ctx.lineTo(iw, pts[pts.length - 1].y + dy);
+  for (let k = pts.length - 1; k >= 0; k--) ctx.lineTo(pts[k].x, pts[k].y + dy);
+  ctx.lineTo(0, pts[0].y + dy);
+  ctx.closePath();
+  ctx.fillStyle = "#000";
+  ctx.filter = "blur(6px)";
+  ctx.fill();
+  ctx.filter = "none";
+  ctx.restore();
+}
