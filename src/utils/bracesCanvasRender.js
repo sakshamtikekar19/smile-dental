@@ -34,7 +34,8 @@ function traceArchPolyline(ctx, upper, lower) {
  * @param {{ lineWidth?: number, clipMouth?: { cx: number, cy: number, rx: number, ry: number }, mouthOpen?: number }} [opts]
  */
 export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
-  const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : 3;
+  const clinical = opts.clinical === true;
+  const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : clinical ? 1.5 : 3;
   const clipMouth = opts.clipMouth;
   const mouthOpen = typeof opts.mouthOpen === "number" ? opts.mouthOpen : 0;
   const up = wireSamplesUpper;
@@ -60,6 +61,27 @@ export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.setLineDash([]);
+
+  if (clinical) {
+    const shadowY = typeof opts.shadowOffsetY === "number" ? opts.shadowOffsetY : 1.35;
+    const shadowBlur = typeof opts.shadowBlur === "number" ? opts.shadowBlur : 3;
+    buildPath();
+    ctx.strokeStyle = "rgba(38,40,44,0.9)";
+    ctx.lineWidth = wireDarkW;
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = shadowBlur;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = shadowY;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    buildPath();
+    ctx.strokeStyle = "rgba(198,200,208,0.98)";
+    ctx.lineWidth = wireDarkW;
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
 
   buildPath();
   ctx.strokeStyle = "rgba(48,50,54,0.92)";
@@ -118,9 +140,9 @@ export function renderBracket3D(ctx, br, baseW, baseH, starFlare = false, omitDr
   ctx.rotate((ang ?? 0) + angBias + Math.PI / 2);
 
   if (!omitDropShadow) {
-    ctx.shadowColor = "rgba(0,0,0,0.32)";
-    ctx.shadowBlur = 4;
-    ctx.shadowOffsetX = 1;
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 0.75;
     ctx.shadowOffsetY = 2;
   }
 

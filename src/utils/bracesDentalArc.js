@@ -52,6 +52,36 @@ export function generateDentalArc(left, right, upperLip, lowerLip, count = 10) {
  * Evenly spaced bracket sites on the parametric arc with tangent angle and perspective scale.
  * @returns {Array<{ x: number, y: number, ang: number, scale: number }>|null}
  */
+/**
+ * Lower arch parabola anchored to inner lower lip (14): U-shaped curve opening upward (smaller y at midline).
+ * Same mouth width/height basis as upper; occlusal row sits facial to lower lip.
+ */
+export function getLowerArchBracketPoints(left, right, upperLip, lowerLip, count = 12) {
+  const mouthWidth = right.x - left.x;
+  const mouthHeight = lowerLip.y - upperLip.y;
+  if (mouthWidth < 4 || mouthHeight < 2) return null;
+
+  const centerX = (left.x + right.x) / 2;
+  const width = mouthWidth / 2;
+  const teethY = lowerLip.y - mouthHeight * 0.38;
+  const arcHeight = mouthHeight * 0.12;
+
+  const n = Math.max(2, Math.round(count));
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0.5 : i / (n - 1);
+    const x = left.x + t * mouthWidth;
+    const u = width > 1e-6 ? (x - centerX) / width : 0;
+    const y = teethY - arcHeight * (1 - u * u);
+    const dydx = width > 1e-6 ? (-2 * arcHeight * (x - centerX)) / (width * width) : 0;
+    const ang = Math.atan2(dydx, 1);
+    const distFromCenter = Math.abs(x - centerX);
+    const scale = Math.max(0.55, 1 - (distFromCenter / Math.max(width, 1e-6)) * 0.25);
+    out.push({ x, y, ang, scale });
+  }
+  return out;
+}
+
 export function getBracketPoints(left, right, upperLip, lowerLip, count = 10) {
   const mouthWidth = right.x - left.x;
   const mouthHeight = lowerLip.y - upperLip.y;

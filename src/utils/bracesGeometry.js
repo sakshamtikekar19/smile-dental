@@ -3,7 +3,12 @@
  * wires follow smoothed landmark splines; molar span extended along end tangents. Parametric fallback if landmarks sparse.
  */
 
-import { getBracketPoints, sampleParametricArc, extendWireSamplesAlongTangents } from "./bracesDentalArc";
+import {
+  getBracketPoints,
+  getLowerArchBracketPoints,
+  sampleParametricArc,
+  extendWireSamplesAlongTangents,
+} from "./bracesDentalArc";
 
 /** Upper arch: inner upper lip + upper teeth ridge, left→right in image space (after sort by x). */
 const UPPER_TEETH_ARCH_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
@@ -15,9 +20,13 @@ const COMMISSURE_LEFT_IDX = 61;
 const COMMISSURE_RIGHT_IDX = 291;
 
 const WIRE_SAMPLES = 100;
-/** Past-terminal bracket extension; wire is clipped to mouth oval when drawn. */
-const WIRE_MOLAR_END_EXTEND_PX = 2;
-const DEFAULT_BRACKET_COUNT = 10;
+/** 0 = wire terminates at terminal bracket centers (no run-out into cheeks). */
+const WIRE_MOLAR_END_EXTEND_PX = 0;
+/** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */
+const CENTROID_BRACKET_MIN = 12;
+const CENTROID_BRACKET_MAX = 14;
+const CATMULL_WIRE_STEPS_AFTER_SNAP = 22;
+const DEFAULT_BRACKET_COUNT = 14;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -522,53 +531,65 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
 }
 
 /**
- * Upper + lower arches: brackets on resampled landmark tooth curves (molar-to-molar); wires = Catmull splines.
+ * Two independent parabolic arches (inner lip 13 / 14), 12–14 equal parameter segments,
+ * 25% molar scale via getBracketPoints, Catmull wire stud-to-stud only (zero terminal extension).
  */
-export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
+export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   if (!landmarks?.length) return null;
 
-  const nUpper = clamp(Math.round(opts.bracketCountUpper ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT), 8, 12);
-  const nLower = clamp(Math.round(opts.bracketCountLower ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT), 8, 12);
+  const nU = clamp(
+    Math.round(opts.bracketCountUpper ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT),
+    CENTROID_BRACKET_MIN,
+    CENTROID_BRACKET_MAX,
+  );
+  const nL = clamp(
+    Math.round(opts.bracketCountLower ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT),
+    CENTROID_BRACKET_MIN,
+    CENTROID_BRACKET_MAX,
+  );
 
-  const upperEx = extractUpperTeethControls(landmarks, iw, ih);
-  const lowerEx = extractLowerTeethControls(landmarks, iw, ih);
-  const upperLip = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
-  const lowerLip = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
-  const mouthOpen =
-    upperLip && lowerLip ? Math.abs(lowerLip.y - upperLip.y) : Math.max(upperEx.mouthOpen, lowerEx.mouthOpen, 24);
-
-  if (!upperEx.pts?.length || upperEx.pts.length < 2) {
-    return buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower);
+  const left = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
+  const right = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
+  const lip13 = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  const lip14 = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  if (!left || !right || !lip13 || !lip14) {
+    return buildParametricFallbackPack(landmarks, iw, ih, oval, nU, nL);
   }
 
-  let upperCtrl = medianSmoothY(removeYSpikes(upperEx.pts));
-  if (upperCtrl.length < 2) return buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower);
+  const bpU = getBracketPoints(left, right, lip13, lip14, nU);
+  const bpL = getLowerArchBracketPoints(left, right, lip13, lip14, nL);
+  if (!bpU?.length) return buildParametricFallbackPack(landmarks, iw, ih, oval, nU, nL);
 
-  const endPad = clamp(mouthOpen * 0.055, 4, 18);
-  upperCtrl = extendArchEnds(upperCtrl, endPad);
-
-  const upperBracketSites = resampleCurveEqualArcLength(upperCtrl, nUpper);
-  const upperStuds = upperBracketSites.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
+  const mouthOpen = Math.abs(lip14.y - lip13.y);
+  const upperStuds = bpU.map((p) => ({ x: p.x, y: p.y, z: 0 }));
   let upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
-  upperAnchors = applyPerspectiveScaleToAnchors(upperAnchors, upperStuds);
-
-  let wireSamplesUpper = extendWireSamplesAlongTangents(
-    sampleWireFromStuds(upperCtrl, 7),
-    WIRE_MOLAR_END_EXTEND_PX,
-  );
+  const midU = Math.floor(nU / 2);
+  const centerSU = Math.max(bpU[midU]?.scale ?? 1, 0.01);
+  upperAnchors = upperAnchors.map((a, i) => ({
+    ...a,
+    ang: bpU[i]?.ang ?? a.ang,
+    wMult: (a.wMult ?? 1) * ((bpU[i]?.scale ?? 1) / centerSU),
+    hMult: (a.hMult ?? 1) * ((bpU[i]?.scale ?? 1) / centerSU),
+  }));
 
   let lowerStuds = [];
   let lowerAnchors = [];
-  let wireSamplesLower = [];
-  if (lowerEx.pts?.length >= 2) {
-    let lowerCtrl = medianSmoothY(removeYSpikes(lowerEx.pts));
-    lowerCtrl = extendArchEnds(lowerCtrl, endPad);
-    const lowerBracketSites = resampleCurveEqualArcLength(lowerCtrl, nLower);
-    lowerStuds = lowerBracketSites.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
+  if (bpL?.length) {
+    lowerStuds = bpL.map((p) => ({ x: p.x, y: p.y, z: 0 }));
     lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval);
-    lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
-    wireSamplesLower = extendWireSamplesAlongTangents(sampleWireFromStuds(lowerCtrl, 7), WIRE_MOLAR_END_EXTEND_PX);
+    const midL = Math.floor(nL / 2);
+    const centerSL = Math.max(bpL[midL]?.scale ?? 1, 0.01);
+    lowerAnchors = lowerAnchors.map((a, i) => ({
+      ...a,
+      ang: bpL[i]?.ang ?? a.ang,
+      wMult: (a.wMult ?? 1) * ((bpL[i]?.scale ?? 1) / centerSL),
+      hMult: (a.hMult ?? 1) * ((bpL[i]?.scale ?? 1) / centerSL),
+    }));
   }
+
+  const steps = typeof opts.catmullWireSteps === "number" ? opts.catmullWireSteps : CATMULL_WIRE_STEPS_AFTER_SNAP;
+  const wireSamplesUpper = sampleWireFromStuds(upperStuds, steps);
+  const wireSamplesLower = lowerStuds.length >= 2 ? sampleWireFromStuds(lowerStuds, steps) : [];
 
   return {
     wireMode: "polyline",
@@ -580,6 +601,38 @@ export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
     wireSamplesLower,
     mouthOpen,
   };
+}
+
+/** Recompute tangents, perspective, and Catmull wires after stud positions change (e.g. enamel snap). */
+export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval) {
+  if (!pack?.upperStuds?.length) return pack;
+  const { upperStuds, lowerStuds } = pack;
+
+  let upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
+  upperAnchors = applyPerspectiveScaleToAnchors(upperAnchors, upperStuds);
+
+  let lowerAnchors = [];
+  if (lowerStuds?.length >= 2) {
+    lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval);
+    lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
+  }
+
+  const wireSamplesUpper = sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP);
+  const wireSamplesLower =
+    lowerStuds?.length >= 2 ? sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP) : [];
+
+  return {
+    ...pack,
+    upperAnchors,
+    lowerAnchors,
+    wireSamplesUpper,
+    wireSamplesLower,
+  };
+}
+
+/** @deprecated Use buildCentroidBracesPack; kept for imports. */
+export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
+  return buildCentroidBracesPack(landmarks, iw, ih, oval, opts);
 }
 
 export { smoothOpenCatmull as smoothCurve, resampleCurveEqualArcLength as resampleCurve };

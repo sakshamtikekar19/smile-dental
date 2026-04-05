@@ -6,7 +6,8 @@ import ReactCompareImage from "react-compare-image";
 import PremiumButton from "../components/PremiumButton";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
-import { buildGeometricBracesPack } from "../utils/bracesGeometry";
+import { buildGeometricBracesPack, reprojectBracesPackAfterStudMove } from "../utils/bracesGeometry";
+import { snapBracesStudsToEnamel } from "../utils/bracesEnamelSnap";
 import {
   prepareBracesAtlasCanvas,
   drawWarpedBracesSegments,
@@ -1063,7 +1064,7 @@ const SmileSimulatorAI = () => {
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
-    const nBr = Math.min(12, Math.max(8, MORPH_MAX_UPPER_BRACKETS));
+    const nBr = Math.min(14, Math.max(12, Math.min(MORPH_MAX_UPPER_BRACKETS, MORPH_MAX_LOWER_BRACKETS)));
     const pack = buildGeometricBracesPack(landmarks, iw, ih, oval, {
       bracketCountUpper: nBr,
       bracketCountLower: nBr,
@@ -1128,6 +1129,9 @@ const SmileSimulatorAI = () => {
     if (layers === "wire" || layers === "both") {
       renderWire(ctx, wireSamplesUpper, wireSamplesLower ?? [], {
         lineWidth: wireDarkW,
+        clinical: true,
+        shadowOffsetY: ARCHWIRE_SHADOW_OFFSET_Y_PX,
+        shadowBlur: ARCHWIRE_SHADOW_BLUR_PX,
         clipMouth: oval?.rx > 0 && oval?.ry > 0 ? oval : undefined,
         mouthOpen,
       });
@@ -1203,10 +1207,7 @@ const SmileSimulatorAI = () => {
   const delayMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   /**
-   * Redetect landmarks on merged full-frame image only; geometry-based braces (no pre-AI landmark drift).
-   */
-  /**
-   * AI texture on dental arc (geometry) + vector archwire; lip occlusion; no vector studs (avoids double brackets).
+   * Post-merge source of truth: detectMouth(merged) then centroid parabolic pack + enamel snap on this same bitmap.
    * @param {{ bracesTextureDataUrl?: string | null }} [opts]
    */
   const applyBracesOverlay = async (imageSrc, iw, ih, opts = {}) => {
@@ -1239,9 +1240,20 @@ const SmileSimulatorAI = () => {
     applyMouthPopFilter(bctx, mb);
     await flushPaintBeforeVectorHardware();
 
-    const pack = computeBracesAnchors(lm, iw, ih, ov);
+    let pack = computeBracesAnchors(lm, iw, ih, ov);
     if (!pack?.upperAnchors?.length) {
       throw new Error("Could not compute dental arc for braces placement.");
+    }
+
+    const snapped = await snapBracesStudsToEnamel(imageSrc, pack.upperStuds, pack.lowerStuds, iw, ih);
+    pack = reprojectBracesPackAfterStudMove(
+      { ...pack, upperStuds: snapped.upperStuds, lowerStuds: snapped.lowerStuds },
+      iw,
+      ih,
+      ov,
+    );
+    if (!pack?.upperAnchors?.length) {
+      throw new Error("Could not reproject braces after enamel snap.");
     }
 
     const nUpper = pack.upperAnchors.length;
