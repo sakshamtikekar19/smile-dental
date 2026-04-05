@@ -59,8 +59,7 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Per-tooth: arch span = union(enamel bbox, commissure); partition into ~12–16 segments, luminance peak each (relaxed enamel);
- * column merge + density fallback; <=16 studs/arch; 20% face; 5-pt smooth; 1.2px wire + 3px shadow.
+ * Exactly 10 upper + 10 lower studs: symmetric arch about nose midline; 10 luminance segments; 20% face; 5-pt smooth; 1.2px + 3px shadow.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
@@ -77,14 +76,16 @@ const ENAMEL_DENSITY_BLUR_HALF_WX = 2;
 const ENAMEL_DENSITY_PEAK_MIN_FRAC = 0.14;
 /** Lower-arch studs must sit at least this far below arch midline Y (image px). */
 const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
-/** Max upper-arch studs (~one per visible tooth in a wide smile). */
-const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 16;
-/** Lower arch: cap after mirroring upper. */
-const LOWER_ARCH_SUBSAMPLE_MAX = 16;
+/** Target brackets per arch (10 individual teeth upper + 10 lower). */
+const BRACKETS_STUDS_PER_ARCH = 10;
+/** Max upper-arch studs (same as per-arch target). */
+const UPPER_ARCH_MAX_LUMINANCE_PEAKS = BRACKETS_STUDS_PER_ARCH;
+/** Lower arch: match upper count. */
+const LOWER_ARCH_SUBSAMPLE_MAX = BRACKETS_STUDS_PER_ARCH;
 /** Surgical silver spline (mandate). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
-/** Cap studs per arch (wide smiles). */
-const MAX_CENTROID_STUDS_PER_ARCH = 24;
+/** Cap studs per arch. */
+const MAX_CENTROID_STUDS_PER_ARCH = 12;
 /** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
 const BRACES_HARDWARE_SETTLE_MS = 50;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
@@ -1411,8 +1412,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * One bracket per estimated tooth: partition full arch X-span into N segments (from commissure width),
-   * luminance-peak center inside each segment (relaxed enamel for mask gaps).
+   * Exactly `maxStuds` segments (10): equal partitions across arch; luminance peak per segment; retry widened strip if null.
    */
   const buildUpperArchFromToothSegments = (
     data,
@@ -1431,15 +1431,14 @@ const SmileSimulatorAI = () => {
     if (y0 > y1 || archLx1 < archLx0) return [];
     const archEw = archLx1 - archLx0 + 1;
     if (archEw < 6) return [];
-    const nominalToothPx = clamp(archEw / 12.5, 6, 24);
-    const nSeg = clamp(Math.round(archEw / nominalToothPx), 10, maxStuds);
+    const nSeg = Math.max(1, Math.min(maxStuds | 0, BRACKETS_STUDS_PER_ARCH));
     const strip = LUMINANCE_PEAK_STRIP_WIDTH_PX;
     const out = [];
     for (let i = 0; i < nSeg; i++) {
       const x0 = archLx0 + Math.floor((i * archEw) / nSeg);
       const x1 = Math.min(archLx1, archLx0 + Math.ceil(((i + 1) * archEw) / nSeg) - 1);
       if (x1 < x0) continue;
-      const u = pickColumnStudLuminancePeak(
+      let u = pickColumnStudLuminancePeak(
         data,
         w,
         imgH,
@@ -1454,9 +1453,97 @@ const SmileSimulatorAI = () => {
         strip,
         true,
       );
+      if (!u) {
+        const x0b = clamp(x0 - 3, archLx0, archLx1);
+        const x1b = clamp(x1 + 3, archLx0, archLx1);
+        if (x1b >= x0b && (x0b !== x0 || x1b !== x1)) {
+          u = pickColumnStudLuminancePeak(
+            data,
+            w,
+            imgH,
+            mask,
+            bw,
+            minX,
+            minY,
+            x0b,
+            x1b,
+            y0,
+            y1,
+            strip,
+            true,
+          );
+        }
+      }
       if (u) out.push({ ...u, area: 1 });
     }
-    return dedupeCloseUpperStuds(out, 5);
+    return dedupeCloseUpperStuds(out, 4);
+  };
+
+  /** N equally spaced X targets along arch → luminance peak in each window (always N attempts, for exactly-10 guarantee). */
+  const buildUpperEvenlySpacedSlots = (
+    nSlots,
+    data,
+    w,
+    imgH,
+    mask,
+    bw,
+    minX,
+    minY,
+    archLx0,
+    archLx1,
+    y0,
+    y1,
+  ) => {
+    if (nSlots < 1 || archLx1 < archLx0) return [];
+    const strip = LUMINANCE_PEAK_STRIP_WIDTH_PX;
+    const archEw = archLx1 - archLx0 + 1;
+    const halfWin = Math.max(strip + 1, Math.min(12, Math.floor(archEw / (2 * nSlots + 1))));
+    const out = [];
+    for (let k = 0; k < nSlots; k++) {
+      const t = nSlots <= 1 ? 0.5 : k / (nSlots - 1);
+      const center = archLx0 + t * (archLx1 - archLx0);
+      let x0 = clamp(Math.round(center - halfWin), archLx0, archLx1);
+      let x1 = clamp(Math.round(center + halfWin), archLx0, archLx1);
+      if (x1 < x0) [x0, x1] = [x1, x0];
+      let u = pickColumnStudLuminancePeak(
+        data,
+        w,
+        imgH,
+        mask,
+        bw,
+        minX,
+        minY,
+        x0,
+        x1,
+        y0,
+        y1,
+        strip,
+        true,
+      );
+      if (!u) {
+        x0 = clamp(Math.round(center - halfWin - 3), archLx0, archLx1);
+        x1 = clamp(Math.round(center + halfWin + 3), archLx0, archLx1);
+        if (x1 >= x0) {
+          u = pickColumnStudLuminancePeak(
+            data,
+            w,
+            imgH,
+            mask,
+            bw,
+            minX,
+            minY,
+            x0,
+            x1,
+            y0,
+            y1,
+            strip,
+            true,
+          );
+        }
+      }
+      if (u) out.push({ ...u, area: 1 });
+    }
+    return dedupeCloseUpperStuds(out, 3);
   };
 
   /**
@@ -1632,7 +1719,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Tooth-segment upper arch (one stud per segment left→right) + column merge on full commissure span; density if sparse.
+   * Exactly 10 upper / 10 lower: symmetric arch, 10 segments, column merge, even slot fill; density fallback if sparse.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -1709,12 +1796,27 @@ const SmileSimulatorAI = () => {
 
     const locComMin = clamp(Math.floor(comMin - minX), 0, bw - 1);
     const locComMax = clamp(Math.ceil(comMax - minX), 0, bw - 1);
-    const archLx0 = Math.min(enamelMinLx, locComMin);
-    const archLx1 = Math.max(enamelMaxLx, locComMax);
+    let archLx0 = Math.min(enamelMinLx, locComMin);
+    let archLx1 = Math.max(enamelMaxLx, locComMax);
+
+    /** Symmetric span about nose midline so mirrored / uneven commissures still reach both corners. */
+    const midNormX =
+      landmarks[NOSE_MIDLINE_IDX]?.x != null
+        ? landmarks[NOSE_MIDLINE_IDX].x * iw
+        : (polyMinX + polyMaxX) * 0.5;
+    const midLx = clamp(Math.round(midNormX - minX), 0, bw - 1);
+    const halfL = midLx - archLx0;
+    const halfR = archLx1 - midLx;
+    let halfSpan = Math.max(halfL, halfR, Math.ceil((archLx1 - archLx0) * 0.5), 4);
+    const comHalfL = midLx - locComMin;
+    const comHalfR = locComMax - midLx;
+    halfSpan = Math.max(halfSpan, comHalfL, comHalfR);
+    archLx0 = clamp(midLx - halfSpan, 0, bw - 1);
+    archLx1 = clamp(midLx + halfSpan, 0, bw - 1);
     const archEw = archLx1 - archLx0 + 1;
 
     const cols = GRID_ENAMEL_COLUMNS;
-    const maxUpper = Math.min(UPPER_ARCH_MAX_LUMINANCE_PEAKS, MAX_CENTROID_STUDS_PER_ARCH);
+    const maxUpper = Math.min(UPPER_ARCH_MAX_LUMINANCE_PEAKS, MAX_CENTROID_STUDS_PER_ARCH, BRACKETS_STUDS_PER_ARCH);
 
     /** Arch split from vertical center of enamel mask only (not lip polygon bbox). */
     const ySplitLocal = clamp(Math.round((enamelMinLy + enamelMaxLy) * 0.5), 1, Math.max(1, bh - 2));
@@ -1763,7 +1865,7 @@ const SmileSimulatorAI = () => {
     }
     upperCands.sort((a, b) => a.cx - b.cx);
 
-    const minDx = clamp(Math.floor(archEw / 28), 5, 12);
+    const minDx = clamp(Math.floor(archEw / 12), 4, 9);
     upper = mergeUpperStudRowsByMinSep(upper, upperCands, maxUpper, minDx);
 
     if (upper.length < 6) {
@@ -1783,13 +1885,54 @@ const SmileSimulatorAI = () => {
       );
       upper = mergeUpperStudRowsByMinSep(fromDensity, upperCands, maxUpper, minDx);
     }
-    if (upper.length < 4) {
-      upper = pickUpperArchColumnPeaks(upperCands, maxUpper);
+
+    const targetN = BRACKETS_STUDS_PER_ARCH;
+    if (upper.length > targetN) {
+      upper = subsampleArchRowToCount(upper, targetN);
+    }
+    if (upper.length < targetN) {
+      const spaced =
+        upperCands.length > 0 ? pickUpperArchColumnPeaks(upperCands, Math.min(targetN, upperCands.length)) : [];
+      upper = mergeUpperStudRowsByMinSep(upper, spaced, targetN, 3);
+    }
+    if (upper.length < targetN) {
+      upper = buildUpperEvenlySpacedSlots(
+        targetN,
+        data,
+        w,
+        h,
+        mask,
+        bw,
+        minX,
+        minY,
+        archLx0,
+        archLx1,
+        yU0,
+        yU1,
+      );
     }
 
     if (upper.length === 0) return null;
 
     upper = smoothArchCentroidsMovingAvg5(upper);
+    if (upper.length > targetN) upper = subsampleArchRowToCount(upper, targetN);
+    if (upper.length < targetN) {
+      const fillSlots = buildUpperEvenlySpacedSlots(
+        targetN,
+        data,
+        w,
+        h,
+        mask,
+        bw,
+        minX,
+        minY,
+        archLx0,
+        archLx1,
+        yU0,
+        yU1,
+      );
+      upper = mergeUpperStudRowsByMinSep(upper, fillSlots, targetN, 2);
+    }
 
     let lower = mirrorLowerStudsExactUpperX(
       data,
@@ -1804,7 +1947,7 @@ const SmileSimulatorAI = () => {
       ySplitImg,
       upper,
     );
-    const lowerN = Math.min(upper.length, LOWER_ARCH_SUBSAMPLE_MAX);
+    const lowerN = Math.min(targetN, upper.length, LOWER_ARCH_SUBSAMPLE_MAX);
     if (lower.length > lowerN) {
       lower = subsampleArchRowToCount(lower, lowerN);
     }
