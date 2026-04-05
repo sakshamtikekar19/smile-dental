@@ -59,9 +59,9 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Anatomical arch-lock: strict TEETH_WHITEN (enamel) horizontal extent for wire endpoints — zero run-out past
- * last visible pixel; high-density 24-bin local luminance peaks for studs (16 / 14); 3-pt weighted cy smooth;
- * 20% vertical face clamp on peaks; 1.2px wire + 3px rgba(0,0,0,0.8). ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0.
+ * Geometric segmentation lock: full TEETH_WHITEN mask horizontal ROI (lip corners ignored); valley (>40%) morph
+ * per arch; one bracket per segment 2D face centroid; 25% vertical safe zone; 1–4–6–4–1 cy smooth (terminals raw);
+ * wire Catmull on studs only + terminal X clamp; ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0; ≤16 / ≤14; 1.2px wire, 3px shadow, 1.35 Y offset.
  */
 /** Base clear-bracket size (reference: ~10–11px ceramic squares on tooth center). */
 const BRACKET_DRAW_SIDE_PX = 11;
@@ -72,7 +72,7 @@ const GRID_ENAMEL_COLUMNS = 24;
 /** 3px-wide horizontal window: luminance refinement at each density peak (gap avoidance). */
 const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
 /** Vertical safe zone on tooth face (gum / occlusal) after (top+bottom)/2 midpoint in peak strip. */
-const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.2;
+const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.25;
 /** 1D box half-width (px) on summed luminance density before local-max scan. */
 const ENAMEL_DENSITY_BLUR_HALF_WX = 2;
 /** Local peak vs arch max; lower = keep dimmer molars at left/right. */
@@ -111,8 +111,7 @@ const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
 /** Solid silver archwire (px). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 /**
- * >0 mirrors Catmull endpoints (wire extends past last stud). 0 = anatomical lock: spline control points sit on
- * strict enamel L/R column centers — no extension past visible teeth (prevents floating wire in void).
+ * >0 mirrors Catmull past terminal studs. 0 = geometric lock: spline runs bracket-to-bracket only (no void run-out).
  */
 const ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0;
 /** Match stud drop shadow so wire reads threaded through brackets, not floating in front. */
@@ -1743,8 +1742,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * 5-point weighted cy smooth (1–4–6–4–1) with molar clamp: terminal indices keep raw cy;
-   * penultimate use 50% blend so distal tilt isn’t flattened toward the arch mean.
+   * 5-point weighted cy smooth (1–4–6–4–1): first and last studs stay 0% smoothed (raw cy); interior uses full kernel.
    */
   const smoothArchCyOnlyWeightedMovingAvg5 = (row) => {
     if (row.length === 0) return [];
@@ -1765,10 +1763,7 @@ const SmileSimulatorAI = () => {
     return row.map((orig, i) => {
       const s = blended[i];
       const o = orig.cy;
-      let cy;
-      if (i === 0 || i === n - 1) cy = o;
-      else if (i === 1 || i === n - 2) cy = 0.5 * s + 0.5 * o;
-      else cy = s;
+      const cy = i === 0 || i === n - 1 ? o : s;
       return { cx: orig.cx, cy, area: orig.area ?? 1 };
     });
   };
@@ -2081,6 +2076,15 @@ const SmileSimulatorAI = () => {
     if (!samples?.length) return samples;
     const lo = Math.min(gxMin, gxMax);
     const hi = Math.max(gxMin, gxMax);
+    return samples.map((p) => ({ x: clamp(p.x, lo, hi), y: p.y }));
+  };
+
+  /** Keep sampled wire between first and last bracket X (terminal anchor — no spline drift into void). */
+  const clampWireSamplesToStudSpan = (samples, studRow) => {
+    if (!samples?.length || !studRow?.length) return samples;
+    const xs = studRow.map((s) => s.cx);
+    const lo = Math.min(...xs);
+    const hi = Math.max(...xs);
     return samples.map((p) => ({ x: clamp(p.x, lo, hi), y: p.y }));
   };
 
@@ -2498,8 +2502,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Forced full-arch slots: landmark occlusal split, union X from mask+enamel bbox+per-band full-image scan,
-   * equal-width windows with 2D mask centroid per tooth, COM refine, occlusal Y clamp, softer smile curve.
+   * Geometric segmentation lock: full-mask horizontal union for morph columns; independent valley morph + grid
+   * merge per arch; landmark occlusal split; COM refine; 1–4–6–4–1 cy smooth (end studs raw); stud-only wire + span clamp.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -2730,9 +2734,10 @@ const SmileSimulatorAI = () => {
       MORPH_MAX_LOWER_BRACKETS,
     );
 
-    /** Forced equal X windows → one bracket per tooth from distal to distal (centroid in each window). */
-    let upper = buildForcedEvenArchStuds(
-      nUpperTarget,
+    const gridU = buildArchRowFromHighDensityGrid(
+      data,
+      w,
+      h,
       mask,
       bw,
       minX,
@@ -2741,15 +2746,37 @@ const SmileSimulatorAI = () => {
       morphArch1_u,
       yU0,
       yU1,
-      data,
-      w,
-      h,
+      GRID_ENAMEL_COLUMNS,
+      MORPH_MAX_UPPER_BRACKETS,
       ySplitImg,
       false,
     );
 
-    let lower = buildForcedEvenArchStuds(
-      nLowerTarget,
+    const morphUpper = buildMorphologicalArchRow(
+      mask,
+      bw,
+      bh,
+      data,
+      w,
+      h,
+      minX,
+      minY,
+      morphArch0_u,
+      morphArch1_u,
+      yU0,
+      yU1,
+      ySplitImg,
+      false,
+      MORPH_MAX_UPPER_BRACKETS,
+    );
+
+    /** Valley segments first (one anchor per tooth); grid local maxima fill gaps — no smile-wide averaging. */
+    let upper = mergeArchStudsPreferMorph(morphUpper, gridU, MORPH_MAX_UPPER_BRACKETS, 3);
+
+    const gridL = buildArchRowFromHighDensityGrid(
+      data,
+      w,
+      h,
       mask,
       bw,
       minX,
@@ -2758,13 +2785,50 @@ const SmileSimulatorAI = () => {
       morphArch1_l,
       yLowerStart,
       bh - 1,
-      data,
-      w,
-      h,
+      GRID_ENAMEL_COLUMNS,
+      MORPH_MAX_LOWER_BRACKETS,
       ySplitImg,
       true,
     );
 
+    const morphLower = buildMorphologicalArchRow(
+      mask,
+      bw,
+      bh,
+      data,
+      w,
+      h,
+      minX,
+      minY,
+      morphArch0_l,
+      morphArch1_l,
+      yLowerStart,
+      bh - 1,
+      ySplitImg,
+      true,
+      MORPH_MAX_LOWER_BRACKETS,
+    );
+
+    let lower = mergeArchStudsPreferMorph(morphLower, gridL, MORPH_MAX_LOWER_BRACKETS, 3);
+
+    if (upper.length < 2) {
+      upper = buildForcedEvenArchStuds(
+        nUpperTarget,
+        mask,
+        bw,
+        minX,
+        minY,
+        morphArch0_u,
+        morphArch1_u,
+        yU0,
+        yU1,
+        data,
+        w,
+        h,
+        ySplitImg,
+        false,
+      );
+    }
     if (upper.length < 2) {
       upper = buildUpperEvenlySpacedSlots(
         nUpperTarget,
@@ -2779,6 +2843,24 @@ const SmileSimulatorAI = () => {
         morphArch1_u,
         yU0,
         yU1,
+      );
+    }
+    if (lower.length < 2) {
+      lower = buildForcedEvenArchStuds(
+        nLowerTarget,
+        mask,
+        bw,
+        minX,
+        minY,
+        morphArch0_l,
+        morphArch1_l,
+        yLowerStart,
+        bh - 1,
+        data,
+        w,
+        h,
+        ySplitImg,
+        true,
       );
     }
     if (lower.length < 2) {
@@ -2804,16 +2886,15 @@ const SmileSimulatorAI = () => {
     upper = refineArchRowHorizontalEnamelCOM(upper, mask, bw, bh, minX, minY, 9, 6, 6);
     lower = refineArchRowHorizontalEnamelCOM(lower, mask, bw, bh, minX, minY, 9, 6, 6);
 
-    upper = orderAndDedupeArchStuds(upper, morphArch0_u, morphArch1_u, MORPH_MAX_UPPER_BRACKETS, nUpperTarget);
-    lower = orderAndDedupeArchStuds(lower, morphArch0_l, morphArch1_l, MORPH_MAX_LOWER_BRACKETS, nLowerTarget);
+    upper = orderAndDedupeArchStuds(upper, morphArch0_u, morphArch1_u, MORPH_MAX_UPPER_BRACKETS, null);
+    lower = orderAndDedupeArchStuds(lower, morphArch0_l, morphArch1_l, MORPH_MAX_LOWER_BRACKETS, null);
 
-    /** Softer smile bend so upper/lower wires do not cross after split. */
     upper = applySmileCurveVerticalToArchRow(upper, true, oval, 0.52);
     lower = applySmileCurveVerticalToArchRow(lower, false, oval, 0.52);
 
-    /** 3-point weighted (1–2–1) cy smooth before Catmull — professional arc, no zig-zag. */
-    upper = smoothArchCyOnlyWeightedMovingAvg3(upper);
-    lower = smoothArchCyOnlyWeightedMovingAvg3(lower);
+    /** 1–4–6–4–1 on cy; index 0 and n−1 unchanged (wire stays locked to terminal molars). */
+    upper = smoothArchCyOnlyWeightedMovingAvg5(upper);
+    lower = smoothArchCyOnlyWeightedMovingAvg5(lower);
 
     upper = clampArchRowToOcclusalSplit(upper, ySplitImg, false);
     lower = clampArchRowToOcclusalSplit(lower, ySplitImg, true);
@@ -2842,46 +2923,17 @@ const SmileSimulatorAI = () => {
         };
       });
 
-    const upperWireCtrl = mergeWirePointsWithMaskBandEnds(
-      upper.map((c) => ({ x: c.cx, y: c.cy })),
-      mask,
-      bw,
-      bh,
-      minX,
-      minY,
-      yU0,
-      yU1,
-      data,
-      w,
-      h,
-    );
-    const lowerWireCtrl = mergeWirePointsWithMaskBandEnds(
-      lower.map((c) => ({ x: c.cx, y: c.cy })),
-      mask,
-      bw,
-      bh,
-      minX,
-      minY,
-      yLowerStart,
-      bh - 1,
-      data,
-      w,
-      h,
-    );
+    /** Terminal anchor: Catmull control = bracket centers only (ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0). */
+    const upperWireCtrl = upper.map((c) => ({ x: c.cx, y: c.cy }));
+    const lowerWireCtrl = lower.map((c) => ({ x: c.cx, y: c.cy }));
     const upperPts = ensureSplineControlPoints(upperWireCtrl);
     const lowerPts = ensureSplineControlPoints(lowerWireCtrl);
-    const bandU = enamelLxExtentInBand(mask, bw, bh, yU0, yU1);
-    const bandL = enamelLxExtentInBand(mask, bw, bh, yLowerStart, bh - 1);
     let wireSamplesUpper =
       upperWireCtrl.length > 0 ? sampleOpenCatmullRomChain(upperPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
     let wireSamplesLower =
       lowerWireCtrl.length > 0 ? sampleOpenCatmullRomChain(lowerPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
-    if (bandU && wireSamplesUpper.length > 1) {
-      wireSamplesUpper = clampWireSamplesX(wireSamplesUpper, minX + bandU.L, minX + bandU.R);
-    }
-    if (bandL && wireSamplesLower.length > 1) {
-      wireSamplesLower = clampWireSamplesX(wireSamplesLower, minX + bandL.L, minX + bandL.R);
-    }
+    if (wireSamplesUpper.length > 1) wireSamplesUpper = clampWireSamplesToStudSpan(wireSamplesUpper, upper);
+    if (wireSamplesLower.length > 1) wireSamplesLower = clampWireSamplesToStudSpan(wireSamplesLower, lower);
 
     return {
       wireMode: "catmull",
