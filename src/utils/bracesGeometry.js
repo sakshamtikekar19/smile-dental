@@ -1,7 +1,9 @@
 /**
- * Upper-arch-only braces: horizontal dental parabola in pixel space.
- * No upper+lower midpoints (fixes V-collapse). Mouth width from commissures; y band locked to upper teeth.
+ * Upper-arch-only braces: parametric dental arc from commissures + inner lips (math-based, not raw tooth curves).
+ * Legacy curve utilities kept for Catmull resampling / exports.
  */
+
+import { getBracketPoints, sampleParametricArc } from "./bracesDentalArc";
 
 const UPPER_TEETH_ARCH_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
 const INNER_LIP_UPPER_IDX = 13;
@@ -270,10 +272,17 @@ function buildWirePolyline(x0, x1, q, yMedian, yHalfBand) {
   return out;
 }
 
-/** Legacy: upper-only controls for exports. */
+/** Upper arch polyline for legacy callers (same parametric arc as braces pack). */
 export function buildTeethMidlineControlPoints(landmarks, iw, ih) {
-  const r = extractUpperTeethControls(landmarks, iw, ih);
-  return r.pts ? medianSmoothY(removeYSpikes(r.pts)) : [];
+  const left = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
+  const right = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
+  const upperLip = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  const lowerLip = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  if (!left || !right || !upperLip || !lowerLip) {
+    const r = extractUpperTeethControls(landmarks, iw, ih);
+    return r.pts ? medianSmoothY(removeYSpikes(r.pts)) : [];
+  }
+  return sampleParametricArc(left, right, upperLip, lowerLip, 24).map((p) => ({ ...p, z: 0 }));
 }
 
 export function getTeethArchControlPoints(landmarks, iw, ih, _isUpper) {
@@ -369,7 +378,7 @@ export function sampleWireFromStuds(studs, stepsPerSeg) {
 }
 
 /**
- * Upper arch only. Parabola y(x) on mouth width; y clamped to narrow band around median (anti V-collapse).
+ * Upper arch only: bracket row + wire from parametric smile arc (landmarks → corners + lips only).
  */
 export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
   if (!landmarks?.length) return null;
@@ -380,25 +389,29 @@ export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
     12,
   );
 
-  const extracted = extractUpperTeethControls(landmarks, iw, ih);
-  if (!extracted.pts?.length || extracted.pts.length < 2) return null;
+  const left = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
+  const right = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
+  const upperLip = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  const lowerLip = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  if (!left || !right || !upperLip || !lowerLip) return null;
 
-  let ctrl = medianSmoothY(removeYSpikes(extracted.pts));
-  if (ctrl.length < 2) return null;
+  const bp = getBracketPoints(left, right, upperLip, lowerLip, nBrackets);
+  if (!bp?.length) return null;
 
-  const quad = fitQuadraticYofX(ctrl);
+  const mouthOpen = Math.abs(lowerLip.y - upperLip.y);
 
-  const ys = ctrl.map((p) => p.y).sort((a, b) => a - b);
-  const yMedian = ys[Math.floor(ys.length / 2)];
-  const mouthOpen = extracted.mouthOpen;
-  const yHalfBand = clamp(mouthOpen * 0.11, 3.5, 14);
+  const upperStuds = bp.map((p) => ({ x: p.x, y: p.y, z: 0 }));
+  let upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
+  const mid = Math.floor(nBrackets / 2);
+  const centerScale = Math.max(bp[mid]?.scale ?? 1, 0.01);
+  upperAnchors = upperAnchors.map((a, i) => ({
+    ...a,
+    ang: bp[i]?.ang ?? a.ang,
+    wMult: (a.wMult ?? 1) * ((bp[i]?.scale ?? 1) / centerScale),
+    hMult: (a.hMult ?? 1) * ((bp[i]?.scale ?? 1) / centerScale),
+  }));
 
-  const { x0, x1 } = mouthWidthX(landmarks, iw, ih, ctrl);
-
-  const upperStuds = buildStudRow(x0, x1, nBrackets, quad, yMedian, yHalfBand, ctrl);
-  const upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
-
-  const wireSamplesUpper = buildWirePolyline(x0, x1, quad, yMedian, yHalfBand);
+  const wireSamplesUpper = sampleParametricArc(left, right, upperLip, lowerLip, WIRE_SAMPLES);
 
   return {
     wireMode: "polyline",
@@ -407,7 +420,7 @@ export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
     lowerAnchors: [],
     wireSamplesUpper,
     wireSamplesLower: [],
-    mouthOpen: extracted.mouthOpen,
+    mouthOpen,
   };
 }
 
