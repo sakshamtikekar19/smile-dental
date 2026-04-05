@@ -59,14 +59,14 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Anatomical center-lock: enamel-mask bbox; upper = blurred white-density local maxima + 3px lum snap (<=12);
- * 20% vertical face clamp; 24-col fallback; lower mirrors upper X, lum Y, cap 8; 3-pt smooth; 1.2px wire + 3px shadow.
+ * Total arch edge-to-edge: expanded brace hull + lateral enamel outside tight poly; density peaks <=14 upper, <=12 lower;
+ * 28-col fallback; 20% face clamp; 5-pt wire smooth; 1.2px solid + 3px shadow.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
-/** Fallback column count if density peak detection finds too few teeth. */
-const GRID_ENAMEL_COLUMNS = 24;
+/** Fallback column count across enamel span if density peak detection finds too few teeth. */
+const GRID_ENAMEL_COLUMNS = 28;
 /** 3px-wide horizontal window: luminance refinement at each density peak (gap avoidance). */
 const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
 /** Keep bracket mid-Y inside tooth face: 20% inset from gum and from biting edge. */
@@ -77,14 +77,14 @@ const ENAMEL_DENSITY_BLUR_HALF_WX = 2;
 const ENAMEL_DENSITY_PEAK_MIN_FRAC = 0.22;
 /** Lower-arch studs must sit at least this far below arch midline Y (image px). */
 const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
-/** Max upper-arch studs after luminance peak pick (full-width smile). */
-const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 12;
-/** Lower arch: subsample mirrored row to at most this many (narrow lower jaw / overlap guard). */
-const LOWER_ARCH_SUBSAMPLE_MAX = 8;
+/** Max upper-arch studs (wide smile / molars). */
+const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 14;
+/** Lower arch: max studs after mirroring upper (target 10–12 for most smiles). */
+const LOWER_ARCH_SUBSAMPLE_MAX = 12;
 /** Surgical silver spline (mandate). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
-/** Cap studs per arch (wide smiles); raise to keep one stud per visible tooth. */
-const MAX_CENTROID_STUDS_PER_ARCH = 20;
+/** Cap studs per arch (wide smiles). */
+const MAX_CENTROID_STUDS_PER_ARCH = 22;
 /** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
 const BRACES_HARDWARE_SETTLE_MS = 50;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
@@ -736,8 +736,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Polygon for brace enamel raster only: same gum Y-clamps as whitening mask, but no centroid inset or
-   * lip-guard (those shrink X and clip molars). Horizontal span is stretched to at least commissure width.
+   * Brace hull: gum Y-clamps only (no centroid inset / lip-guard). Horizontal span scaled to ~106% commissure
+   * width so the TEETH_WHITEN loop is not lip-clipped for molar coverage; raster may add lateral enamel outside poly.
    */
   const getBraceScanPolygonPoints = (landmarks, iw, ih) => {
     const p13 = landmarks[13];
@@ -783,7 +783,8 @@ const SmileSimulatorAI = () => {
       const maxXp = Math.max(...xs);
       const w0 = Math.max(1e-3, maxXp - minXp);
       const wMouth = Math.abs(comR.x * iw - comL.x * iw);
-      const wTarget = Math.max(w0, wMouth * 0.93);
+      /** Full commissure span + margin so molars sit inside the brace hull (not lip-clipped). */
+      const wTarget = Math.max(w0, wMouth * 1.06);
       const cx = (minXp + maxXp) * 0.5;
       const scale = wTarget / w0;
       for (const p of out) {
@@ -1321,7 +1322,7 @@ const SmileSimulatorAI = () => {
       } else if (sm[j] > pl) peakIdx.push(j);
     }
 
-    const minSep = clamp(Math.floor(span / 14), 7, 20);
+    const minSep = clamp(Math.floor(span / 18), 5, 18);
     peakIdx.sort((a, b) => sm[b] - sm[a]);
     const keptJ = [];
     for (const j of peakIdx) {
@@ -1442,6 +1443,25 @@ const SmileSimulatorAI = () => {
     });
   };
 
+  /** 5-point moving average on cx/cy for surgical wire arc (short rows fall back to 3-pt). */
+  const smoothArchCentroidsMovingAvg5 = (row) => {
+    if (row.length === 0) return [];
+    if (row.length < 5) return smoothArchCentroidsMovingAvg3(row);
+    return row.map((_, i) => {
+      const i0 = Math.max(0, i - 2);
+      const i4 = Math.min(row.length - 1, i + 2);
+      let sx = 0;
+      let sy = 0;
+      let n = 0;
+      for (let k = i0; k <= i4; k++) {
+        sx += row[k].cx;
+        sy += row[k].cy;
+        n++;
+      }
+      return { cx: sx / n, cy: sy / n, area: row[i].area ?? 1 };
+    });
+  };
+
   /** 3-point Y smooth only — keeps cx identical to mirrored upper after upper arch smoothing. */
   const smoothArchCyOnlyMovingAvg3 = (row) => {
     if (row.length === 0) return [];
@@ -1454,6 +1474,23 @@ const SmileSimulatorAI = () => {
         cy: (row[i0].cy + row[i].cy + row[i2].cy) / 3,
         area: row[i].area ?? 1,
       };
+    });
+  };
+
+  /** 5-point Y-only smooth; preserves mirrored upper cx (short rows use 3-pt cy). */
+  const smoothArchCyOnlyMovingAvg5 = (row) => {
+    if (row.length === 0) return [];
+    if (row.length < 5) return smoothArchCyOnlyMovingAvg3(row);
+    return row.map((_, i) => {
+      const i0 = Math.max(0, i - 2);
+      const i4 = Math.min(row.length - 1, i + 2);
+      let sy = 0;
+      let n = 0;
+      for (let k = i0; k <= i4; k++) {
+        sy += row[k].cy;
+        n++;
+      }
+      return { cx: row[i].cx, cy: sy / n, area: row[i].area ?? 1 };
     });
   };
 
@@ -1488,8 +1525,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Anatomical boundary-lock + center-lock: enamel-mask bbox; upper studs from blurred luminance×thickness local maxima
-   * (gap avoidance), refined with 3px luminance strip; 20% vertical face clamp; column grid fallback if <2 peaks.
+   * Total arch expansion: padded hull captures lateral enamel outside the inner TEETH_WHITEN loop; mask bbox = full enamel;
+   * density local maxima + 28-col fallback; 5-pt smooth; 20% face clamp.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -1497,14 +1534,21 @@ const SmileSimulatorAI = () => {
     const poly = getBraceScanPolygonPoints(landmarks, iw, ih);
     if (!poly || poly.length < 3) return null;
 
-    let minX = Math.floor(Math.min(...poly.map((p) => p.x)));
-    let minY = Math.floor(Math.min(...poly.map((p) => p.y)));
-    let maxX = Math.ceil(Math.max(...poly.map((p) => p.x)));
-    let maxY = Math.ceil(Math.max(...poly.map((p) => p.y)));
-    minX = clamp(minX - 2, 0, w - 2);
-    minY = clamp(minY - 2, 0, h - 2);
-    maxX = clamp(maxX + 2, minX + 2, w - 1);
-    maxY = clamp(maxY + 2, minY + 2, h - 1);
+    const polyMinX = Math.min(...poly.map((p) => p.x));
+    const polyMaxX = Math.max(...poly.map((p) => p.x));
+    const polyMinY = Math.min(...poly.map((p) => p.y));
+    const polyMaxY = Math.max(...poly.map((p) => p.y));
+    const archPadX = Math.max(10, (polyMaxX - polyMinX) * 0.12);
+    const archPadY = Math.max(4, (polyMaxY - polyMinY) * 0.06);
+
+    let minX = Math.floor(polyMinX - archPadX);
+    let minY = Math.floor(polyMinY - 2);
+    let maxX = Math.ceil(polyMaxX + archPadX);
+    let maxY = Math.ceil(polyMaxY + 2);
+    minX = clamp(minX, 0, w - 2);
+    minY = clamp(minY, 0, h - 2);
+    maxX = clamp(maxX, minX + 2, w - 1);
+    maxY = clamp(maxY, minY + 2, h - 1);
     const bw = maxX - minX + 1;
     const bh = maxY - minY + 1;
     if (bw < 10 || bh < 10) return null;
@@ -1514,9 +1558,14 @@ const SmileSimulatorAI = () => {
       for (let lx = 0; lx < bw; lx++) {
         const gx = minX + lx;
         const gy = minY + ly;
-        if (!pointInPolygonPx(gx + 0.5, gy + 0.5, poly)) continue;
         if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) continue;
-        mask[ly * bw + lx] = 1;
+        const inPoly = pointInPolygonPx(gx + 0.5, gy + 0.5, poly);
+        const inExpandedArch =
+          gx >= polyMinX - archPadX &&
+          gx <= polyMaxX + archPadX &&
+          gy >= polyMinY - archPadY &&
+          gy <= polyMaxY + archPadY;
+        if (inPoly || inExpandedArch) mask[ly * bw + lx] = 1;
       }
     }
 
@@ -1592,7 +1641,7 @@ const SmileSimulatorAI = () => {
 
     if (upper.length === 0) return null;
 
-    upper = smoothArchCentroidsMovingAvg3(upper);
+    upper = smoothArchCentroidsMovingAvg5(upper);
 
     let lower = mirrorLowerStudsExactUpperX(
       data,
@@ -1611,7 +1660,7 @@ const SmileSimulatorAI = () => {
     if (lower.length > lowerN) {
       lower = subsampleArchRowToCount(lower, lowerN);
     }
-    lower = smoothArchCyOnlyMovingAvg3(lower);
+    lower = smoothArchCyOnlyMovingAvg5(lower);
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
