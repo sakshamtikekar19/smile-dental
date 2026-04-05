@@ -86,22 +86,39 @@ export function loadImageFromSrc(src) {
   });
 }
 
-/** Rasterize remote / data URL texture to canvas (equal column slicing at draw time). */
+const ATLAS_TARGET_W = 720;
+const ATLAS_TARGET_H = 96;
+/** Wide horizontal strip; square/tall Replicate outputs break column slicing → giant quads / X artifacts. */
+const MIN_ATLAS_ASPECT = 2.0;
+
+/** Rasterize AI (or synthetic) into a fixed wide strip for stable per-bracket slices. */
 export async function prepareBracesAtlasCanvas(sourceDataUrl, segmentCount) {
+  const nSeg = Math.max(8, Math.min(14, Math.round(segmentCount) || 10));
   if (!sourceDataUrl || typeof sourceDataUrl !== "string") {
-    return createSyntheticBracesAtlas(segmentCount);
+    return createSyntheticBracesAtlas(nSeg);
   }
   try {
     const img = await loadImageFromSrc(sourceDataUrl);
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    if (iw < 64 || ih < 20) return createSyntheticBracesAtlas(nSeg);
+
+    const aspect = iw / ih;
+    if (aspect < MIN_ATLAS_ASPECT || ih > iw * 0.52) {
+      return createSyntheticBracesAtlas(nSeg);
+    }
+
     const c = document.createElement("canvas");
-    c.width = Math.max(320, Math.min(1024, img.naturalWidth || img.width));
-    c.height = Math.max(56, Math.min(200, img.naturalHeight || img.height));
+    c.width = ATLAS_TARGET_W;
+    c.height = ATLAS_TARGET_H;
     const x = c.getContext("2d");
-    if (!x) return createSyntheticBracesAtlas(segmentCount);
-    x.drawImage(img, 0, 0, c.width, c.height);
+    if (!x) return createSyntheticBracesAtlas(nSeg);
+    x.fillStyle = "#e0e2ea";
+    x.fillRect(0, 0, ATLAS_TARGET_W, ATLAS_TARGET_H);
+    x.drawImage(img, 0, 0, iw, ih, 0, 0, ATLAS_TARGET_W, ATLAS_TARGET_H);
     return c;
   } catch {
-    return createSyntheticBracesAtlas(segmentCount);
+    return createSyntheticBracesAtlas(nSeg);
   }
 }
 
@@ -119,21 +136,47 @@ function drawWarpedArchSegments(ctx, atlas, studs, anchors, opts = {}) {
   if (!atlas || !anchors?.length || !studs?.length) return;
 
   const n = Math.min(anchors.length, studs.length);
+  if (n < 1) return;
+
   const aw = atlas.width;
   const ah = atlas.height;
   const slotW = aw / n;
   const maxD = Math.max((n - 1) / 2, 0.5);
 
+  const steps = [];
+  for (let j = 1; j < n; j++) {
+    const dx = studs[j].x - studs[j - 1].x;
+    const dy = studs[j].y - studs[j - 1].y;
+    const d = Math.hypot(dx, dy);
+    if (Number.isFinite(d) && d > 1) steps.push(d);
+  }
+  steps.sort((a, b) => a - b);
+  const medStep = steps.length ? steps[Math.floor(steps.length * 0.5)] : 36;
+  const maxW = clamp(medStep * 0.92, 22, 52);
+  const maxH = clamp(medStep * 0.68, 18, 42);
+
   for (let i = 0; i < n; i++) {
     const a = anchors[i];
     const s = studs[i];
+    if (
+      !Number.isFinite(s.x) ||
+      !Number.isFinite(s.y) ||
+      !Number.isFinite(a?.ang ?? 0)
+    ) {
+      continue;
+    }
+
     const sx = i * slotW;
     const dist = Math.abs(i - (n - 1) / 2);
     const persp = Math.max(0.55, 1 - (dist / maxD) * 0.2);
     const sz = clamp(a.scaleZ ?? 1, 0.7, 1.12);
     const sc = persp * sz;
-    const dw = slotW * sc * 0.96;
-    const dh = ah * baseHScale * sc;
+    let dw = slotW * sc * 0.96;
+    let dh = ah * baseHScale * sc;
+    const shrink = Math.min(1, maxW / Math.max(dw, 1e-6), maxH / Math.max(dh, 1e-6));
+    dw *= shrink;
+    dh *= shrink;
+
     const x = s.x;
     const y = s.y + depth;
 

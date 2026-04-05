@@ -1077,33 +1077,36 @@ const SmileSimulatorAI = () => {
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW } = pack;
-    const all = [...upperAnchors, ...lowerAnchors];
+    const paintSet = (anchors, angExtra) => {
+      anchors.forEach(({ x, y, wMult, hMult, ang, scaleZ = 1, depthOpacity = 1 }) => {
+        const wm = wMult ?? 1;
+        const hm = hMult ?? wm;
+        const sz = clamp(scaleZ, 0.7, 1.15);
+        const side = baseW * Math.max(wm, hm) * 1.06 * sz;
+        const rr = clamp(side * 0.12, 1, 5);
+        ctx.save();
+        ctx.globalAlpha *= clamp(depthOpacity, 0.62, 1);
+        ctx.translate(x, y + 0.5);
+        ctx.rotate((ang ?? 0) + angExtra + Math.PI / 2);
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, side * 0.72);
+        g.addColorStop(0, "rgba(0,0,0,0.32)");
+        g.addColorStop(0.65, "rgba(0,0,0,0.08)");
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === "function") {
+          ctx.roundRect(-side * 0.5, -side * 0.5, side, side, rr);
+        } else {
+          ctx.rect(-side * 0.5, -side * 0.5, side, side);
+        }
+        ctx.fill();
+        ctx.restore();
+      });
+    };
     ctx.save();
     ctx.filter = "blur(3.5px)";
-    all.forEach(({ x, y, wMult, hMult, ang, scaleZ = 1, depthOpacity = 1 }) => {
-      const wm = wMult ?? 1;
-      const hm = hMult ?? wm;
-      const sz = clamp(scaleZ, 0.7, 1.15);
-      const side = baseW * Math.max(wm, hm) * 1.06 * sz;
-      const rr = clamp(side * 0.12, 1, 5);
-      ctx.save();
-      ctx.globalAlpha *= clamp(depthOpacity, 0.62, 1);
-      ctx.translate(x, y + 0.5);
-      ctx.rotate((ang ?? 0) + Math.PI / 2);
-      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, side * 0.72);
-      g.addColorStop(0, "rgba(0,0,0,0.32)");
-      g.addColorStop(0.65, "rgba(0,0,0,0.08)");
-      g.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      if (typeof ctx.roundRect === "function") {
-        ctx.roundRect(-side * 0.5, -side * 0.5, side, side, rr);
-      } else {
-        ctx.rect(-side * 0.5, -side * 0.5, side, side);
-      }
-      ctx.fill();
-      ctx.restore();
-    });
+    paintSet(upperAnchors, 0);
+    paintSet(lowerAnchors, Math.PI);
     ctx.filter = "none";
     ctx.restore();
   };
@@ -1133,8 +1136,8 @@ const SmileSimulatorAI = () => {
       drawBracesContactShadows(landmarks, ctx, iw, ih, oval);
     }
     if (layers === "studs" || layers === "both") {
-      renderBrackets(ctx, upperAnchors, baseW, baseH, { omitStudShadow });
-      renderBrackets(ctx, lowerAnchors, baseW, baseH, { omitStudShadow });
+      renderBrackets(ctx, upperAnchors, baseW, baseH, { omitStudShadow, angBias: 0 });
+      renderBrackets(ctx, lowerAnchors, baseW, baseH, { omitStudShadow, angBias: Math.PI });
     }
     ctx.restore();
   };
@@ -1258,10 +1261,10 @@ const SmileSimulatorAI = () => {
     await delayMs(BRACES_HARDWARE_SETTLE_MS);
 
     octx.save();
-    octx.globalAlpha = 0.92;
+    octx.globalAlpha = 0.84;
     drawWarpedBracesSegments(octx, atlasUpper, pack, {
       toothDepthPx,
-      baseHScale: 0.9,
+      baseHScale: 0.88,
       lowerAtlas: atlasLower ?? undefined,
     });
     octx.restore();
@@ -1746,13 +1749,8 @@ const SmileSimulatorAI = () => {
             )}
 
             {step === "processing" && (
-              <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="bg-white p-20 rounded-3xl border border-zinc-100 shadow-xl text-center space-y-4">
+              <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="bg-white p-20 rounded-3xl border border-zinc-100 shadow-xl text-center">
                 <p className="text-lg font-medium animate-pulse">Designing your future smile...</p>
-                <p className="text-sm text-zinc-400 max-w-md mx-auto leading-relaxed">
-                  This step runs face detection and may call the cloud AI (often under a minute). If it never finishes, confirm{" "}
-                  <code className="text-xs bg-zinc-100 px-1.5 py-0.5 rounded">VITE_AI_SMILE_API</code> points to your running API and
-                  that <code className="text-xs bg-zinc-100 px-1.5 py-0.5 rounded">REPLICATE_API_TOKEN</code> is set on the server.
-                </p>
               </motion.div>
             )}
 

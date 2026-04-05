@@ -94,7 +94,7 @@ export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
  * @param {boolean} [starFlare]
  * @param {boolean} [omitDropShadow]
  */
-export function renderBracket3D(ctx, br, baseW, baseH, starFlare = false, omitDropShadow = false) {
+export function renderBracket3D(ctx, br, baseW, baseH, starFlare = false, omitDropShadow = false, angBias = 0) {
   const {
     x,
     y,
@@ -115,7 +115,7 @@ export function renderBracket3D(ctx, br, baseW, baseH, starFlare = false, omitDr
   ctx.save();
   ctx.globalAlpha *= clamp(depthOpacity, 0.62, 1);
   ctx.translate(x, y);
-  ctx.rotate((ang ?? 0) + Math.PI / 2);
+  ctx.rotate((ang ?? 0) + angBias + Math.PI / 2);
 
   if (!omitDropShadow) {
     ctx.shadowColor = "rgba(0,0,0,0.32)";
@@ -186,12 +186,12 @@ export function renderBracket3D(ctx, br, baseW, baseH, starFlare = false, omitDr
  * @param {object[]} anchors
  * @param {number} baseW
  * @param {number} baseH
- * @param {{ omitStudShadow?: boolean }} [opts]
+ * @param {{ omitStudShadow?: boolean, angBias?: number }} [opts] — angBias π for lower-arch vector studs vs tangent-only texture
  */
 export function renderBrackets(ctx, anchors, baseW, baseH, opts = {}) {
-  const { omitStudShadow = false } = opts;
+  const { omitStudShadow = false, angBias = 0 } = opts;
   if (!anchors?.length) return;
   anchors.forEach((br) => {
-    renderBracket3D(ctx, br, baseW, baseH, Boolean(br.star), omitStudShadow);
+    renderBracket3D(ctx, br, baseW, baseH, Boolean(br.star), omitStudShadow, angBias);
   });
 }

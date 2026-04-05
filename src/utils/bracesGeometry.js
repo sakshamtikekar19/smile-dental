@@ -495,7 +495,7 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
     });
     lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval).map((a, i) => ({
       ...a,
-      ang: (lowerAngs[i] ?? a.ang) + Math.PI,
+      ang: lowerAngs[i] ?? a.ang,
     }));
     lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
     const lowerDense = [];
@@ -566,10 +566,7 @@ export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
     const lowerBracketSites = resampleCurveEqualArcLength(lowerCtrl, nLower);
     lowerStuds = lowerBracketSites.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 }));
     lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval);
-    lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds).map((a) => ({
-      ...a,
-      ang: (a.ang ?? 0) + Math.PI,
-    }));
+    lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
     wireSamplesLower = extendWireSamplesAlongTangents(sampleWireFromStuds(lowerCtrl, 7), WIRE_MOLAR_END_EXTEND_PX);
   }
 
