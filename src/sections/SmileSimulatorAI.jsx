@@ -8,6 +8,7 @@ import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
 import { buildGeometricBracesPack, reprojectBracesPackAfterStudMove } from "../utils/bracesGeometry";
 import { snapBracesStudsToEnamel } from "../utils/bracesEnamelSnap";
+import { buildAnatomicalArchLockPack } from "../utils/bracesAnatomicalLock";
 import {
   prepareBracesAtlasCanvas,
   drawWarpedBracesSegments,
@@ -1064,18 +1065,17 @@ const SmileSimulatorAI = () => {
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
-    const nBr = Math.min(14, Math.max(12, Math.min(MORPH_MAX_UPPER_BRACKETS, MORPH_MAX_LOWER_BRACKETS)));
     const pack = buildGeometricBracesPack(landmarks, iw, ih, oval, {
-      bracketCountUpper: nBr,
-      bracketCountLower: nBr,
+      bracketCountUpper: 14,
+      bracketCountLower: 12,
     });
     if (!pack) return null;
     return { ...pack, baseW, baseH };
   };
 
   /** Soft contact shadows drawn with destination-over so they sit under studs/wire (overlay pass). */
-  const drawBracesContactShadows = (landmarks, ctx, iw, ih, oval) => {
-    const pack = computeBracesAnchors(landmarks, iw, ih, oval);
+  const drawBracesContactShadows = (landmarks, ctx, iw, ih, oval, anchorPack = null) => {
+    const pack = anchorPack ?? computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW } = pack;
     const paintSet = (anchors, angExtra) => {
@@ -1117,9 +1117,13 @@ const SmileSimulatorAI = () => {
    * @param {{ omitStudShadow?: boolean, outerAlpha?: number, layers?: 'wire' | 'shadows' | 'studs' | 'both' }} opts
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
-    const { omitStudShadow = false, layers = "both", outerAlpha = 0.95 } = opts;
+    const { omitStudShadow = false, layers = "both", outerAlpha = 0.95, precomputedPack = null } = opts;
     const wireDarkW = ARCHWIRE_LINE_WIDTH_PX;
-    const pack = computeBracesAnchors(landmarks, iw, ih, oval);
+    const pack =
+      precomputedPack &&
+      (precomputedPack.upperAnchors?.length > 0 || precomputedPack.lowerAnchors?.length > 0)
+        ? precomputedPack
+        : computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
     const { upperAnchors, lowerAnchors, baseW, baseH, wireSamplesUpper, wireSamplesLower, mouthOpen } = pack;
 
@@ -1137,7 +1141,7 @@ const SmileSimulatorAI = () => {
       });
     }
     if (layers === "shadows" || layers === "both") {
-      drawBracesContactShadows(landmarks, ctx, iw, ih, oval);
+      drawBracesContactShadows(landmarks, ctx, iw, ih, oval, pack);
     }
     if (layers === "studs" || layers === "both") {
       renderBrackets(ctx, upperAnchors, baseW, baseH, { omitStudShadow, angBias: 0 });
@@ -1207,7 +1211,7 @@ const SmileSimulatorAI = () => {
   const delayMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   /**
-   * Post-merge source of truth: detectMouth(merged) then centroid parabolic pack + enamel snap on this same bitmap.
+   * Post-merge: detectMouth(merged) → histogram tooth slots (14 upper / 12 lower) on this bitmap; fallback centroid + enamel snap.
    * @param {{ bracesTextureDataUrl?: string | null }} [opts]
    */
   const applyBracesOverlay = async (imageSrc, iw, ih, opts = {}) => {
@@ -1240,20 +1244,28 @@ const SmileSimulatorAI = () => {
     applyMouthPopFilter(bctx, mb);
     await flushPaintBeforeVectorHardware();
 
-    let pack = computeBracesAnchors(lm, iw, ih, ov);
-    if (!pack?.upperAnchors?.length) {
-      throw new Error("Could not compute dental arc for braces placement.");
-    }
+    const baseW = BRACKET_DRAW_SIDE_PX;
+    const baseH = BRACKET_DRAW_SIDE_PX;
 
-    const snapped = await snapBracesStudsToEnamel(imageSrc, pack.upperStuds, pack.lowerStuds, iw, ih);
-    pack = reprojectBracesPackAfterStudMove(
-      { ...pack, upperStuds: snapped.upperStuds, lowerStuds: snapped.lowerStuds },
-      iw,
-      ih,
-      ov,
-    );
-    if (!pack?.upperAnchors?.length) {
-      throw new Error("Could not reproject braces after enamel snap.");
+    let pack = await buildAnatomicalArchLockPack(imageSrc, lm, iw, ih, ov);
+    if (pack?.upperStuds?.length >= 2) {
+      pack = { ...pack, baseW, baseH };
+    } else {
+      pack = computeBracesAnchors(lm, iw, ih, ov);
+      if (!pack?.upperAnchors?.length) {
+        throw new Error("Could not compute dental arc for braces placement.");
+      }
+      const snapped = await snapBracesStudsToEnamel(imageSrc, pack.upperStuds, pack.lowerStuds, iw, ih);
+      pack = reprojectBracesPackAfterStudMove(
+        { ...pack, upperStuds: snapped.upperStuds, lowerStuds: snapped.lowerStuds },
+        iw,
+        ih,
+        ov,
+      );
+      if (!pack?.upperAnchors?.length) {
+        throw new Error("Could not reproject braces after enamel snap.");
+      }
+      pack = { ...pack, baseW, baseH };
     }
 
     const nUpper = pack.upperAnchors.length;
@@ -1285,6 +1297,7 @@ const SmileSimulatorAI = () => {
       omitStudShadow: true,
       layers: "wire",
       outerAlpha: 0.88,
+      precomputedPack: pack,
     });
 
     applyUpperLipBracesOcclusion(octx, lm, iw, ih, pack.mouthOpen);

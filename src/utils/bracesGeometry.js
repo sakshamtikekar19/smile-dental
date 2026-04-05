@@ -26,7 +26,8 @@ const WIRE_MOLAR_END_EXTEND_PX = 0;
 const CENTROID_BRACKET_MIN = 12;
 const CENTROID_BRACKET_MAX = 14;
 const CATMULL_WIRE_STEPS_AFTER_SNAP = 22;
-const DEFAULT_BRACKET_COUNT = 14;
+const DEFAULT_BRACKET_COUNT_UPPER = 14;
+const DEFAULT_BRACKET_COUNT_LOWER = 12;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -301,12 +302,14 @@ export function computeBracketTransforms(row, iw, ih, oval) {
 
     const zDist = Math.abs((p.z ?? 0) - zMed) / zSpan;
     const zScale = clamp(1.03 - 0.16 * zDist, 0.88, 1.04);
+    /** Landmark depth: up to 25% smaller toward molars (distal z). */
+    const molarDepthScale = clamp(1 - 0.25 * zDist, 0.75, 1);
 
     const scaleZ = clamp(1 / (1 + (p.z ?? 0) * 1.5), 0.7, 1.14);
     const normD = distFromCenter / maxDist;
     const depthOpacity = clamp(1 - normD * 0.3, 0.62, 1);
 
-    const wMult = Math.max(0.62, perspective * scaleIdx * zScale);
+    const wMult = Math.max(0.62, perspective * scaleIdx * zScale) * molarDepthScale;
     const hMult = wMult * (0.72 + 0.28 * (1 - edge));
 
     const yPersp = -edge * 1.4 * normD;
@@ -538,14 +541,14 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   if (!landmarks?.length) return null;
 
   const nU = clamp(
-    Math.round(opts.bracketCountUpper ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT),
+    Math.round(opts.bracketCountUpper ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT_UPPER),
     CENTROID_BRACKET_MIN,
     CENTROID_BRACKET_MAX,
   );
   const nL = clamp(
-    Math.round(opts.bracketCountLower ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT),
+    Math.round(opts.bracketCountLower ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT_LOWER),
     CENTROID_BRACKET_MIN,
-    CENTROID_BRACKET_MAX,
+    12,
   );
 
   const left = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
@@ -605,21 +608,26 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
 
 /** Recompute tangents, perspective, and Catmull wires after stud positions change (e.g. enamel snap). */
 export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval) {
-  if (!pack?.upperStuds?.length) return pack;
-  const { upperStuds, lowerStuds } = pack;
+  if (!pack) return pack;
+  const upperStuds = pack.upperStuds ?? [];
+  const lowerStuds = pack.lowerStuds ?? [];
 
-  let upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
-  upperAnchors = applyPerspectiveScaleToAnchors(upperAnchors, upperStuds);
-
-  let lowerAnchors = [];
-  if (lowerStuds?.length >= 2) {
-    lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval);
-    lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
+  let upperAnchors = [];
+  if (upperStuds.length >= 1) {
+    upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
+    if (upperStuds.length >= 2) upperAnchors = applyPerspectiveScaleToAnchors(upperAnchors, upperStuds);
   }
 
-  const wireSamplesUpper = sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP);
+  let lowerAnchors = [];
+  if (lowerStuds.length >= 1) {
+    lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval);
+    if (lowerStuds.length >= 2) lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
+  }
+
+  const wireSamplesUpper =
+    upperStuds.length >= 2 ? sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP) : [];
   const wireSamplesLower =
-    lowerStuds?.length >= 2 ? sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP) : [];
+    lowerStuds.length >= 2 ? sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP) : [];
 
   return {
     ...pack,
