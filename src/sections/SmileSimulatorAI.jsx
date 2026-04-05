@@ -59,7 +59,7 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * 10 upper + 10 lower: arch X uses enamel ∪ commissure ∪ full-image mouth scan ∪ mouth oval for left–right extremes; 5-pt smooth; 1.2px + 3px shadow.
+ * Braces: morphological vertical-gap tooth segments (upper/lower independent), enamel-span arch stretch, 3-pt cy smooth, 1.2px wire + 3px stud shadow.
  */
 /** Base clear-bracket size (reference: ~10–11px ceramic squares on tooth center). */
 const BRACKET_DRAW_SIDE_PX = 11;
@@ -77,16 +77,27 @@ const ENAMEL_DENSITY_BLUR_HALF_WX = 2;
 const ENAMEL_DENSITY_PEAK_MIN_FRAC = 0.14;
 /** Lower-arch studs must sit at least this far below arch midline Y (image px). */
 const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
-/** Target brackets per arch (10 individual teeth upper + 10 lower). */
+/** Target count for fallback evenly-spaced slots if morphological segmentation is weak. */
 const BRACKETS_STUDS_PER_ARCH = 10;
-/** Max upper-arch studs (same as per-arch target). */
-const UPPER_ARCH_MAX_LUMINANCE_PEAKS = BRACKETS_STUDS_PER_ARCH;
-/** Lower arch: match upper count. */
-const LOWER_ARCH_SUBSAMPLE_MAX = BRACKETS_STUDS_PER_ARCH;
-/** Thin metallic archwire (clinical reference). */
-const ARCHWIRE_LINE_WIDTH_PX = 1.15;
-/** Cap studs per arch. */
-const MAX_CENTROID_STUDS_PER_ARCH = 12;
+/** Vertical-gap segmentation: enamel column mass drops at interdental valleys. */
+const MORPH_VALLEY_DEPTH_FRAC = 0.3;
+const MORPH_SIGNAL_BLUR_HALF = 2;
+const MORPH_MIN_SEGMENT_WIDTH_PX = 3;
+const MORPH_MIN_TOOTH_BLOB_PX = 14;
+const MORPH_MAX_BRACKETS_PER_ARCH = 14;
+const MORPH_EDGE_VALLEY_IGNORE_PX = 4;
+/** Legacy density merge cap (morph primary path uses MORPH_MAX_). */
+const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_BRACKETS_PER_ARCH;
+/** Lower arch independent segmentation; same cap as upper morph max. */
+const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_BRACKETS_PER_ARCH;
+/** Solid silver archwire (px). */
+const ARCHWIRE_LINE_WIDTH_PX = 1.2;
+/** Smile-curve depth: upper arch dips at center (+Y), lower rises (−Y); scales with half-arch width. */
+const SMILE_CURVE_DEPTH_FRAC_OF_HALF_ARCH = 0.062;
+const SMILE_CURVE_DEPTH_MIN_PX = 3;
+const SMILE_CURVE_DEPTH_MAX_PX = 13;
+/** Cap studs per arch (morph segments may use up to this many). */
+const MAX_CENTROID_STUDS_PER_ARCH = MORPH_MAX_BRACKETS_PER_ARCH;
 /** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
 const BRACES_HARDWARE_SETTLE_MS = 50;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
@@ -1041,8 +1052,8 @@ const SmileSimulatorAI = () => {
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
     if (!omitDropShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.38)";
-      ctx.shadowBlur = 2.8;
+      ctx.shadowColor = "rgba(0,0,0,0.4)";
+      ctx.shadowBlur = 3;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1.35;
     }
@@ -1695,6 +1706,57 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
+  /** Snap each stud’s X to horizontal center of enamel mass in a small window (per-tooth centering). */
+  const refineArchRowHorizontalEnamelCOM = (row, mask, bw, bh, minX, minY, halfWin = 9, bandHalfY = 6) => {
+    if (row.length === 0) return row;
+    const out = row.map((p) => {
+      const lxC = clamp(Math.round(p.cx - minX), 0, bw - 1);
+      const lyC = clamp(Math.round(p.cy - minY), 0, bh - 1);
+      const x0 = clamp(lxC - halfWin, 0, bw - 1);
+      const x1 = clamp(lxC + halfWin, 0, bw - 1);
+      const y0 = clamp(lyC - bandHalfY, 0, bh - 1);
+      const y1 = clamp(lyC + bandHalfY, 0, bh - 1);
+      let sumLX = 0;
+      let cnt = 0;
+      for (let lx = x0; lx <= x1; lx++) {
+        for (let ly = y0; ly <= y1; ly++) {
+          if (mask[ly * bw + lx] !== 1) continue;
+          sumLX += lx + 0.5;
+          cnt++;
+        }
+      }
+      if (cnt < 14) return { ...p };
+      return { ...p, cx: minX + sumLX / cnt };
+    });
+    out.sort((a, b) => a.cx - b.cx);
+    return out;
+  };
+
+  /**
+   * Parabolic “smile” bend: upper center moves downscreen, lower center moves up (clinical U-arch).
+   * Uses face oval midline when available so the curve stays centered on the smile.
+   */
+  const applySmileCurveVerticalToArchRow = (row, isUpper, oval) => {
+    if (row.length < 2) return row;
+    const xs = row.map((r) => r.cx);
+    const minXr = Math.min(...xs);
+    const maxXr = Math.max(...xs);
+    const midX =
+      oval?.cx != null && Number.isFinite(oval.cx) ? oval.cx : (minXr + maxXr) * 0.5;
+    const halfW = Math.max((maxXr - minXr) * 0.5, 10);
+    const depth = clamp(
+      halfW * SMILE_CURVE_DEPTH_FRAC_OF_HALF_ARCH,
+      SMILE_CURVE_DEPTH_MIN_PX,
+      SMILE_CURVE_DEPTH_MAX_PX,
+    );
+    return row.map((r) => {
+      const u = clamp((r.cx - midX) / halfW, -1.08, 1.08);
+      const q = Math.max(0, 1 - u * u);
+      const dy = isUpper ? depth * q : -depth * q;
+      return { ...r, cy: r.cy + dy };
+    });
+  };
+
   /** Fill missing lateral studs: merge density picks with column luminance picks (min X gap). */
   const mergeUpperStudRowsByMinSep = (primary, filler, maxN, minSepPx) => {
     const out = [...primary].map((p) => ({ cx: p.cx, cy: p.cy, area: p.area ?? 1 }));
@@ -1754,8 +1816,209 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
+  /** Left/right lx bounds of mask==1 within a horizontal band (enamel span for arch stretch). */
+  const enamelLxExtentInBand = (mask, bw, bh, yLo, yHi) => {
+    const y0 = clamp(Math.min(yLo, yHi), 0, bh - 1);
+    const y1 = clamp(Math.max(yLo, yHi), 0, bh - 1);
+    let L = bw;
+    let R = -1;
+    for (let ly = y0; ly <= y1; ly++) {
+      const row = ly * bw;
+      for (let lx = 0; lx < bw; lx++) {
+        if (mask[row + lx] !== 1) continue;
+        if (lx < L) L = lx;
+        if (lx > R) R = lx;
+      }
+    }
+    if (R < L) return null;
+    return { L, R };
+  };
+
+  const mergeMorphSegmentsToMax = (segments, maxN) => {
+    let segs = segments.filter(([a, b]) => b >= a && b - a + 1 >= MORPH_MIN_SEGMENT_WIDTH_PX);
+    if (segs.length === 0) return segments;
+    if (segs.length <= maxN) return segs;
+    while (segs.length > maxN) {
+      let bestI = 0;
+      let bestW = Infinity;
+      for (let i = 0; i < segs.length - 1; i++) {
+        const wv = segs[i][1] - segs[i][0] + 1 + (segs[i + 1][1] - segs[i + 1][0] + 1);
+        if (wv < bestW) {
+          bestW = wv;
+          bestI = i;
+        }
+      }
+      const a0 = segs[bestI][0];
+      const b1 = segs[bestI + 1][1];
+      segs = [...segs.slice(0, bestI), [a0, b1], ...segs.slice(bestI + 2)];
+    }
+    return segs;
+  };
+
+  /** One bracket at COM of enamel in [xL,xR]×[y0,y1], vertical face locked via BRACKET_VERTICAL_FACE_SAFE_FRAC. */
+  const bracketCenterForToothSegment = (mask, bw, minX, minY, xL, xR, y0, y1) => {
+    let sumX = 0;
+    let sumY = 0;
+    let cnt = 0;
+    let topY = 1e9;
+    let botY = -1;
+    for (let lx = xL; lx <= xR; lx++) {
+      for (let ly = y0; ly <= y1; ly++) {
+        if (mask[ly * bw + lx] !== 1) continue;
+        sumX += lx + 0.5;
+        sumY += ly + 0.5;
+        cnt++;
+        if (ly < topY) topY = ly;
+        if (ly > botY) botY = ly;
+      }
+    }
+    if (cnt < MORPH_MIN_TOOTH_BLOB_PX) return null;
+    const cx = minX + sumX / cnt;
+    const midLy = sumY / cnt;
+    const midClamped = clampBracketMidYFrac(midLy, topY, botY, BRACKET_VERTICAL_FACE_SAFE_FRAC);
+    const cy = minY + midClamped;
+    return { cx, cy, area: cnt };
+  };
+
   /**
-   * 10 upper / 10 lower: horizontal arch widened to global enamel + oval; expand-only midline pad; slots at t=0..1 extremes.
+   * Morphological tooth lock: per-column enamel mass in band → vertical valleys → one segment per tooth;
+   * one anchor at segment COM. Upper/lower call separately (no X mirroring).
+   */
+  const buildMorphologicalArchRow = (
+    mask,
+    bw,
+    bh,
+    data,
+    w,
+    imgH,
+    minX,
+    minY,
+    archLx0,
+    archLx1,
+    y0,
+    y1,
+    ySplitImg,
+    isLower,
+    maxBrackets,
+  ) => {
+    if (archLx1 < archLx0 || y0 > y1) return [];
+    const nCol = archLx1 - archLx0 + 1;
+    if (nCol < 6) return [];
+
+    const raw = new Float64Array(nCol);
+    for (let k = 0; k < nCol; k++) {
+      const lx = archLx0 + k;
+      let cnt = 0;
+      for (let ly = y0; ly <= y1; ly++) {
+        if (mask[ly * bw + lx] === 1) cnt++;
+      }
+      raw[k] = cnt;
+    }
+
+    const blurR = MORPH_SIGNAL_BLUR_HALF;
+    const sm = new Float64Array(nCol);
+    for (let k = 0; k < nCol; k++) {
+      let s = 0;
+      let c = 0;
+      for (let d = -blurR; d <= blurR; d++) {
+        const kk = k + d;
+        if (kk < 0 || kk >= nCol) continue;
+        s += raw[kk];
+        c++;
+      }
+      sm[k] = c > 0 ? s / c : 0;
+    }
+
+    let maxSm = 0;
+    for (let k = 0; k < nCol; k++) if (sm[k] > maxSm) maxSm = sm[k];
+    const noiseFloor = Math.max(4, maxSm * 0.11);
+    const valleyThresh = Math.max(noiseFloor, maxSm * MORPH_VALLEY_DEPTH_FRAC);
+
+    const edge = MORPH_EDGE_VALLEY_IGNORE_PX;
+    const valleyLxList = [];
+    for (let k = 1; k < nCol - 1; k++) {
+      if (k < edge || k >= nCol - edge) {
+        if (sm[k] > maxSm * 0.22) continue;
+      }
+      if (sm[k] >= valleyThresh) continue;
+      const localMin = sm[k] < sm[k - 1] && sm[k] < sm[k + 1];
+      const plateauMin = sm[k] <= sm[k - 1] && sm[k] <= sm[k + 1] && sm[k] < maxSm * 0.36;
+      if (!localMin && !plateauMin) continue;
+      if (sm[k] > 0.55 * Math.max(sm[k - 1], sm[k + 1])) continue;
+      valleyLxList.push(archLx0 + k);
+    }
+
+    valleyLxList.sort((a, b) => a - b);
+    const mergedValleys = [];
+    for (const vlx of valleyLxList) {
+      const prev = mergedValleys[mergedValleys.length - 1];
+      if (prev != null && vlx - prev < 4) {
+        const iPrev = prev - archLx0;
+        const iV = vlx - archLx0;
+        if (sm[iV] < sm[iPrev]) mergedValleys[mergedValleys.length - 1] = vlx;
+      } else mergedValleys.push(vlx);
+    }
+
+    const buildSegmentsFromValleys = (valleys) => {
+      const segs = [];
+      let xStart = archLx0;
+      for (const cut of valleys) {
+        const xEnd = cut - 1;
+        if (xEnd >= xStart && xEnd - xStart + 1 >= MORPH_MIN_SEGMENT_WIDTH_PX) {
+          segs.push([xStart, xEnd]);
+        }
+        xStart = cut + 1;
+      }
+      if (archLx1 >= xStart && archLx1 - xStart + 1 >= MORPH_MIN_SEGMENT_WIDTH_PX) {
+        segs.push([xStart, archLx1]);
+      }
+      return segs;
+    };
+
+    let segments = buildSegmentsFromValleys(mergedValleys);
+
+    if (segments.length <= 1 && nCol >= 28) {
+      const innerT = Math.max(maxSm * 0.44, noiseFloor * 2.2);
+      const merged2 = [...mergedValleys];
+      for (let k = edge + 2; k < nCol - edge - 2; k++) {
+        if (sm[k] >= innerT) continue;
+        if (sm[k] < sm[k - 1] && sm[k] < sm[k + 1]) merged2.push(archLx0 + k);
+      }
+      merged2.sort((a, b) => a - b);
+      const dedup = [];
+      for (const v of merged2) {
+        const last = dedup[dedup.length - 1];
+        if (last != null && v - last < 4) continue;
+        dedup.push(v);
+      }
+      segments = buildSegmentsFromValleys(dedup);
+    }
+
+    if (segments.length === 0) {
+      segments.push([archLx0, archLx1]);
+    }
+
+    let mergedSegs = mergeMorphSegmentsToMax(segments, maxBrackets);
+    if (mergedSegs.length === 0) {
+      mergedSegs = [[archLx0, archLx1]];
+    }
+    const row = [];
+    for (const [xL, xR] of mergedSegs) {
+      const b = bracketCenterForToothSegment(mask, bw, minX, minY, xL, xR, y0, y1);
+      if (!b) continue;
+      let { cx, cy } = b;
+      if (isLower && cy < ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX) {
+        cy = ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX;
+      }
+      row.push({ cx, cy, area: b.area });
+    }
+    row.sort((a, b) => a.cx - b.cx);
+    return row;
+  };
+
+  /**
+   * Morphological vertical-gap segmentation + enamel-only arch stretch (no commissure/oval widening).
+   * Upper and lower arches detected independently; 3-pt cy smooth; face-safe vertical clamp on each segment.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -1830,47 +2093,6 @@ const SmileSimulatorAI = () => {
     const ew = enamelMaxLx - enamelMinLx + 1;
     if (ew < 8) return null;
 
-    const locComMin = clamp(Math.floor(comMin - minX), 0, bw - 1);
-    const locComMax = clamp(Math.ceil(comMax - minX), 0, bw - 1);
-    let archLx0 = Math.min(enamelMinLx, locComMin);
-    let archLx1 = Math.max(enamelMaxLx, locComMax);
-
-    /** Expand weak side from midline without ever shrinking past enamel ∪ commissure. */
-    const midNormX =
-      landmarks[NOSE_MIDLINE_IDX]?.x != null
-        ? landmarks[NOSE_MIDLINE_IDX].x * iw
-        : (polyMinX + polyMaxX) * 0.5;
-    const midLx = clamp(Math.round(midNormX - minX), 0, bw - 1);
-    const comHalfL = midLx - locComMin;
-    const comHalfR = locComMax - midLx;
-    const halfL = midLx - archLx0;
-    const halfR = archLx1 - midLx;
-    const symPad = Math.max(halfL, halfR, comHalfL, comHalfR, Math.ceil((archLx1 - archLx0) * 0.52), 6);
-    archLx0 = Math.min(archLx0, midLx - symPad);
-    archLx1 = Math.max(archLx1, midLx + symPad);
-    archLx0 = clamp(archLx0, 0, bw - 1);
-    archLx1 = clamp(archLx1, 0, bw - 1);
-
-    const yScan0 = clamp(stripY0, 0, h - 1);
-    const yScan1 = clamp(stripY1, 0, h - 1);
-    const globX = globalEnamelExtentLocalX(data, w, h, yScan0, yScan1, minX, bw);
-    if (globX) {
-      archLx0 = Math.min(archLx0, globX.locL);
-      archLx1 = Math.max(archLx1, globX.locR);
-    }
-
-    if (oval?.rx > 0 && typeof oval.cx === "number") {
-      const ol = clamp(Math.floor(oval.cx - oval.rx * 1.05 - minX), 0, bw - 1);
-      const or = clamp(Math.ceil(oval.cx + oval.rx * 1.05 - minX), 0, bw - 1);
-      archLx0 = Math.min(archLx0, ol);
-      archLx1 = Math.max(archLx1, or);
-    }
-
-    const archEw = archLx1 - archLx0 + 1;
-
-    const cols = GRID_ENAMEL_COLUMNS;
-    const maxUpper = Math.min(UPPER_ARCH_MAX_LUMINANCE_PEAKS, MAX_CENTROID_STUDS_PER_ARCH, BRACKETS_STUDS_PER_ARCH);
-
     /** Arch split from vertical center of enamel mask only (not lip polygon bbox). */
     const ySplitLocal = clamp(Math.round((enamelMinLy + enamelMaxLy) * 0.5), 1, Math.max(1, bh - 2));
     const ySplitImg = minY + ySplitLocal;
@@ -1879,132 +2101,121 @@ const SmileSimulatorAI = () => {
     const yU0 = 0;
     const yU1 = Math.max(0, yUpperEnd);
 
-    let upper = buildUpperArchFromToothSegments(
+    /** Horizontal span: mask extent per band ∪ full-image enamel scan (no commissure / oval widening). */
+    const uBand = enamelLxExtentInBand(mask, bw, bh, yU0, yU1);
+    const lBand = enamelLxExtentInBand(mask, bw, bh, yLowerStart, bh - 1);
+    if (!uBand || !lBand) return null;
+
+    const imgYUpperLo = clamp(minY + yU0, 0, h - 1);
+    const imgYUpperHi = clamp(minY + yU1, 0, h - 1);
+    const imgYLowerLo = clamp(minY + yLowerStart, 0, h - 1);
+    const imgYLowerHi = clamp(minY + bh - 1, 0, h - 1);
+
+    const globUpper = globalEnamelExtentLocalX(data, w, h, imgYUpperLo, imgYUpperHi, minX, bw);
+    const globLower = globalEnamelExtentLocalX(data, w, h, imgYLowerLo, imgYLowerHi, minX, bw);
+
+    let archLx0_u = uBand.L;
+    let archLx1_u = uBand.R;
+    if (globUpper) {
+      archLx0_u = Math.min(archLx0_u, globUpper.locL);
+      archLx1_u = Math.max(archLx1_u, globUpper.locR);
+    }
+
+    let archLx0_l = lBand.L;
+    let archLx1_l = lBand.R;
+    if (globLower) {
+      archLx0_l = Math.min(archLx0_l, globLower.locL);
+      archLx1_l = Math.max(archLx1_l, globLower.locR);
+    }
+
+    archLx0_u = clamp(archLx0_u, 0, bw - 1);
+    archLx1_u = clamp(archLx1_u, archLx0_u, bw - 1);
+    archLx0_l = clamp(archLx0_l, 0, bw - 1);
+    archLx1_l = clamp(archLx1_l, archLx0_l, bw - 1);
+
+    const morphMax = MORPH_MAX_BRACKETS_PER_ARCH;
+    const fallbackN = BRACKETS_STUDS_PER_ARCH;
+
+    let upper = buildMorphologicalArchRow(
+      mask,
+      bw,
+      bh,
       data,
       w,
       h,
-      mask,
-      bw,
       minX,
       minY,
-      archLx0,
-      archLx1,
+      archLx0_u,
+      archLx1_u,
       yU0,
       yU1,
-      maxUpper,
+      ySplitImg,
+      false,
+      morphMax,
     );
 
-    const upperCands = [];
-    for (let c = 0; c < cols; c++) {
-      const xStart = archLx0 + Math.floor((c * archEw) / cols);
-      const xEnd = Math.min(archLx1, archLx0 + Math.ceil(((c + 1) * archEw) / cols) - 1);
-      if (xEnd < xStart) continue;
-      const u = pickColumnStudLuminancePeak(
-        data,
-        w,
-        h,
-        mask,
-        bw,
-        minX,
-        minY,
-        xStart,
-        xEnd,
-        yU0,
-        yU1,
-        LUMINANCE_PEAK_STRIP_WIDTH_PX,
-        true,
-      );
-      if (u) upperCands.push(u);
-    }
-    upperCands.sort((a, b) => a.cx - b.cx);
-
-    const minDx = clamp(Math.floor(archEw / 12), 4, 9);
-    upper = mergeUpperStudRowsByMinSep(upper, upperCands, maxUpper, minDx);
-
-    if (upper.length < 6) {
-      let fromDensity = buildUpperArchFromDensityLocalMaxima(
-        data,
-        w,
-        h,
-        mask,
-        bw,
-        minX,
-        minY,
-        enamelMinLx,
-        enamelMaxLx,
-        yU0,
-        yU1,
-        maxUpper,
-      );
-      upper = mergeUpperStudRowsByMinSep(fromDensity, upperCands, maxUpper, minDx);
-    }
-
-    const targetN = BRACKETS_STUDS_PER_ARCH;
-    if (upper.length > targetN) {
-      upper = subsampleArchRowToCount(upper, targetN);
-    }
-    if (upper.length < targetN) {
-      const spaced =
-        upperCands.length > 0 ? pickUpperArchColumnPeaks(upperCands, Math.min(targetN, upperCands.length)) : [];
-      upper = mergeUpperStudRowsByMinSep(upper, spaced, targetN, 3);
-    }
-    if (upper.length < targetN) {
-      upper = buildUpperEvenlySpacedSlots(
-        targetN,
-        data,
-        w,
-        h,
-        mask,
-        bw,
-        minX,
-        minY,
-        archLx0,
-        archLx1,
-        yU0,
-        yU1,
-      );
-    }
-
-    if (upper.length === 0) return null;
-
-    upper = smoothArchCentroidsMovingAvg5(upper);
-    if (upper.length > targetN) upper = subsampleArchRowToCount(upper, targetN);
-    if (upper.length < targetN) {
-      const fillSlots = buildUpperEvenlySpacedSlots(
-        targetN,
-        data,
-        w,
-        h,
-        mask,
-        bw,
-        minX,
-        minY,
-        archLx0,
-        archLx1,
-        yU0,
-        yU1,
-      );
-      upper = mergeUpperStudRowsByMinSep(upper, fillSlots, targetN, 2);
-    }
-
-    let lower = mirrorLowerStudsExactUpperX(
+    let lower = buildMorphologicalArchRow(
+      mask,
+      bw,
+      bh,
       data,
       w,
       h,
-      mask,
-      bw,
       minX,
       minY,
+      archLx0_l,
+      archLx1_l,
       yLowerStart,
       bh - 1,
       ySplitImg,
-      upper,
+      true,
+      morphMax,
     );
-    const lowerN = Math.min(targetN, upper.length, LOWER_ARCH_SUBSAMPLE_MAX);
-    if (lower.length > lowerN) {
-      lower = subsampleArchRowToCount(lower, lowerN);
+
+    if (upper.length < 3) {
+      upper = buildUpperEvenlySpacedSlots(
+        fallbackN,
+        data,
+        w,
+        h,
+        mask,
+        bw,
+        minX,
+        minY,
+        archLx0_u,
+        archLx1_u,
+        yU0,
+        yU1,
+      );
     }
-    lower = smoothArchCyOnlyMovingAvg5(lower);
+    if (lower.length < 3) {
+      lower = buildUpperEvenlySpacedSlots(
+        fallbackN,
+        data,
+        w,
+        h,
+        mask,
+        bw,
+        minX,
+        minY,
+        archLx0_l,
+        archLx1_l,
+        yLowerStart,
+        bh - 1,
+      );
+    }
+
+    if (upper.length === 0 || lower.length === 0) return null;
+
+    /** 3-point cy smooth — surgical wire arc without blurring horizontal tooth lock. */
+    upper = smoothArchCyOnlyMovingAvg3(upper);
+    lower = smoothArchCyOnlyMovingAvg3(lower);
+
+    upper = refineArchRowHorizontalEnamelCOM(upper, mask, bw, bh, minX, minY);
+    lower = refineArchRowHorizontalEnamelCOM(lower, mask, bw, bh, minX, minY);
+
+    upper = applySmileCurveVerticalToArchRow(upper, true, oval);
+    lower = applySmileCurveVerticalToArchRow(lower, false, oval);
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
@@ -2105,7 +2316,7 @@ const SmileSimulatorAI = () => {
 
     ctx.save();
 
-    /** Metallic tube: base stroke + thin highlight (clinical archwire). */
+    /** Solid silver archwire + soft depth shadow (ARCHWIRE_LINE_WIDTH_PX, ARCHWIRE_SHADOW_BLUR_PX). */
     const drawWire = () => {
       const up = wireSamplesUpper;
       const lo = wireSamplesLower;
@@ -2134,18 +2345,14 @@ const SmileSimulatorAI = () => {
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         ctx.setLineDash([]);
-        if (path2d) {
-          ctx.shadowColor = "rgba(0,0,0,0.22)";
-          ctx.shadowBlur = 2;
-          ctx.shadowOffsetY = 0.6;
-          ctx.strokeStyle = "#aeb6c4";
-          ctx.lineWidth = wireDarkW + 0.25;
-          ctx.stroke(path2d);
-          ctx.shadowBlur = 0;
-          ctx.strokeStyle = "rgba(245,247,250,0.88)";
-          ctx.lineWidth = Math.max(0.38, wireDarkW * 0.42);
-          ctx.stroke(path2d);
-        } else {
+        ctx.strokeStyle = "#c6ccd6";
+        ctx.lineWidth = wireDarkW;
+        ctx.shadowColor = "rgba(0,0,0,0.32)";
+        ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0.65;
+        if (path2d) ctx.stroke(path2d);
+        else {
           ctx.beginPath();
           if (hasUpper) {
             ctx.moveTo(up[0].x, up[0].y);
@@ -2155,17 +2362,9 @@ const SmileSimulatorAI = () => {
             ctx.moveTo(lo[0].x, lo[0].y);
             for (let j = 1; j < lo.length; j++) ctx.lineTo(lo[j].x, lo[j].y);
           }
-          ctx.shadowColor = "rgba(0,0,0,0.22)";
-          ctx.shadowBlur = 2;
-          ctx.shadowOffsetY = 0.6;
-          ctx.strokeStyle = "#aeb6c4";
-          ctx.lineWidth = wireDarkW + 0.25;
-          ctx.stroke();
-          ctx.shadowBlur = 0;
-          ctx.strokeStyle = "rgba(245,247,250,0.88)";
-          ctx.lineWidth = Math.max(0.38, wireDarkW * 0.42);
           ctx.stroke();
         }
+        ctx.shadowBlur = 0;
         ctx.restore();
       };
 
