@@ -130,6 +130,12 @@ const SMILE_CURVE_DEPTH_MAX_PX = 13;
 const MAX_CENTROID_STUDS_PER_ARCH = Math.max(MORPH_MAX_UPPER_BRACKETS, MORPH_MAX_LOWER_BRACKETS);
 /** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
 const BRACES_HARDWARE_SETTLE_MS = 50;
+/** Face Landmarker WASM/model load must not block the pipeline indefinitely. */
+const FACE_LANDMARKER_INIT_TIMEOUT_MS = 22_000;
+/** Face Mesh module init timeout (falls back to heuristic mouth region). */
+const FACE_MESH_INIT_TIMEOUT_MS = 22_000;
+/** Replicate proxy request (large JSON body + polling on server). */
+const AI_SMILE_FETCH_TIMEOUT_MS = 130_000;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 3;
 const HARDWARE_SHADOW_COLOR = 'rgba(0,0,0,0.8)';
@@ -219,8 +225,17 @@ const SmileSimulatorAI = () => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (ev) => {
-      const normalized = await normalizeImage(ev.target.result, 1024);
-      processWithAI(normalized);
+      try {
+        const normalized = await normalizeImage(ev.target.result, 1024);
+        await processWithAI(normalized);
+      } catch (err) {
+        setError(err?.message || "Could not process this image. Try another photo.");
+        setStep("upload");
+      }
+    };
+    reader.onerror = () => {
+      setError("Could not read this file.");
+      setStep("upload");
     };
     reader.readAsDataURL(file);
   };
@@ -268,7 +283,10 @@ const SmileSimulatorAI = () => {
 
     const captured = canvas.toDataURL("image/jpeg", 0.88);
     stopCamera();
-    processWithAI(captured);
+    processWithAI(captured).catch((err) => {
+      setError(err?.message || "Could not process this photo.");
+      setStep("upload");
+    });
   };
 
   const normalizeImage = async (imageSrc, maxWidth = 1024) => {
@@ -607,7 +625,10 @@ const SmileSimulatorAI = () => {
   };
 
   const tryFaceLandmarker = async (canvas) => {
-    const landmarker = await initFaceLandmarker();
+    const landmarker = await Promise.race([
+      initFaceLandmarker(),
+      new Promise((resolve) => setTimeout(() => resolve(null), FACE_LANDMARKER_INIT_TIMEOUT_MS)),
+    ]);
     if (!landmarker) return null;
     let result;
     try {
@@ -635,7 +656,10 @@ const SmileSimulatorAI = () => {
       };
       timer = window.setTimeout(() => finish(fail), 12000);
 
-      initFaceMesh().then((faceMesh) => {
+      Promise.race([
+        initFaceMesh(),
+        new Promise((resolve) => setTimeout(() => resolve(null), FACE_MESH_INIT_TIMEOUT_MS)),
+      ]).then((faceMesh) => {
         if (!faceMesh) {
           finish(fail);
           return;
@@ -1292,10 +1316,9 @@ const SmileSimulatorAI = () => {
   };
 
   const applyAlignmentWarp = async (imageSrc, bounds) => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
-      img.src = imageSrc;
-
+      img.crossOrigin = "anonymous";
       img.onload = () => {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
@@ -1319,6 +1342,8 @@ const SmileSimulatorAI = () => {
 
         resolve(canvas.toDataURL("image/jpeg", 0.95));
       };
+      img.onerror = () => reject(new Error("Could not load image for alignment step."));
+      img.src = imageSrc;
     });
   };
 
@@ -1428,13 +1453,34 @@ const SmileSimulatorAI = () => {
     const payload = { image: mouthImage, mask, treatment };
     if (midlineXNorm != null && Number.isFinite(midlineXNorm)) payload.midlineX = midlineXNorm;
 
-    const response = await fetch(AI_SMILE_API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const controller = new AbortController();
+    const abortTimer = window.setTimeout(() => controller.abort(), AI_SMILE_FETCH_TIMEOUT_MS);
 
-    const data = await response.json();
+    let response;
+    try {
+      response = await fetch(AI_SMILE_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if (e?.name === "AbortError") {
+        throw new Error(
+          "AI enhancement timed out. Check that the API server is running and Replicate is reachable, then try again."
+        );
+      }
+      throw new Error(e?.message || "Network error talking to smile API.");
+    } finally {
+      window.clearTimeout(abortTimer);
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error("Invalid response from smile API (not JSON).");
+    }
     if (!response.ok) throw new Error(data.error || "AI polish failed");
 
     return data.outputDataUrl || data.output || null;
@@ -1690,8 +1736,13 @@ const SmileSimulatorAI = () => {
             )}
 
             {step === "processing" && (
-              <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="bg-white p-20 rounded-3xl border border-zinc-100 shadow-xl text-center">
+              <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="bg-white p-20 rounded-3xl border border-zinc-100 shadow-xl text-center space-y-4">
                 <p className="text-lg font-medium animate-pulse">Designing your future smile...</p>
+                <p className="text-sm text-zinc-400 max-w-md mx-auto leading-relaxed">
+                  This step runs face detection and may call the cloud AI (often under a minute). If it never finishes, confirm{" "}
+                  <code className="text-xs bg-zinc-100 px-1.5 py-0.5 rounded">VITE_AI_SMILE_API</code> points to your running API and
+                  that <code className="text-xs bg-zinc-100 px-1.5 py-0.5 rounded">REPLICATE_API_TOKEN</code> is set on the server.
+                </p>
               </motion.div>
             )}
 

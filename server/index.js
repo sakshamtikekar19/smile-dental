@@ -118,8 +118,16 @@ app.post('/api/smile', async (req, res) => {
     });
 
     const pollMs = Math.min(2000, Math.max(250, parseInt(process.env.REPLICATE_POLL_MS || '400', 10) || 400));
+    const maxPolls = Math.min(400, Math.max(40, parseInt(process.env.REPLICATE_MAX_POLLS || '200', 10) || 200));
     let result = await replicate.predictions.get(prediction.id);
+    let polls = 0;
     while (result.status !== 'succeeded' && result.status !== 'failed') {
+      polls += 1;
+      if (polls > maxPolls) {
+        return res.status(504).json({
+          error: 'AI job timed out while waiting for Replicate. Try again or increase REPLICATE_MAX_POLLS.',
+        });
+      }
       await new Promise((resolve) => setTimeout(resolve, pollMs));
       result = await replicate.predictions.get(prediction.id);
     }
