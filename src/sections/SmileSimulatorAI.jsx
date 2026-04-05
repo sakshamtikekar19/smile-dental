@@ -59,7 +59,8 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Braces: morphological vertical-gap tooth segments (upper/lower independent), enamel-span arch stretch, 3-pt cy smooth, 1.2px wire + 3px stud shadow.
+ * Braces: geometric arch-lock — full-snap enamel X extent (no lip landmarks), >40% neighbor valley split,
+ * segment-width X + 25% face Y clamp, 5-pt weighted cy smooth, upper ≤14 / lower ≤12, 1.2px wire, 3px rgba(0,0,0,0.8) stud shadow.
  */
 /** Base clear-bracket size (reference: ~10–11px ceramic squares on tooth center). */
 const BRACKET_DRAW_SIDE_PX = 11;
@@ -69,8 +70,8 @@ const CATMULL_WIRE_STEPS_PER_SEGMENT = 26;
 const GRID_ENAMEL_COLUMNS = 32;
 /** 3px-wide horizontal window: luminance refinement at each density peak (gap avoidance). */
 const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
-/** Keep bracket mid-Y inside tooth face: 20% inset from gum and from biting edge. */
-const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.2;
+/** Inset from gum and biting edge when clamping bracket Y on segment enamel (face-center lock). */
+const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.25;
 /** 1D box half-width (px) on summed luminance density before local-max scan. */
 const ENAMEL_DENSITY_BLUR_HALF_WX = 2;
 /** Local peak vs arch max; lower = keep dimmer molars at left/right. */
@@ -79,25 +80,27 @@ const ENAMEL_DENSITY_PEAK_MIN_FRAC = 0.14;
 const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
 /** Target count for fallback evenly-spaced slots if morphological segmentation is weak. */
 const BRACKETS_STUDS_PER_ARCH = 10;
-/** Vertical-gap segmentation: enamel column mass drops at interdental valleys. */
-const MORPH_VALLEY_DEPTH_FRAC = 0.3;
+/** Valley: smoothed column mass < this × neighbor average (>40% drop when 0.6). */
+const MORPH_VALLEY_NEIGHBOR_MAX_FRAC = 0.6;
+/** Looser neighbor test for secondary split on wide arches. */
+const MORPH_VALLEY_NEIGHBOR_LOOSE_FRAC = 0.72;
 const MORPH_SIGNAL_BLUR_HALF = 2;
 const MORPH_MIN_SEGMENT_WIDTH_PX = 3;
 const MORPH_MIN_TOOTH_BLOB_PX = 14;
-const MORPH_MAX_BRACKETS_PER_ARCH = 14;
+const MORPH_MAX_UPPER_BRACKETS = 14;
+const MORPH_MAX_LOWER_BRACKETS = 12;
 const MORPH_EDGE_VALLEY_IGNORE_PX = 4;
-/** Legacy density merge cap (morph primary path uses MORPH_MAX_). */
-const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_BRACKETS_PER_ARCH;
-/** Lower arch independent segmentation; same cap as upper morph max. */
-const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_BRACKETS_PER_ARCH;
+/** Legacy density merge cap. */
+const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_UPPER_BRACKETS;
+const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
 /** Solid silver archwire (px). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 /** Smile-curve depth: upper arch dips at center (+Y), lower rises (−Y); scales with half-arch width. */
 const SMILE_CURVE_DEPTH_FRAC_OF_HALF_ARCH = 0.062;
 const SMILE_CURVE_DEPTH_MIN_PX = 3;
 const SMILE_CURVE_DEPTH_MAX_PX = 13;
-/** Cap studs per arch (morph segments may use up to this many). */
-const MAX_CENTROID_STUDS_PER_ARCH = MORPH_MAX_BRACKETS_PER_ARCH;
+/** Cap for any single-arch merge helper (max of upper/lower morph caps). */
+const MAX_CENTROID_STUDS_PER_ARCH = Math.max(MORPH_MAX_UPPER_BRACKETS, MORPH_MAX_LOWER_BRACKETS);
 /** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
 const BRACES_HARDWARE_SETTLE_MS = 50;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
@@ -1052,7 +1055,7 @@ const SmileSimulatorAI = () => {
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
     if (!omitDropShadow) {
-      ctx.shadowColor = "rgba(0,0,0,0.4)";
+      ctx.shadowColor = HARDWARE_SHADOW_COLOR;
       ctx.shadowBlur = 3;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 1.35;
@@ -1695,6 +1698,24 @@ const SmileSimulatorAI = () => {
     });
   };
 
+  /** 5-point weighted moving average on cy only (1–4–6–4–1); preserves cx from geometric segment lock. */
+  const smoothArchCyOnlyWeightedMovingAvg5 = (row) => {
+    if (row.length === 0) return [];
+    if (row.length < 5) return smoothArchCyOnlyMovingAvg3(row);
+    const wts = [1, 4, 6, 4, 1];
+    return row.map((_, i) => {
+      let sy = 0;
+      let tw = 0;
+      for (let d = -2; d <= 2; d++) {
+        const j = clamp(i + d, 0, row.length - 1);
+        const wt = wts[d + 2];
+        sy += row[j].cy * wt;
+        tw += wt;
+      }
+      return { cx: row[i].cx, cy: sy / tw, area: row[i].area ?? 1 };
+    });
+  };
+
   const subsampleArchRowToCount = (row, targetN) => {
     if (row.length <= targetN) return row;
     const n = row.length;
@@ -1797,6 +1818,28 @@ const SmileSimulatorAI = () => {
     };
   };
 
+  /**
+   * Absolute left/right gx of enamel on the full snap (no ROI) — geometric arch boundary; ignores lip landmarks.
+   */
+  const fullImageEnamelGxExtent = (data, w, h, yLoImg, yHiImg) => {
+    const y0 = clamp(Math.min(yLoImg, yHiImg), 0, h - 1);
+    const y1 = clamp(Math.max(yLoImg, yHiImg), 0, h - 1);
+    const nRows = Math.min(10, Math.max(3, y1 - y0 + 1));
+    let gl = w;
+    let gr = -1;
+    for (let r = 0; r < nRows; r++) {
+      const gy = Math.round(y0 + (nRows <= 1 ? 0 : (r / (nRows - 1)) * (y1 - y0)));
+      if (gy < 1 || gy >= h - 1) continue;
+      for (let gx = 1; gx < w - 1; gx++) {
+        if (!pixelEnamelBracesLateral(data, w, h, gx, gy)) continue;
+        if (gx < gl) gl = gx;
+        if (gx > gr) gr = gx;
+      }
+    }
+    if (gr < gl) return null;
+    return { L: gl, R: gr };
+  };
+
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
     if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
     const steps = Math.max(20, stepsPerSeg | 0);
@@ -1855,9 +1898,11 @@ const SmileSimulatorAI = () => {
     return segs;
   };
 
-  /** One bracket at COM of enamel in [xL,xR]×[y0,y1], vertical face locked via BRACKET_VERTICAL_FACE_SAFE_FRAC. */
+  /**
+   * Geometric segment lock: X = horizontal midpoint of segment columns; Y = vertical midpoint of enamel
+   * (mean row of mask pixels) then BRACKET_VERTICAL_FACE_SAFE_FRAC clamp to gums/occlusal.
+   */
   const bracketCenterForToothSegment = (mask, bw, minX, minY, xL, xR, y0, y1) => {
-    let sumX = 0;
     let sumY = 0;
     let cnt = 0;
     let topY = 1e9;
@@ -1865,7 +1910,6 @@ const SmileSimulatorAI = () => {
     for (let lx = xL; lx <= xR; lx++) {
       for (let ly = y0; ly <= y1; ly++) {
         if (mask[ly * bw + lx] !== 1) continue;
-        sumX += lx + 0.5;
         sumY += ly + 0.5;
         cnt++;
         if (ly < topY) topY = ly;
@@ -1873,7 +1917,7 @@ const SmileSimulatorAI = () => {
       }
     }
     if (cnt < MORPH_MIN_TOOTH_BLOB_PX) return null;
-    const cx = minX + sumX / cnt;
+    const cx = minX + (xL + xR) * 0.5;
     const midLy = sumY / cnt;
     const midClamped = clampBracketMidYFrac(midLy, topY, botY, BRACKET_VERTICAL_FACE_SAFE_FRAC);
     const cy = minY + midClamped;
@@ -1931,20 +1975,23 @@ const SmileSimulatorAI = () => {
 
     let maxSm = 0;
     for (let k = 0; k < nCol; k++) if (sm[k] > maxSm) maxSm = sm[k];
-    const noiseFloor = Math.max(4, maxSm * 0.11);
-    const valleyThresh = Math.max(noiseFloor, maxSm * MORPH_VALLEY_DEPTH_FRAC);
 
     const edge = MORPH_EDGE_VALLEY_IGNORE_PX;
+    /** >40% drop vs neighbors when frac=0.6 (sm[k] < 0.6 × neighbor average). */
+    const isNeighborValley = (k, frac) => {
+      if (k < 1 || k >= nCol - 1) return false;
+      const nbr = (sm[k - 1] + sm[k + 1]) * 0.5;
+      if (nbr < 0.5) return false;
+      if (sm[k] > nbr * frac) return false;
+      return sm[k] < sm[k - 1] && sm[k] < sm[k + 1];
+    };
+
     const valleyLxList = [];
     for (let k = 1; k < nCol - 1; k++) {
       if (k < edge || k >= nCol - edge) {
-        if (sm[k] > maxSm * 0.22) continue;
+        if (sm[k] > maxSm * 0.2) continue;
       }
-      if (sm[k] >= valleyThresh) continue;
-      const localMin = sm[k] < sm[k - 1] && sm[k] < sm[k + 1];
-      const plateauMin = sm[k] <= sm[k - 1] && sm[k] <= sm[k + 1] && sm[k] < maxSm * 0.36;
-      if (!localMin && !plateauMin) continue;
-      if (sm[k] > 0.55 * Math.max(sm[k - 1], sm[k + 1])) continue;
+      if (!isNeighborValley(k, MORPH_VALLEY_NEIGHBOR_MAX_FRAC)) continue;
       valleyLxList.push(archLx0 + k);
     }
 
@@ -1978,11 +2025,10 @@ const SmileSimulatorAI = () => {
     let segments = buildSegmentsFromValleys(mergedValleys);
 
     if (segments.length <= 1 && nCol >= 28) {
-      const innerT = Math.max(maxSm * 0.44, noiseFloor * 2.2);
       const merged2 = [...mergedValleys];
       for (let k = edge + 2; k < nCol - edge - 2; k++) {
-        if (sm[k] >= innerT) continue;
-        if (sm[k] < sm[k - 1] && sm[k] < sm[k + 1]) merged2.push(archLx0 + k);
+        if (!isNeighborValley(k, MORPH_VALLEY_NEIGHBOR_LOOSE_FRAC)) continue;
+        merged2.push(archLx0 + k);
       }
       merged2.sort((a, b) => a - b);
       const dedup = [];
@@ -2017,8 +2063,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Morphological vertical-gap segmentation + enamel-only arch stretch (no commissure/oval widening).
-   * Upper and lower arches detected independently; 3-pt cy smooth; face-safe vertical clamp on each segment.
+   * Geometric arch-lock: full-snap enamel X, neighbor-valley segmentation, segment-width X + 25% Y face clamp,
+   * independent upper (≤14) / lower (≤12), 5-pt weighted cy smooth.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -2033,18 +2079,24 @@ const SmileSimulatorAI = () => {
     const archPadX = Math.max(14, (polyMaxX - polyMinX) * 0.2);
     const archPadY = Math.max(5, (polyMaxY - polyMinY) * 0.08);
 
-    const lm61 = landmarks[COMMISSURE_LEFT_IDX];
-    const lm291 = landmarks[COMMISSURE_RIGHT_IDX];
-    const cl = lm61?.x != null ? lm61.x * iw : polyMinX;
-    const cr = lm291?.x != null ? lm291.x * iw : polyMaxX;
-    const comPad = Math.max(44, (polyMaxX - polyMinX) * 0.2);
-    const comMin = Math.min(cl, cr) - comPad;
-    const comMax = Math.max(cl, cr) + comPad;
-
-    let minX = Math.floor(Math.min(polyMinX - archPadX, comMin));
+    const stripY0Pre = polyMinY - archPadY;
+    const stripY1Pre = polyMaxY + archPadY;
+    const fullXExtent = fullImageEnamelGxExtent(
+      data,
+      w,
+      h,
+      clamp(stripY0Pre, 0, h - 1),
+      clamp(stripY1Pre, 0, h - 1),
+    );
+    const xPadGeom = Math.max(16, (polyMaxX - polyMinX) * 0.08);
+    let minX = Math.floor(polyMinX - archPadX);
     let minY = Math.floor(polyMinY - 2);
-    let maxX = Math.ceil(Math.max(polyMaxX + archPadX, comMax));
+    let maxX = Math.ceil(polyMaxX + archPadX);
     let maxY = Math.ceil(polyMaxY + 2);
+    if (fullXExtent) {
+      minX = Math.min(minX, fullXExtent.L - xPadGeom);
+      maxX = Math.max(maxX, fullXExtent.R + xPadGeom);
+    }
     minX = clamp(minX, 0, w - 2);
     minY = clamp(minY, 0, h - 2);
     maxX = clamp(maxX, minX + 2, w - 1);
@@ -2060,8 +2112,8 @@ const SmileSimulatorAI = () => {
       for (let lx = 0; lx < bw; lx++) {
         const gx = minX + lx;
         const gy = minY + ly;
-        const inMouthStrip = gx >= comMin && gx <= comMax && gy >= stripY0 && gy <= stripY1;
-        const hasEnamel = inMouthStrip
+        const inVertBand = gy >= stripY0 && gy <= stripY1;
+        const hasEnamel = inVertBand
           ? pixelEnamelBracesLateral(data, w, h, gx, gy)
           : pixelEnamelInTeethMask(data, w, h, gx, gy);
         if (!hasEnamel) continue;
@@ -2071,7 +2123,7 @@ const SmileSimulatorAI = () => {
           gx <= polyMaxX + archPadX &&
           gy >= polyMinY - archPadY &&
           gy <= polyMaxY + archPadY;
-        if (inPoly || inExpandedArch || inMouthStrip) mask[ly * bw + lx] = 1;
+        if (inPoly || inExpandedArch || inVertBand) mask[ly * bw + lx] = 1;
       }
     }
 
@@ -2133,7 +2185,6 @@ const SmileSimulatorAI = () => {
     archLx0_l = clamp(archLx0_l, 0, bw - 1);
     archLx1_l = clamp(archLx1_l, archLx0_l, bw - 1);
 
-    const morphMax = MORPH_MAX_BRACKETS_PER_ARCH;
     const fallbackN = BRACKETS_STUDS_PER_ARCH;
 
     let upper = buildMorphologicalArchRow(
@@ -2151,7 +2202,7 @@ const SmileSimulatorAI = () => {
       yU1,
       ySplitImg,
       false,
-      morphMax,
+      MORPH_MAX_UPPER_BRACKETS,
     );
 
     let lower = buildMorphologicalArchRow(
@@ -2169,7 +2220,7 @@ const SmileSimulatorAI = () => {
       bh - 1,
       ySplitImg,
       true,
-      morphMax,
+      MORPH_MAX_LOWER_BRACKETS,
     );
 
     if (upper.length < 3) {
@@ -2207,9 +2258,9 @@ const SmileSimulatorAI = () => {
 
     if (upper.length === 0 || lower.length === 0) return null;
 
-    /** 3-point cy smooth — surgical wire arc without blurring horizontal tooth lock. */
-    upper = smoothArchCyOnlyMovingAvg3(upper);
-    lower = smoothArchCyOnlyMovingAvg3(lower);
+    /** 5-point weighted cy smooth — surgical wire arc; cx stays geometric segment lock. */
+    upper = smoothArchCyOnlyWeightedMovingAvg5(upper);
+    lower = smoothArchCyOnlyWeightedMovingAvg5(lower);
 
     upper = refineArchRowHorizontalEnamelCOM(upper, mask, bw, bh, minX, minY);
     lower = refineArchRowHorizontalEnamelCOM(lower, mask, bw, bh, minX, minY);
