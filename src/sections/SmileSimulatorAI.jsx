@@ -61,9 +61,10 @@ const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14
 /**
  * 10 upper + 10 lower: arch X uses enamel ∪ commissure ∪ full-image mouth scan ∪ mouth oval for left–right extremes; 5-pt smooth; 1.2px + 3px shadow.
  */
-const BRACKET_DRAW_SIDE_PX = 10;
-/** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
-const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
+/** Base clear-bracket size (reference: ~10–11px ceramic squares on tooth center). */
+const BRACKET_DRAW_SIDE_PX = 11;
+/** Catmull–Rom samples per segment (higher = smoother U-shaped clinical arch). */
+const CATMULL_WIRE_STEPS_PER_SEGMENT = 26;
 /** Column samples across full arch span to merge with per-tooth segments. */
 const GRID_ENAMEL_COLUMNS = 32;
 /** 3px-wide horizontal window: luminance refinement at each density peak (gap avoidance). */
@@ -82,8 +83,8 @@ const BRACKETS_STUDS_PER_ARCH = 10;
 const UPPER_ARCH_MAX_LUMINANCE_PEAKS = BRACKETS_STUDS_PER_ARCH;
 /** Lower arch: match upper count. */
 const LOWER_ARCH_SUBSAMPLE_MAX = BRACKETS_STUDS_PER_ARCH;
-/** Surgical silver spline (mandate). */
-const ARCHWIRE_LINE_WIDTH_PX = 1.2;
+/** Thin metallic archwire (clinical reference). */
+const ARCHWIRE_LINE_WIDTH_PX = 1.15;
 /** Cap studs per arch. */
 const MAX_CENTROID_STUDS_PER_ARCH = 12;
 /** Delay (ms) after rAF flush so landmarks/pixels settle before hardware draw. */
@@ -1028,55 +1029,64 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * 1:1 roundRect: radial jet #0a0a0a → rim #e8eaee; 1px white specular chip + glint; 1px charcoal channel.
+   * Clear / ceramic bracket: frosted glass body, bright rim, subtle wire slot, specular; optional w≠h for lateral perspective.
    */
-  const drawReflectiveMetalStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
-    const side = Math.min(w, h);
-    const r = clamp(side * 0.11, 0.7, side * 0.2);
+  const drawCeramicClearStud = (ctx, x, y, tangentRad, w, h, starFlare = false, omitDropShadow = false) => {
+    const side = Math.max(2, Math.min(w, h));
+    const deep = Math.max(side * 0.92, Math.max(w, h));
+    const r = clamp(side * 0.14, 0.85, side * 0.24);
     const hw = side * 0.5;
+    const hh = deep * 0.5;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tangentRad + Math.PI / 2);
     if (!omitDropShadow) {
-      ctx.shadowColor = HARDWARE_SHADOW_COLOR;
-      ctx.shadowBlur = ARCHWIRE_SHADOW_BLUR_PX;
+      ctx.shadowColor = "rgba(0,0,0,0.38)";
+      ctx.shadowBlur = 2.8;
       ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 1.2;
+      ctx.shadowOffsetY = 1.35;
     }
-    const body = ctx.createRadialGradient(0, 0, side * 0.04, 0, 0, hw * 1.06);
-    body.addColorStop(0, "#0a0a0a");
-    body.addColorStop(0.58, "#6d737c");
-    body.addColorStop(1, "#e8eaee");
+    const cxg = -hw * 0.2;
+    const cyg = -hh * 0.22;
+    const body = ctx.createRadialGradient(cxg, cyg, 0, 0, 0, Math.hypot(hw, hh) * 1.08);
+    body.addColorStop(0, "rgba(255,255,255,0.94)");
+    body.addColorStop(0.35, "rgba(252,253,255,0.72)");
+    body.addColorStop(0.65, "rgba(232,238,248,0.5)");
+    body.addColorStop(0.9, "rgba(210,220,235,0.42)");
+    body.addColorStop(1, "rgba(188,202,222,0.36)");
+
     ctx.beginPath();
     if (typeof ctx.roundRect === "function") {
-      ctx.roundRect(-hw, -hw, side, side, r);
+      ctx.roundRect(-hw, -hh, side, deep, r);
     } else {
-      ctx.rect(-hw, -hw, side, side);
+      ctx.rect(-hw, -hh, side, deep);
     }
     ctx.fillStyle = body;
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(-hw + 0.5, -hw + 0.5, 1, 1);
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 1;
-    ctx.lineCap = "butt";
-    ctx.lineJoin = "miter";
-    ctx.beginPath();
-    ctx.moveTo(-hw + 1.5, -hw + 0.5);
-    ctx.lineTo(-hw + Math.min(4, side * 0.36), -hw + 0.5);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.82)";
+    ctx.lineWidth = 1.05;
     ctx.stroke();
-    ctx.strokeStyle = "#2a3038";
+
+    ctx.strokeStyle = "rgba(160,176,198,0.4)";
+    ctx.lineWidth = 0.75;
     ctx.beginPath();
-    ctx.moveTo(-hw * 0.45, 0);
-    ctx.lineTo(hw * 0.45, 0);
+    ctx.moveTo(-hw * 0.42, 0);
+    ctx.lineTo(hw * 0.42, 0);
     ctx.stroke();
+
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.beginPath();
+    ctx.ellipse(-hw * 0.12, -hh * 0.52, side * 0.14, deep * 0.09, 0, 0, Math.PI * 2);
+    ctx.fill();
+
     if (starFlare) {
-      ctx.strokeStyle = "rgba(255,255,255,0.5)";
-      ctx.lineWidth = Math.max(0.25, side * 0.05);
+      ctx.strokeStyle = "rgba(255,255,255,0.45)";
+      ctx.lineWidth = Math.max(0.3, side * 0.045);
       ctx.beginPath();
-      ctx.moveTo(-hw * 0.15, -hw * 0.48);
-      ctx.lineTo(-hw * 0.05, -hw * 0.38);
+      ctx.moveTo(-hw * 0.12, -hh * 0.42);
+      ctx.lineTo(-hw * 0.02, -hh * 0.32);
       ctx.stroke();
     }
     ctx.restore();
@@ -1999,7 +2009,9 @@ const SmileSimulatorAI = () => {
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
         const edge = clamp(Math.abs((c.cx - oval.cx) / Math.max(oval.rx, 1)), 0, 1);
-        const perspective = 0.72 + 0.28 * (1 - edge);
+        const perspective = 0.56 + 0.44 * (1 - edge);
+        const wMult = Math.max(0.88, perspective);
+        const hMult = wMult * (0.68 + 0.32 * (1 - edge));
         let ang;
         if (arr.length === 1) ang = 0;
         else if (i === 0) ang = Math.atan2(arr[1].cy - arr[0].cy, arr[1].cx - arr[0].cx);
@@ -2009,7 +2021,8 @@ const SmileSimulatorAI = () => {
           x: clamp(c.cx, 4, iw - 5),
           y: clamp(c.cy, 4, ih - 5),
           ang,
-          wMult: Math.max(0.96, perspective),
+          wMult,
+          hMult,
           star: false,
           skipStud: false,
         };
@@ -2053,8 +2066,10 @@ const SmileSimulatorAI = () => {
     const all = [...upperAnchors, ...lowerAnchors];
     ctx.save();
     ctx.filter = "blur(3.5px)";
-    all.forEach(({ x, y, wMult, ang }) => {
-      const side = baseW * wMult * 1.15;
+    all.forEach(({ x, y, wMult, hMult, ang }) => {
+      const wm = wMult ?? 1;
+      const hm = hMult ?? wm;
+      const side = baseW * Math.max(wm, hm) * 1.06;
       const rr = clamp(side * 0.12, 1, 5);
       ctx.save();
       ctx.translate(x, y + 0.5);
@@ -2090,9 +2105,7 @@ const SmileSimulatorAI = () => {
 
     ctx.save();
 
-    /** Solid #e8eaee thread; depth from composite 3px shadow only. */
-    const ARCHWIRE_SOLID_SILVER = "#e8eaee";
-
+    /** Metallic tube: base stroke + thin highlight (clinical archwire). */
     const drawWire = () => {
       const up = wireSamplesUpper;
       const lo = wireSamplesLower;
@@ -2100,54 +2113,73 @@ const SmileSimulatorAI = () => {
       const hasLower = lo?.length >= 2;
       if (!hasUpper && !hasLower) return;
 
-      const strokeStyle = ARCHWIRE_SOLID_SILVER;
-      const lw = wireDarkW;
-      if (typeof Path2D !== "undefined") {
-        const path = new Path2D();
-        if (hasUpper) {
-          path.moveTo(up[0].x, up[0].y);
-          for (let i = 1; i < up.length; i++) path.lineTo(up[i].x, up[i].y);
+      const strokeBase = () => {
+        if (typeof Path2D !== "undefined") {
+          const path = new Path2D();
+          if (hasUpper) {
+            path.moveTo(up[0].x, up[0].y);
+            for (let i = 1; i < up.length; i++) path.lineTo(up[i].x, up[i].y);
+          }
+          if (hasLower) {
+            path.moveTo(lo[0].x, lo[0].y);
+            for (let j = 1; j < lo.length; j++) path.lineTo(lo[j].x, lo[j].y);
+          }
+          return path;
         }
-        if (hasLower) {
-          path.moveTo(lo[0].x, lo[0].y);
-          for (let j = 1; j < lo.length; j++) path.lineTo(lo[j].x, lo[j].y);
+        return null;
+      };
+
+      const paint = (path2d) => {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.setLineDash([]);
+        if (path2d) {
+          ctx.shadowColor = "rgba(0,0,0,0.22)";
+          ctx.shadowBlur = 2;
+          ctx.shadowOffsetY = 0.6;
+          ctx.strokeStyle = "#aeb6c4";
+          ctx.lineWidth = wireDarkW + 0.25;
+          ctx.stroke(path2d);
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = "rgba(245,247,250,0.88)";
+          ctx.lineWidth = Math.max(0.38, wireDarkW * 0.42);
+          ctx.stroke(path2d);
+        } else {
+          ctx.beginPath();
+          if (hasUpper) {
+            ctx.moveTo(up[0].x, up[0].y);
+            for (let i = 1; i < up.length; i++) ctx.lineTo(up[i].x, up[i].y);
+          }
+          if (hasLower) {
+            ctx.moveTo(lo[0].x, lo[0].y);
+            for (let j = 1; j < lo.length; j++) ctx.lineTo(lo[j].x, lo[j].y);
+          }
+          ctx.shadowColor = "rgba(0,0,0,0.22)";
+          ctx.shadowBlur = 2;
+          ctx.shadowOffsetY = 0.6;
+          ctx.strokeStyle = "#aeb6c4";
+          ctx.lineWidth = wireDarkW + 0.25;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = "rgba(245,247,250,0.88)";
+          ctx.lineWidth = Math.max(0.38, wireDarkW * 0.42);
+          ctx.stroke();
         }
-        requestAnimationFrame(() => {
-          ctx.save();
-          ctx.strokeStyle = strokeStyle;
-          ctx.lineWidth = lw;
-          ctx.lineCap = "round";
-          ctx.lineJoin = "round";
-          ctx.setLineDash([]);
-          ctx.stroke(path);
-          ctx.restore();
-        });
-        return;
-      }
-      ctx.save();
-      ctx.beginPath();
-      if (hasUpper) {
-        ctx.moveTo(up[0].x, up[0].y);
-        for (let i = 1; i < up.length; i++) ctx.lineTo(up[i].x, up[i].y);
-      }
-      if (hasLower) {
-        ctx.moveTo(lo[0].x, lo[0].y);
-        for (let j = 1; j < lo.length; j++) ctx.lineTo(lo[j].x, lo[j].y);
-      }
-      ctx.strokeStyle = strokeStyle;
-      ctx.lineWidth = lw;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.setLineDash([]);
-      requestAnimationFrame(() => {
-        ctx.stroke();
         ctx.restore();
+      };
+
+      const p = strokeBase();
+      requestAnimationFrame(() => {
+        if (p) paint(p);
+        else paint(null);
       });
     };
 
     const drawAnchors = (anchors) => {
-      anchors.forEach(({ x, y, ang, wMult, star }) => {
-        drawReflectiveMetalStud(ctx, x, y, ang, baseW * wMult, baseH * wMult, star, omitStudShadow);
+      anchors.forEach(({ x, y, ang, wMult, hMult, star }) => {
+        const hm = hMult ?? wMult;
+        drawCeramicClearStud(ctx, x, y, ang, baseW * wMult, baseH * hm, star, omitStudShadow);
       });
     };
 
