@@ -1777,7 +1777,7 @@ const SmileSimulatorAI = () => {
   };
 
   /** Snap each stud’s X to horizontal center of enamel mass in a small window (per-tooth centering). */
-  const refineArchRowHorizontalEnamelCOM = (row, mask, bw, bh, minX, minY, halfWin = 9, bandHalfY = 6) => {
+  const refineArchRowHorizontalEnamelCOM = (row, mask, bw, bh, minX, minY, halfWin = 9, bandHalfY = 6, minMaskPx = 6) => {
     if (row.length === 0) return row;
     const out = row.map((p) => {
       const lxC = clamp(Math.round(p.cx - minX), 0, bw - 1);
@@ -1795,7 +1795,7 @@ const SmileSimulatorAI = () => {
           cnt++;
         }
       }
-      if (cnt < 14) return { ...p };
+      if (cnt < minMaskPx) return { ...p };
       return { ...p, cx: minX + sumLX / cnt };
     });
     out.sort((a, b) => a.cx - b.cx);
@@ -1837,6 +1837,25 @@ const SmileSimulatorAI = () => {
       if (out.some((u) => Math.abs(u.cx - f.cx) < minSepPx)) continue;
       out.push({ cx: f.cx, cy: f.cy, area: 1 });
     }
+    out.sort((a, b) => a.cx - b.cx);
+    return out.slice(0, maxN);
+  };
+
+  /**
+   * Morph (per-tooth segments) first, then grid peaks — avoids luminance clumping in the anterior when grid is primary.
+   */
+  const mergeArchStudsPreferMorph = (morphRow, gridRow, maxN, minSepPx) => {
+    const sep = Math.max(1.5, minSepPx);
+    const out = [];
+    const tryAdd = (p) => {
+      if (!p || out.length >= maxN) return;
+      if (out.some((u) => Math.abs(u.cx - p.cx) < sep)) return;
+      out.push({ cx: p.cx, cy: p.cy, area: p.area ?? 1 });
+    };
+    const morphS = [...morphRow].sort((a, b) => a.cx - b.cx);
+    const gridS = [...gridRow].sort((a, b) => a.cx - b.cx);
+    for (const p of morphS) tryAdd(p);
+    for (const p of gridS) tryAdd(p);
     out.sort((a, b) => a.cx - b.cx);
     return out.slice(0, maxN);
   };
@@ -1977,6 +1996,62 @@ const SmileSimulatorAI = () => {
       out.push(p);
     }
     return out.length >= 2 ? out : sorted;
+  };
+
+  /** Wire endpoints from same ROI mask as studs + edge segment face Y; falls back to strict-teeth scan if band empty. */
+  const mergeWirePointsWithMaskBandEnds = (
+    studPtsImg,
+    mask,
+    bw,
+    bh,
+    minX,
+    minY,
+    yLoLocal,
+    yHiLocal,
+    data,
+    w,
+    h,
+  ) => {
+    const sorted = [...studPtsImg].filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)).sort((a, b) => a.x - b.x);
+    if (sorted.length === 0) return sorted;
+    const band = enamelLxExtentInBand(mask, bw, bh, yLoLocal, yHiLocal);
+    const yImgLo = minY + yLoLocal;
+    const yImgHi = minY + yHiLocal;
+    if (!band || band.R < band.L) {
+      return mergeWirePointsWithAnatomicalEnds(sorted, data, w, h, yImgLo, yImgHi);
+    }
+
+    const gxL = minX + band.L + 0.5;
+    const gxR = minX + band.R + 0.5;
+    if (gxR - gxL < 4) return sorted;
+
+    const xL = band.L;
+    const xR = band.R;
+    const edgeW = Math.max(4, Math.min(8, Math.floor((xR - xL) * 0.1)));
+    const leftSegR = Math.min(xL + edgeW, xR);
+    const rightSegL = Math.max(xR - edgeW, xL);
+    const bL = bracketCenterForToothSegment(mask, bw, minX, minY, xL, leftSegR, yLoLocal, yHiLocal);
+    const bR = bracketCenterForToothSegment(mask, bw, minX, minY, rightSegL, xR, yLoLocal, yHiLocal);
+    const left = { x: gxL, y: bL?.cy ?? sorted[0].y };
+    const right = { x: gxR, y: bR?.cy ?? sorted[sorted.length - 1].y };
+    const inner = sorted.filter((p) => p.x > gxL + 1.5 && p.x < gxR - 1.5);
+    const body = inner.length > 0 ? inner : sorted.filter((p) => p.x >= minX + band.L && p.x <= minX + band.R);
+    const merged = body.length > 0 ? [left, ...body, right] : [left, right];
+    merged.sort((a, b) => a.x - b.x);
+    const out = [];
+    for (const p of merged) {
+      const prev = out[out.length - 1];
+      if (prev && Math.abs(p.x - prev.x) < 1.25 && Math.abs(p.y - prev.y) < 6) continue;
+      out.push(p);
+    }
+    return out.length >= 2 ? out : sorted;
+  };
+
+  const clampWireSamplesX = (samples, gxMin, gxMax) => {
+    if (!samples?.length) return samples;
+    const lo = Math.min(gxMin, gxMax);
+    const hi = Math.max(gxMin, gxMax);
+    return samples.map((p) => ({ x: clamp(p.x, lo, hi), y: p.y }));
   };
 
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
@@ -2296,8 +2371,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Anatomical boundary-lock: enamel ROI ignores lip width; studs from 24-bin local luminance peaks (≤16 / ≤14)
-   * with morph merge fill; 3-pt weighted cy smooth after smile curve; wire Catmull uses strict enamel L/R column anchors.
+   * Per-tooth alignment: morph studs first + grid fill, widen arch if band bbox is too narrow, horizontal enamel COM
+   * refine, mask-band wire ends + X-clamped Catmull samples; 3-pt weighted cy smooth after smile curve (≤16 / ≤14).
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -2439,6 +2514,23 @@ const SmileSimulatorAI = () => {
     archLx0_l = clamp(archLx0_l, 0, bw - 1);
     archLx1_l = clamp(archLx1_l, archLx0_l, bw - 1);
 
+    /** If upper/lower band mask is much narrower than full enamel bbox, molars were dropped from the morph window — widen. */
+    const fullArchW = enamelMaxLx - enamelMinLx + 1;
+    const uBandW = uBand ? uBand.R - uBand.L + 1 : 0;
+    const lBandW = lBand ? lBand.R - lBand.L + 1 : 0;
+    if (fullArchW > 18 && uBandW > 0 && uBandW < fullArchW * 0.52) {
+      archLx0_u = Math.min(archLx0_u, enamelMinLx);
+      archLx1_u = Math.max(archLx1_u, enamelMaxLx);
+    }
+    if (fullArchW > 18 && lBandW > 0 && lBandW < fullArchW * 0.52) {
+      archLx0_l = Math.min(archLx0_l, enamelMinLx);
+      archLx1_l = Math.max(archLx1_l, enamelMaxLx);
+    }
+    archLx0_u = clamp(archLx0_u, 0, bw - 1);
+    archLx1_u = clamp(archLx1_u, archLx0_u, bw - 1);
+    archLx0_l = clamp(archLx0_l, 0, bw - 1);
+    archLx1_l = clamp(archLx1_l, archLx0_l, bw - 1);
+
     const morphUpper = buildMorphologicalArchRow(
       mask,
       bw,
@@ -2493,7 +2585,7 @@ const SmileSimulatorAI = () => {
       ySplitImg,
       false,
     );
-    let upper = mergeUpperStudRowsByMinSep(gridU, morphUpper, MORPH_MAX_UPPER_BRACKETS, 3);
+    let upper = mergeArchStudsPreferMorph(morphUpper, gridU, MORPH_MAX_UPPER_BRACKETS, 3);
 
     const gridL = buildArchRowFromHighDensityGrid(
       data,
@@ -2512,7 +2604,7 @@ const SmileSimulatorAI = () => {
       ySplitImg,
       true,
     );
-    let lower = mergeUpperStudRowsByMinSep(gridL, morphLower, MORPH_MAX_LOWER_BRACKETS, 3);
+    let lower = mergeArchStudsPreferMorph(morphLower, gridL, MORPH_MAX_LOWER_BRACKETS, 3);
 
     if (upper.length < 3) {
       upper = buildUpperEvenlySpacedSlots(
@@ -2549,6 +2641,10 @@ const SmileSimulatorAI = () => {
 
     if (upper.length === 0 && lower.length === 0) return null;
 
+    /** Horizontal COM on mask enamel — centers each bracket on the tooth blob under it. */
+    upper = refineArchRowHorizontalEnamelCOM(upper, mask, bw, bh, minX, minY, 9, 6, 6);
+    lower = refineArchRowHorizontalEnamelCOM(lower, mask, bw, bh, minX, minY, 9, 6, 6);
+
     upper = applySmileCurveVerticalToArchRow(upper, true, oval);
     lower = applySmileCurveVerticalToArchRow(lower, false, oval);
 
@@ -2580,28 +2676,46 @@ const SmileSimulatorAI = () => {
         };
       });
 
-    const upperWireCtrl = mergeWirePointsWithAnatomicalEnds(
+    const upperWireCtrl = mergeWirePointsWithMaskBandEnds(
       upper.map((c) => ({ x: c.cx, y: c.cy })),
+      mask,
+      bw,
+      bh,
+      minX,
+      minY,
+      yU0,
+      yU1,
       data,
       w,
       h,
-      imgYUpperLo,
-      imgYUpperHi,
     );
-    const lowerWireCtrl = mergeWirePointsWithAnatomicalEnds(
+    const lowerWireCtrl = mergeWirePointsWithMaskBandEnds(
       lower.map((c) => ({ x: c.cx, y: c.cy })),
+      mask,
+      bw,
+      bh,
+      minX,
+      minY,
+      yLowerStart,
+      bh - 1,
       data,
       w,
       h,
-      imgYLowerLo,
-      imgYLowerHi,
     );
     const upperPts = ensureSplineControlPoints(upperWireCtrl);
     const lowerPts = ensureSplineControlPoints(lowerWireCtrl);
-    const wireSamplesUpper =
+    const bandU = enamelLxExtentInBand(mask, bw, bh, yU0, yU1);
+    const bandL = enamelLxExtentInBand(mask, bw, bh, yLowerStart, bh - 1);
+    let wireSamplesUpper =
       upperWireCtrl.length > 0 ? sampleOpenCatmullRomChain(upperPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
-    const wireSamplesLower =
+    let wireSamplesLower =
       lowerWireCtrl.length > 0 ? sampleOpenCatmullRomChain(lowerPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
+    if (bandU && wireSamplesUpper.length > 1) {
+      wireSamplesUpper = clampWireSamplesX(wireSamplesUpper, minX + bandU.L, minX + bandU.R);
+    }
+    if (bandL && wireSamplesLower.length > 1) {
+      wireSamplesLower = clampWireSamplesX(wireSamplesLower, minX + bandL.L, minX + bandL.R);
+    }
 
     return {
       wireMode: "catmull",
