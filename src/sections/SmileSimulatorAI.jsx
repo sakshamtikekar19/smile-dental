@@ -59,9 +59,9 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Geometric segmentation lock: full-snap enamel horizontal ROI (lip corners ignored), morphological valley
- * segments only (independent upper/lower), segment-mid X + 20% face Y, 5-pt cy MA, ≤14 / ≤12 studs,
- * 1.2px wire + 3px rgba(0,0,0,0.8).
+ * Anatomical arch-lock: strict TEETH_WHITEN (enamel) horizontal extent for wire endpoints — zero run-out past
+ * last visible pixel; high-density 24-bin local luminance peaks for studs (16 / 14); 3-pt weighted cy smooth;
+ * 20% vertical face clamp on peaks; 1.2px wire + 3px rgba(0,0,0,0.8). ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0.
  */
 /** Base clear-bracket size (reference: ~10–11px ceramic squares on tooth center). */
 const BRACKET_DRAW_SIDE_PX = 11;
@@ -90,11 +90,11 @@ const MORPH_SIGNAL_BLUR_HALF = 2;
 const MORPH_MIN_SEGMENT_WIDTH_PX = 3;
 /** Relaxed COM threshold; thin edge enamel uses pickColumnStudLuminancePeak fallback. */
 const MORPH_MIN_TOOTH_BLOB_PX = 6;
-/** Segment merge caps align with bracket targets (molar-to-molar within 14 / 12). */
-const MORPH_SEGMENT_CAP_UPPER = 14;
-const MORPH_SEGMENT_CAP_LOWER = 12;
-const MORPH_MAX_UPPER_BRACKETS = 14;
-const MORPH_MAX_LOWER_BRACKETS = 12;
+/** Segment merge caps align with bracket targets (molar-to-molar within 16 / 14). */
+const MORPH_SEGMENT_CAP_UPPER = 16;
+const MORPH_SEGMENT_CAP_LOWER = 14;
+const MORPH_MAX_UPPER_BRACKETS = 16;
+const MORPH_MAX_LOWER_BRACKETS = 14;
 /** Narrower so distal columns can register interdental valleys near commissures. */
 const MORPH_EDGE_VALLEY_IGNORE_PX = 2;
 /** Legacy density merge cap. */
@@ -102,7 +102,10 @@ const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_UPPER_BRACKETS;
 const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
 /** Solid silver archwire (px). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
-/** >0 mirrors Catmull endpoints (wire extends past last stud). 0 = duplicate endpoints so wire tucks at terminal brackets. */
+/**
+ * >0 mirrors Catmull endpoints (wire extends past last stud). 0 = anatomical lock: spline control points sit on
+ * strict enamel L/R column centers — no extension past visible teeth (prevents floating wire in void).
+ */
 const ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0;
 /** Match stud drop shadow so wire reads threaded through brackets, not floating in front. */
 const ARCHWIRE_SHADOW_OFFSET_Y_PX = 1.35;
@@ -116,7 +119,7 @@ const MAX_CENTROID_STUDS_PER_ARCH = Math.max(MORPH_MAX_UPPER_BRACKETS, MORPH_MAX
 const BRACES_HARDWARE_SETTLE_MS = 50;
 const HARDWARE_LAYER_SHADOW_BLUR_PX = 3;
 const ARCHWIRE_SHADOW_BLUR_PX = 3;
-const HARDWARE_SHADOW_COLOR = "rgba(0,0,0,0.8)";
+const HARDWARE_SHADOW_COLOR = 'rgba(0,0,0,0.8)';
 /** Upper-arch specular dots for enamel gloss (overlay radials). */
 const ENAMEL_SPECULAR_INDICES = [82, 81, 311];
 
@@ -1887,6 +1890,95 @@ const SmileSimulatorAI = () => {
     return { L: gl, R: gr };
   };
 
+  /**
+   * Strict enamel only (TEETH_WHITEN-style): left/right gx in band — wire endpoints must not use lateral bleed.
+   */
+  const fullImageStrictTeethGxExtent = (data, w, h, yLoImg, yHiImg) => {
+    const y0 = clamp(Math.min(yLoImg, yHiImg), 0, h - 1);
+    const y1 = clamp(Math.max(yLoImg, yHiImg), 0, h - 1);
+    let gl = w;
+    let gr = -1;
+    for (let gy = y0; gy <= y1; gy++) {
+      if (gy < 1 || gy >= h - 1) continue;
+      for (let gx = 1; gx < w - 1; gx++) {
+        if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) continue;
+        if (gx < gl) gl = gx;
+        if (gx > gr) gr = gx;
+      }
+    }
+    if (gr < gl) return null;
+    return { L: gl, R: gr };
+  };
+
+  /** (top+bottom)/2 of strict enamel in column gx, clamped by BRACKET_VERTICAL_FACE_SAFE_FRAC; image Y. */
+  const strictTeethColumnFaceY = (data, w, h, gx, yLoImg, yHiImg) => {
+    const y0 = clamp(Math.min(yLoImg, yHiImg), 0, h - 1);
+    const y1 = clamp(Math.max(yLoImg, yHiImg), 0, h - 1);
+    if (gx < 1 || gx >= w - 1) return null;
+    let top = 1e9;
+    let bot = -1;
+    for (let gy = y0; gy <= y1; gy++) {
+      if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) continue;
+      if (gy < top) top = gy;
+      if (gy > bot) bot = gy;
+    }
+    if (top > bot) return null;
+    const midRaw = (top + bot) * 0.5;
+    return clampBracketMidYFrac(midRaw, top, bot, BRACKET_VERTICAL_FACE_SAFE_FRAC);
+  };
+
+  const strictTeethColumnFaceYNearest = (data, w, h, gx, yLoImg, yHiImg, maxD) => {
+    const dMax = clamp(maxD | 0, 0, 12);
+    for (let d = 0; d <= dMax; d++) {
+      const xm = gx - d;
+      if (xm >= 1) {
+        const y = strictTeethColumnFaceY(data, w, h, xm, yLoImg, yHiImg);
+        if (y != null) return y;
+      }
+      const xp = gx + d;
+      if (d > 0 && xp < w - 1) {
+        const y2 = strictTeethColumnFaceY(data, w, h, xp, yLoImg, yHiImg);
+        if (y2 != null) return y2;
+      }
+    }
+    return null;
+  };
+
+  /**
+   * Catmull control polyline: strict enamel column centers at L/R + stud row between (no lip geometry).
+   */
+  const mergeWirePointsWithAnatomicalEnds = (studPtsImg, data, w, h, yLoImg, yHiImg) => {
+    const sorted = [...studPtsImg].filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)).sort((a, b) => a.x - b.x);
+    const ext = fullImageStrictTeethGxExtent(data, w, h, yLoImg, yHiImg);
+    if (!ext || sorted.length === 0) return sorted;
+
+    const xL = ext.L + 0.5;
+    const xR = ext.R + 0.5;
+    if (xR - xL < 4) return sorted;
+
+    let yL = strictTeethColumnFaceY(data, w, h, ext.L, yLoImg, yHiImg);
+    if (yL == null) yL = strictTeethColumnFaceYNearest(data, w, h, ext.L, yLoImg, yHiImg, 6);
+    if (yL == null) yL = sorted[0].y;
+
+    let yR = strictTeethColumnFaceY(data, w, h, ext.R, yLoImg, yHiImg);
+    if (yR == null) yR = strictTeethColumnFaceYNearest(data, w, h, ext.R, yLoImg, yHiImg, 6);
+    if (yR == null) yR = sorted[sorted.length - 1].y;
+
+    const left = { x: xL, y: yL };
+    const right = { x: xR, y: yR };
+    const inner = sorted.filter((p) => p.x > xL + 2 && p.x < xR - 2);
+    const body = inner.length > 0 ? inner : sorted.filter((p) => p.x >= xL && p.x <= xR);
+    const merged = body.length > 0 ? [left, ...body, right] : [left, right];
+    merged.sort((a, b) => a.x - b.x);
+    const out = [];
+    for (const p of merged) {
+      const prev = out[out.length - 1];
+      if (prev && Math.abs(p.x - prev.x) < 1.25 && Math.abs(p.y - prev.y) < 6) continue;
+      out.push(p);
+    }
+    return out.length >= 2 ? out : sorted;
+  };
+
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
     if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
     const steps = Math.max(20, stepsPerSeg | 0);
@@ -2204,8 +2296,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Universal geometric arch-lock: enamel-driven horizontal ROI, independent morph valley rows (≤14 / ≤12),
-   * segment geometric center + 20% Y clamp, 5-pt cy MA after smile curve.
+   * Anatomical boundary-lock: enamel ROI ignores lip width; studs from 24-bin local luminance peaks (≤16 / ≤14)
+   * with morph merge fill; 3-pt weighted cy smooth after smile curve; wire Catmull uses strict enamel L/R column anchors.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -2383,50 +2475,44 @@ const SmileSimulatorAI = () => {
       MORPH_MAX_LOWER_BRACKETS,
     );
 
-    /** Geometric lock: valley segments are primary; grid is fallback only (no lip-clipped density as main path). */
-    let upper = morphUpper;
-    if (upper.length < 2) {
-      const gridU = buildArchRowFromHighDensityGrid(
-        data,
-        w,
-        h,
-        mask,
-        bw,
-        minX,
-        minY,
-        archLx0_u,
-        archLx1_u,
-        yU0,
-        yU1,
-        GRID_ENAMEL_COLUMNS,
-        MORPH_MAX_UPPER_BRACKETS,
-        ySplitImg,
-        false,
-      );
-      upper = mergeUpperStudRowsByMinSep(morphUpper, gridU, MORPH_MAX_UPPER_BRACKETS, 3);
-    }
+    /** Local maxima per bin across full arch span (not one global 1D average); morph fills interdental gaps. */
+    const gridU = buildArchRowFromHighDensityGrid(
+      data,
+      w,
+      h,
+      mask,
+      bw,
+      minX,
+      minY,
+      archLx0_u,
+      archLx1_u,
+      yU0,
+      yU1,
+      GRID_ENAMEL_COLUMNS,
+      MORPH_MAX_UPPER_BRACKETS,
+      ySplitImg,
+      false,
+    );
+    let upper = mergeUpperStudRowsByMinSep(gridU, morphUpper, MORPH_MAX_UPPER_BRACKETS, 3);
 
-    let lower = morphLower;
-    if (lower.length < 2) {
-      const gridL = buildArchRowFromHighDensityGrid(
-        data,
-        w,
-        h,
-        mask,
-        bw,
-        minX,
-        minY,
-        archLx0_l,
-        archLx1_l,
-        yLowerStart,
-        bh - 1,
-        GRID_ENAMEL_COLUMNS,
-        MORPH_MAX_LOWER_BRACKETS,
-        ySplitImg,
-        true,
-      );
-      lower = mergeUpperStudRowsByMinSep(morphLower, gridL, MORPH_MAX_LOWER_BRACKETS, 3);
-    }
+    const gridL = buildArchRowFromHighDensityGrid(
+      data,
+      w,
+      h,
+      mask,
+      bw,
+      minX,
+      minY,
+      archLx0_l,
+      archLx1_l,
+      yLowerStart,
+      bh - 1,
+      GRID_ENAMEL_COLUMNS,
+      MORPH_MAX_LOWER_BRACKETS,
+      ySplitImg,
+      true,
+    );
+    let lower = mergeUpperStudRowsByMinSep(gridL, morphLower, MORPH_MAX_LOWER_BRACKETS, 3);
 
     if (upper.length < 3) {
       upper = buildUpperEvenlySpacedSlots(
@@ -2466,9 +2552,9 @@ const SmileSimulatorAI = () => {
     upper = applySmileCurveVerticalToArchRow(upper, true, oval);
     lower = applySmileCurveVerticalToArchRow(lower, false, oval);
 
-    /** 5-point moving average on cy (preserves segment-mid X); no horizontal COM refine — geometric lock. */
-    upper = smoothArchCyOnlyMovingAvg5(upper);
-    lower = smoothArchCyOnlyMovingAvg5(lower);
+    /** 3-point weighted (1–2–1) cy smooth before Catmull — professional arc, no zig-zag. */
+    upper = smoothArchCyOnlyWeightedMovingAvg3(upper);
+    lower = smoothArchCyOnlyWeightedMovingAvg3(lower);
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
@@ -2494,14 +2580,28 @@ const SmileSimulatorAI = () => {
         };
       });
 
-    const upperPtsRaw = upper.map((c) => ({ x: c.cx, y: c.cy }));
-    const lowerPtsRaw = lower.map((c) => ({ x: c.cx, y: c.cy }));
-    const upperPts = ensureSplineControlPoints(upperPtsRaw);
-    const lowerPts = ensureSplineControlPoints(lowerPtsRaw);
+    const upperWireCtrl = mergeWirePointsWithAnatomicalEnds(
+      upper.map((c) => ({ x: c.cx, y: c.cy })),
+      data,
+      w,
+      h,
+      imgYUpperLo,
+      imgYUpperHi,
+    );
+    const lowerWireCtrl = mergeWirePointsWithAnatomicalEnds(
+      lower.map((c) => ({ x: c.cx, y: c.cy })),
+      data,
+      w,
+      h,
+      imgYLowerLo,
+      imgYLowerHi,
+    );
+    const upperPts = ensureSplineControlPoints(upperWireCtrl);
+    const lowerPts = ensureSplineControlPoints(lowerWireCtrl);
     const wireSamplesUpper =
-      upperPtsRaw.length > 0 ? sampleOpenCatmullRomChain(upperPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
+      upperWireCtrl.length > 0 ? sampleOpenCatmullRomChain(upperPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
     const wireSamplesLower =
-      lowerPtsRaw.length > 0 ? sampleOpenCatmullRomChain(lowerPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
+      lowerWireCtrl.length > 0 ? sampleOpenCatmullRomChain(lowerPts, CATMULL_WIRE_STEPS_PER_SEGMENT) : [];
 
     return {
       wireMode: "catmull",
