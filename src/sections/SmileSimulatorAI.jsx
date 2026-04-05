@@ -59,26 +59,24 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Full-arch edge-lock: TEETH_WHITEN enamel span × 24 cols (3px lum peak) → bbox Y-split (no lip centers) →
- * upper ≤10 peaks, lower mirrored subsampled 6–8 → 3-pt avg → 1.2px solid wire + 3px shadow.
+ * Full-arch precision-lock: TEETH_WHITEN ROI full width × 24 cols, 3px-wide luminance peak (snap to tooth face) →
+ * bbox Y-split (no lip landmarks) → upper ≤12, lower mirror capped at 8 → 3-pt avg → 1.2px solid + 3px shadow.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
-/** Horizontal strips across enamel horizontal extent (full arch left–right). */
+/** Columns span full TEETH_WHITEN mask width (edge-to-edge; not inner-lip clipped). */
 const GRID_ENAMEL_COLUMNS = 24;
-/** Sliding window width (px) for horizontal luminance peak within each column (tooth center vs gap). */
+/** 3px-wide horizontal window within each column: brightest mean enamel luminance → stud X (anatomical peak). */
 const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
 /** Clamp vertical stud away from gumline and incisal edge (fraction of tooth span). */
 const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.15;
 /** Lower-arch studs must sit at least this far below arch midline Y (image px). */
 const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
-/** Max upper-arch studs after luminance peak pick (wide smile). */
-const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 10;
-/** Lower arch: subsample mirrored row to at most this many (tight smile overlap guard). */
+/** Max upper-arch studs after luminance peak pick (full-width smile). */
+const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 12;
+/** Lower arch: subsample mirrored row to at most this many (narrow lower jaw / overlap guard). */
 const LOWER_ARCH_SUBSAMPLE_MAX = 8;
-/** When upper has at least this many studs, keep at least this many on lower (within max). */
-const LOWER_ARCH_SUBSAMPLE_MIN = 6;
 /** Drop grid samples closer than this to the previous kept point (fallback / lower rescue). */
 const GRID_SCAN_MIN_NEIGHBOR_DIST_PX = 12;
 /** Surgical silver spline (mandate). */
@@ -1135,8 +1133,8 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Per column: slide a 3px-wide window; highest mean luminance on enamel wins X (window center).
-   * Y = midpoint of top/bottom enamel in that window, clamped 15% from gum/incisal.
+   * Per column: slide a 3px-wide horizontal window; highest mean enamel luminance wins X (peak strip center).
+   * Y = (top+bottom)/2 of enamel in that strip, clamped 15% from gum and incisal (tooth face).
    * `imgH` must be enamelSnap.height (same scope as `w`).
    */
   const pickColumnStudLuminancePeak = (
@@ -1308,7 +1306,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * TEETH_WHITEN ROI → enamel mask → horizontal edge-lock columns → lum peaks → lower 6–8 subsample → Catmull.
+   * TEETH_WHITEN full-width ROI → 24 lum-peak columns → ≤12 upper peaks → mirror lower ≤8 → 3-pt avg → Catmull.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -1339,20 +1337,18 @@ const SmileSimulatorAI = () => {
       }
     }
 
-    let eL = bw;
-    let eR = -1;
-    for (let ly = 0; ly < bh; ly++) {
-      for (let lx = 0; lx < bw; lx++) {
-        if (mask[ly * bw + lx] !== 1) continue;
-        if (lx < eL) eL = lx;
-        if (lx > eR) eR = lx;
+    let anyEnamel = false;
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] === 1) {
+        anyEnamel = true;
+        break;
       }
     }
-    if (eR < eL) return null;
-    const colSpan = eR - eL + 1;
+    if (!anyEnamel) return null;
+
     const cols = GRID_ENAMEL_COLUMNS;
 
-    /** Arch midline from TEETH_WHITEN bbox only (not inner lip landmarks 13/14). */
+    /** Arch midline: vertical center of TEETH_WHITEN mask bbox (not inner lip landmarks 13/14). */
     const ySplitImg = (minY + maxY) * 0.5;
     const ySplitLocal = ySplitImg - minY;
     const split = clamp(Math.round(ySplitLocal), 1, Math.max(1, bh - 1));
@@ -1361,8 +1357,8 @@ const SmileSimulatorAI = () => {
 
     const upperCands = [];
     for (let c = 0; c < cols; c++) {
-      const xStart = eL + Math.floor((c * colSpan) / cols);
-      const xEnd = eL + Math.floor(((c + 1) * colSpan) / cols) - 1;
+      const xStart = Math.floor((c * bw) / cols);
+      const xEnd = Math.min(bw - 1, Math.ceil(((c + 1) * bw) / cols) - 1);
       if (xEnd < xStart) continue;
       const u = pickColumnStudLuminancePeak(
         data,
@@ -1386,11 +1382,7 @@ const SmileSimulatorAI = () => {
     if (upper.length === 0) return null;
 
     let lower = mirrorLowerStudsToUpper(mask, bw, bh, minX, minY, yLowerStart, bh - 1, ySplitImg, upper);
-    let lowerN = Math.min(upper.length, LOWER_ARCH_SUBSAMPLE_MAX);
-    if (upper.length >= LOWER_ARCH_SUBSAMPLE_MIN) {
-      lowerN = Math.max(lowerN, LOWER_ARCH_SUBSAMPLE_MIN);
-    }
-    lowerN = Math.min(lowerN, upper.length);
+    const lowerN = Math.min(upper.length, LOWER_ARCH_SUBSAMPLE_MAX);
     if (lower.length > lowerN) {
       lower = subsampleArchRowToCount(lower, lowerN);
     }
