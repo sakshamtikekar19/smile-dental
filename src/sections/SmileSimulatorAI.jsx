@@ -59,13 +59,13 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Edge-to-edge anatomical lock: brace scan uses widened TEETH_WHITEN hull (no lip inset/guard) + commissure span,
- * 24 cols × 3px luminance peak, even upper subsample ≤12, lower luminance in band capped at 8 → 3-pt avg → 1.2px + 3px shadow.
+ * Full-arch anatomical boundary-lock: 24 columns on enamel-mask bbox; 3px luminance peak; Y-split from enamel mask;
+ * upper <=12 + 3-pt smooth; lower mirrors upper X, lum Y, cap 8, cy smooth only; 1.2px wire + 3px shadow.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
-/** Columns span full TEETH_WHITEN mask width (edge-to-edge; not inner-lip clipped). */
+/** Columns partition the horizontal span of the TEETH_WHITEN enamel mask (boundary-lock), not lip geometry. */
 const GRID_ENAMEL_COLUMNS = 24;
 /** 3px-wide horizontal window within each column: brightest mean enamel luminance → stud X (anatomical peak). */
 const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
@@ -1249,9 +1249,9 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Lower arch: 3px luminance peak in the lower band near each upper stud (tooth-face center), Y ≥ split + offset.
+   * Lower arch: mirror upper X exactly; Y from 3px luminance peak in lower band at that X (face center), ≥ split + offset.
    */
-  const mirrorLowerStudsLuminancePeak = (
+  const mirrorLowerStudsExactUpperX = (
     data,
     w,
     imgH,
@@ -1264,11 +1264,15 @@ const SmileSimulatorAI = () => {
     ySplitImg,
     upperRow,
   ) => {
-    const half = Math.max(1, Math.floor(LUMINANCE_PEAK_STRIP_WIDTH_PX / 2));
+    const sw = LUMINANCE_PEAK_STRIP_WIDTH_PX;
     return upperRow.map((u) => {
       const lxCenter = clamp(Math.round(u.cx - minX), 0, bw - 1);
-      const xStart = clamp(lxCenter - half - 1, 0, bw - 1);
-      const xEnd = clamp(lxCenter + half + 1, xStart, bw - 1);
+      let xStart = clamp(lxCenter - Math.floor(sw / 2), 0, bw - sw);
+      let xEnd = xStart + sw - 1;
+      if (xEnd > bw - 1) {
+        xEnd = bw - 1;
+        xStart = Math.max(0, xEnd - sw + 1);
+      }
       const lo = pickColumnStudLuminancePeak(
         data,
         w,
@@ -1281,15 +1285,12 @@ const SmileSimulatorAI = () => {
         xEnd,
         yLower0,
         yLower1,
-        LUMINANCE_PEAK_STRIP_WIDTH_PX,
+        sw,
       );
-      let cx = u.cx;
-      let cy = Math.max(ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX, minY + yLower0 + 2);
-      if (lo) {
-        cx = lo.cx;
-        cy = Math.max(lo.cy, ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX);
-      }
-      return { cx, cy, area: 1 };
+      const cy = lo
+        ? Math.max(lo.cy, ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX)
+        : Math.max(ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX, minY + yLower0 + 2);
+      return { cx: u.cx, cy, area: 1 };
     });
   };
 
@@ -1301,6 +1302,21 @@ const SmileSimulatorAI = () => {
       const i2 = Math.min(row.length - 1, i + 1);
       return {
         cx: (row[i0].cx + row[i].cx + row[i2].cx) / 3,
+        cy: (row[i0].cy + row[i].cy + row[i2].cy) / 3,
+        area: row[i].area ?? 1,
+      };
+    });
+  };
+
+  /** 3-point Y smooth only — keeps cx identical to mirrored upper after upper arch smoothing. */
+  const smoothArchCyOnlyMovingAvg3 = (row) => {
+    if (row.length === 0) return [];
+    if (row.length < 3) return row.map((r) => ({ cx: r.cx, cy: r.cy, area: r.area ?? 1 }));
+    return row.map((_, i) => {
+      const i0 = Math.max(0, i - 1);
+      const i2 = Math.min(row.length - 1, i + 1);
+      return {
+        cx: row[i].cx,
         cy: (row[i0].cy + row[i].cy + row[i2].cy) / 3,
         area: row[i].area ?? 1,
       };
@@ -1338,7 +1354,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Widened brace hull (commissure span) → 24 lum-peak columns → ≤12 upper → lower lum-peak band ≤8 → 3-pt avg → Catmull.
+   * Anatomical boundary-lock: raster TEETH_WHITEN enamel, then lock scan + arch split to the mask's true bbox (edge-to-edge enamel).
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -1369,28 +1385,36 @@ const SmileSimulatorAI = () => {
       }
     }
 
-    let anyEnamel = false;
-    for (let i = 0; i < mask.length; i++) {
-      if (mask[i] === 1) {
-        anyEnamel = true;
-        break;
+    let enamelMinLx = bw;
+    let enamelMaxLx = -1;
+    let enamelMinLy = bh;
+    let enamelMaxLy = -1;
+    for (let ly = 0; ly < bh; ly++) {
+      for (let lx = 0; lx < bw; lx++) {
+        if (mask[ly * bw + lx] !== 1) continue;
+        if (lx < enamelMinLx) enamelMinLx = lx;
+        if (lx > enamelMaxLx) enamelMaxLx = lx;
+        if (ly < enamelMinLy) enamelMinLy = ly;
+        if (ly > enamelMaxLy) enamelMaxLy = ly;
       }
     }
-    if (!anyEnamel) return null;
+    if (enamelMaxLx < enamelMinLx || enamelMaxLy < enamelMinLy) return null;
+
+    const ew = enamelMaxLx - enamelMinLx + 1;
+    if (ew < 8) return null;
 
     const cols = GRID_ENAMEL_COLUMNS;
 
-    /** Arch midline: vertical center of TEETH_WHITEN mask bbox (not inner lip landmarks 13/14). */
-    const ySplitImg = (minY + maxY) * 0.5;
-    const ySplitLocal = ySplitImg - minY;
-    const split = clamp(Math.round(ySplitLocal), 1, Math.max(1, bh - 1));
-    const yUpperEnd = split - 1;
-    const yLowerStart = split;
+    /** Arch split from vertical center of enamel mask only (not lip polygon bbox). */
+    const ySplitLocal = clamp(Math.round((enamelMinLy + enamelMaxLy) * 0.5), 1, Math.max(1, bh - 2));
+    const ySplitImg = minY + ySplitLocal;
+    const yUpperEnd = ySplitLocal - 1;
+    const yLowerStart = ySplitLocal;
 
     const upperCands = [];
     for (let c = 0; c < cols; c++) {
-      const xStart = Math.floor((c * bw) / cols);
-      const xEnd = Math.min(bw - 1, Math.ceil(((c + 1) * bw) / cols) - 1);
+      const xStart = enamelMinLx + Math.floor((c * ew) / cols);
+      const xEnd = Math.min(enamelMaxLx, enamelMinLx + Math.ceil(((c + 1) * ew) / cols) - 1);
       if (xEnd < xStart) continue;
       const u = pickColumnStudLuminancePeak(
         data,
@@ -1403,7 +1427,7 @@ const SmileSimulatorAI = () => {
         xStart,
         xEnd,
         0,
-        yUpperEnd,
+        Math.max(0, yUpperEnd),
         LUMINANCE_PEAK_STRIP_WIDTH_PX,
       );
       if (u) upperCands.push(u);
@@ -1415,7 +1439,9 @@ const SmileSimulatorAI = () => {
     );
     if (upper.length === 0) return null;
 
-    let lower = mirrorLowerStudsLuminancePeak(
+    upper = smoothArchCentroidsMovingAvg3(upper);
+
+    let lower = mirrorLowerStudsExactUpperX(
       data,
       w,
       h,
@@ -1432,8 +1458,7 @@ const SmileSimulatorAI = () => {
     if (lower.length > lowerN) {
       lower = subsampleArchRowToCount(lower, lowerN);
     }
-    upper = smoothArchCentroidsMovingAvg3(upper);
-    lower = smoothArchCentroidsMovingAvg3(lower);
+    lower = smoothArchCyOnlyMovingAvg3(lower);
 
     const anchorsFromCentroidRow = (row) =>
       row.map((c, i, arr) => {
