@@ -1091,13 +1091,17 @@ const SmileSimulatorAI = () => {
     const wireDarkW = ARCHWIRE_LINE_WIDTH_PX;
     const pack = computeBracesAnchors(landmarks, iw, ih, oval);
     if (!pack) return;
-    const { upperAnchors, lowerAnchors, baseW, baseH, wireSamplesUpper, wireSamplesLower } = pack;
+    const { upperAnchors, lowerAnchors, baseW, baseH, wireSamplesUpper, wireSamplesLower, mouthOpen } = pack;
 
     ctx.save();
     ctx.globalAlpha = outerAlpha;
 
     if (layers === "wire" || layers === "both") {
-      renderWire(ctx, wireSamplesUpper, wireSamplesLower ?? [], { lineWidth: wireDarkW });
+      renderWire(ctx, wireSamplesUpper, wireSamplesLower ?? [], {
+        lineWidth: wireDarkW,
+        clipMouth: oval?.rx > 0 && oval?.ry > 0 ? oval : undefined,
+        mouthOpen,
+      });
     }
     if (layers === "shadows" || layers === "both") {
       drawBracesContactShadows(landmarks, ctx, iw, ih, oval);

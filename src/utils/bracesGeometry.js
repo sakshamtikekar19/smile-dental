@@ -12,6 +12,8 @@ const COMMISSURE_LEFT_IDX = 61;
 const COMMISSURE_RIGHT_IDX = 291;
 
 const WIRE_SAMPLES = 100;
+/** Past-terminal bracket extension; wire is clipped to mouth oval when drawn. */
+const WIRE_MOLAR_END_EXTEND_PX = 2;
 const DEFAULT_BRACKET_COUNT = 10;
 
 function clamp(v, lo, hi) {
@@ -411,7 +413,9 @@ export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
     hMult: (a.hMult ?? 1) * ((bp[i]?.scale ?? 1) / centerScale),
   }));
 
-  const wireSamplesUpper = sampleParametricArc(left, right, upperLip, lowerLip, WIRE_SAMPLES);
+  const wireSamplesUpper = sampleParametricArc(left, right, upperLip, lowerLip, WIRE_SAMPLES, {
+    extendEndsPx: WIRE_MOLAR_END_EXTEND_PX,
+  });
 
   return {
     wireMode: "polyline",

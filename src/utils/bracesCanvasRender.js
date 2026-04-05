@@ -31,10 +31,12 @@ function traceArchPolyline(ctx, upper, lower) {
  * @param {CanvasRenderingContext2D} ctx
  * @param {{ x: number, y: number }[]} wireSamplesUpper
  * @param {{ x: number, y: number }[]} [wireSamplesLower]
- * @param {{ lineWidth?: number }} [opts]
+ * @param {{ lineWidth?: number, clipMouth?: { cx: number, cy: number, rx: number, ry: number }, mouthOpen?: number }} [opts]
  */
 export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
   const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : 3;
+  const clipMouth = opts.clipMouth;
+  const mouthOpen = typeof opts.mouthOpen === "number" ? opts.mouthOpen : 0;
   const up = wireSamplesUpper;
   const lo = wireSamplesLower;
   const hasUpper = up?.length >= 2;
@@ -48,6 +50,13 @@ export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
   };
 
   ctx.save();
+  if (clipMouth && clipMouth.rx > 0 && clipMouth.ry > 0) {
+    const { cx, cy, rx, ry } = clipMouth;
+    const openPad = Math.min(ry * 0.4, Math.max(5, mouthOpen * 0.14));
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx * 1.07, ry + openPad, 0, 0, Math.PI * 2);
+    ctx.clip();
+  }
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.setLineDash([]);
