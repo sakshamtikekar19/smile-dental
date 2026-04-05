@@ -59,26 +59,26 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Luminance peak center-lock: 18 columns, brightest 3px-wide strip (mean enamel lum) → 15% face Y →
- * peaks (≤8), narrow→6 + mirror lower → 3-pt moving avg → 1.2px solid Catmull (setLineDash []).
+ * Full-arch edge-lock: TEETH_WHITEN enamel span × 24 cols (3px lum peak) → bbox Y-split (no lip centers) →
+ * upper ≤10 peaks, lower mirrored subsampled 6–8 → 3-pt avg → 1.2px solid wire + 3px shadow.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 20;
-/** Horizontal strips for column scan (higher density for wide smiles). */
-const GRID_ENAMEL_COLUMNS = 18;
+/** Horizontal strips across enamel horizontal extent (full arch left–right). */
+const GRID_ENAMEL_COLUMNS = 24;
 /** Sliding window width (px) for horizontal luminance peak within each column (tooth center vs gap). */
 const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
 /** Clamp vertical stud away from gumline and incisal edge (fraction of tooth span). */
 const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.15;
-/** Lower-arch studs must sit at least this far below lip-opening Y (image px). */
+/** Lower-arch studs must sit at least this far below arch midline Y (image px). */
 const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
-/** If ROI band above/below ySplit is narrower than this, cap arch studs (prevents overlap). */
-const MOUTH_ARCH_NARROW_BAND_PX = 26;
 /** Max upper-arch studs after luminance peak pick (wide smile). */
-const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 8;
-/** When mouth band is narrow, subsample upper (then mirror) to this many studs. */
-const LOWER_ARCH_MAX_STUDS_NARROW_MOUTH = 6;
+const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 10;
+/** Lower arch: subsample mirrored row to at most this many (tight smile overlap guard). */
+const LOWER_ARCH_SUBSAMPLE_MAX = 8;
+/** When upper has at least this many studs, keep at least this many on lower (within max). */
+const LOWER_ARCH_SUBSAMPLE_MIN = 6;
 /** Drop grid samples closer than this to the previous kept point (fallback / lower rescue). */
 const GRID_SCAN_MIN_NEIGHBOR_DIST_PX = 12;
 /** Surgical silver spline (mandate). */
@@ -1232,7 +1232,7 @@ const SmileSimulatorAI = () => {
         }
       }
       if (ok) fallback.push(c);
-      if (fallback.length >= 8) break;
+      if (fallback.length >= UPPER_ARCH_MAX_LUMINANCE_PEAKS) break;
     }
     fallback.sort((a, b) => a.cx - b.cx);
     return (fallback.length > 0 ? fallback : [...cands]).sort((a, b) => a.cx - b.cx);
@@ -1308,10 +1308,10 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Enamel mask → 18 cols × 3px lum peak strip → strict peaks → narrow→6 + mirror → 3-pt avg → Catmull.
+   * TEETH_WHITEN ROI → enamel mask → horizontal edge-lock columns → lum peaks → lower 6–8 subsample → Catmull.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
-    if (!enamelSnap?.data || !landmarks?.[13] || !landmarks?.[14]) return null;
+    if (!enamelSnap?.data || !landmarks) return null;
     const { data, width: w, height: h } = enamelSnap;
     const poly = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
     if (!poly || poly.length < 3) return null;
@@ -1339,16 +1339,30 @@ const SmileSimulatorAI = () => {
       }
     }
 
-    const ySplitImg = ((landmarks[13].y + landmarks[14].y) / 2) * ih;
+    let eL = bw;
+    let eR = -1;
+    for (let ly = 0; ly < bh; ly++) {
+      for (let lx = 0; lx < bw; lx++) {
+        if (mask[ly * bw + lx] !== 1) continue;
+        if (lx < eL) eL = lx;
+        if (lx > eR) eR = lx;
+      }
+    }
+    if (eR < eL) return null;
+    const colSpan = eR - eL + 1;
+    const cols = GRID_ENAMEL_COLUMNS;
+
+    /** Arch midline from TEETH_WHITEN bbox only (not inner lip landmarks 13/14). */
+    const ySplitImg = (minY + maxY) * 0.5;
     const ySplitLocal = ySplitImg - minY;
     const split = clamp(Math.round(ySplitLocal), 1, Math.max(1, bh - 1));
     const yUpperEnd = split - 1;
     const yLowerStart = split;
 
     const upperCands = [];
-    for (let c = 0; c < GRID_ENAMEL_COLUMNS; c++) {
-      const xStart = Math.floor((c * bw) / GRID_ENAMEL_COLUMNS);
-      const xEnd = Math.min(bw - 1, Math.ceil(((c + 1) * bw) / GRID_ENAMEL_COLUMNS) - 1);
+    for (let c = 0; c < cols; c++) {
+      const xStart = eL + Math.floor((c * colSpan) / cols);
+      const xEnd = eL + Math.floor(((c + 1) * colSpan) / cols) - 1;
       if (xEnd < xStart) continue;
       const u = pickColumnStudLuminancePeak(
         data,
@@ -1371,14 +1385,15 @@ const SmileSimulatorAI = () => {
     upper = upper.slice(0, Math.min(UPPER_ARCH_MAX_LUMINANCE_PEAKS, MAX_CENTROID_STUDS_PER_ARCH));
     if (upper.length === 0) return null;
 
-    const upperBandH = yUpperEnd + 1;
-    const lowerBandH = bh - yLowerStart;
-    const narrowMouth = Math.min(upperBandH, lowerBandH) < MOUTH_ARCH_NARROW_BAND_PX;
-    if (narrowMouth && upper.length > LOWER_ARCH_MAX_STUDS_NARROW_MOUTH) {
-      upper = subsampleArchRowToCount(upper, LOWER_ARCH_MAX_STUDS_NARROW_MOUTH);
-    }
-
     let lower = mirrorLowerStudsToUpper(mask, bw, bh, minX, minY, yLowerStart, bh - 1, ySplitImg, upper);
+    let lowerN = Math.min(upper.length, LOWER_ARCH_SUBSAMPLE_MAX);
+    if (upper.length >= LOWER_ARCH_SUBSAMPLE_MIN) {
+      lowerN = Math.max(lowerN, LOWER_ARCH_SUBSAMPLE_MIN);
+    }
+    lowerN = Math.min(lowerN, upper.length);
+    if (lower.length > lowerN) {
+      lower = subsampleArchRowToCount(lower, lowerN);
+    }
     upper = smoothArchCentroidsMovingAvg3(upper);
     lower = smoothArchCentroidsMovingAvg3(lower);
 
