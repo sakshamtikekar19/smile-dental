@@ -62,7 +62,8 @@ const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14
 /**
  * Geometric segmentation lock: full TEETH_WHITEN mask horizontal ROI (lip corners ignored); valley (>40%) morph
  * per arch; one bracket per segment 2D face centroid; 25% vertical safe zone; 1–4–6–4–1 cy smooth (terminals raw);
- * wire Catmull on studs only + terminal X clamp; ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0; ≤16 / ≤14; 1.2px wire, 3px shadow, 1.35 Y offset.
+ * Geometric arch-lock: mesh-only studs, 13/14 occlusal mid + 25% vertical safe band; wire stud-to-stud only;
+ * ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0; ≤16 / ≤14 brackets; 1.5px wire, 3px shadow blur, 1.35px shadow Y.
  */
 /** Base clear-bracket size (reference: ~10–11px ceramic squares on tooth center). */
 const BRACKET_DRAW_SIDE_PX = 11;
@@ -110,7 +111,7 @@ const OCCLUSAL_SPLIT_LOWER_MARGIN_PX = 4;
 const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_UPPER_BRACKETS;
 const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
 /** Solid silver archwire (px). */
-const ARCHWIRE_LINE_WIDTH_PX = 1.2;
+const ARCHWIRE_LINE_WIDTH_PX = 1.5;
 /**
  * >0 mirrors Catmull past terminal studs. 0 = geometric lock: spline runs bracket-to-bracket only (no void run-out).
  */
@@ -1073,7 +1074,11 @@ const SmileSimulatorAI = () => {
   const computeBracesAnchors = (landmarks, iw, ih, oval) => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
-    const pack = buildGeometricBracesPack(landmarks, iw, ih, oval);
+    const pack = buildGeometricBracesPack(landmarks, iw, ih, oval, {
+      bracketCountUpper: MORPH_MAX_UPPER_BRACKETS,
+      bracketCountLower: MORPH_MAX_LOWER_BRACKETS,
+      faceSafeFrac: BRACKET_VERTICAL_FACE_SAFE_FRAC,
+    });
     if (!pack) return null;
     return { ...pack, baseW, baseH };
   };

@@ -1,19 +1,69 @@
 /**
- * Geometry-first braces: inner lip landmark pairs → teeth band → Catmull smooth → arc-length resample → tangents + perspective.
- * No raster placement; optional z from landmarks for depth scaling.
+ * Anatomical arch-lock: mesh-only anchors (no getImageData). Inner-lip pairs + 13/14 occlusal midline,
+ * Catmull–Rom smooth, arc-length resample, tangent rotation, Z + lateral depth (~20% molar shrink).
  */
 
+/** Inner upper / lower lip landmarks for paired midpoints (sorted L→R after x). */
 const UPPER_INNER_ARCH = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
 const LOWER_INNER_ARCH = [14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
 
+/** Primary vertical anchors for teeth column (spec: geometric midpoint between inner lips). */
+const INNER_LIP_UPPER_IDX = 13;
+const INNER_LIP_LOWER_IDX = 14;
+
 const LERP_TO_TOOTH = 0.68;
 const CATMULL_STEPS_PER_SEGMENT = 22;
-const BRACKET_COUNT_UPPER = 11;
-const BRACKET_COUNT_LOWER = 11;
 const ARCH_EXTEND_ZERO = true;
+
+/** Default bracket counts (caller may pass 16 / 14 for full molar span). */
+const DEFAULT_UPPER_COUNT = 12;
+const DEFAULT_LOWER_COUNT = 12;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * Clamp y into the middle `middleFrac` of [yA, yB] (e.g. 0.25 → central quarter — gum/occlusal guard).
+ */
+function clampYInMiddleFraction(y, yA, yB, middleFrac) {
+  const top = Math.min(yA, yB);
+  const bot = Math.max(yA, yB);
+  const H = bot - top;
+  if (H < 6) return y;
+  const lo = top + (0.5 - middleFrac / 2) * H;
+  const hi = top + (0.5 + middleFrac / 2) * H;
+  return clamp(y, lo, hi);
+}
+
+/** Pull stud y into middle 25% (or `middleFrac`) of tooth face using 13/14 midline + inner arch extent. */
+function clampStudsVerticalToAnatomicalBand(studs, landmarks, iw, ih, isUpper, middleFrac) {
+  if (!studs.length) return studs;
+  const u13 = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  const l14 = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  if (!u13 || !l14) return studs;
+
+  const midY = (u13.y + l14.y) * 0.5;
+
+  if (isUpper) {
+    const ys = UPPER_INNER_ARCH.map((idx) => landmarkToPx(landmarks, idx, iw, ih)?.y).filter((v) => v != null);
+    if (ys.length < 2) return studs;
+    const yGum = Math.min(...ys);
+    const yOcclusal = midY;
+    return studs.map((p) => ({
+      ...p,
+      y: clampYInMiddleFraction(p.y, yGum, yOcclusal, middleFrac),
+    }));
+  }
+
+  const ys = LOWER_INNER_ARCH.map((idx) => landmarkToPx(landmarks, idx, iw, ih)?.y).filter((v) => v != null);
+  if (ys.length < 2) return studs;
+  const yOcclusal = midY;
+  const yGum = Math.max(...ys);
+  return studs.map((p) => ({
+    ...p,
+    y: clampYInMiddleFraction(p.y, yOcclusal, yGum, middleFrac),
+  }));
 }
 
 export function getTeethCenterline(landmarks, iw, ih) {
@@ -33,7 +83,7 @@ export function landmarkToPx(landmarks, idx, iw, ih) {
   };
 }
 
-/** Midpoint pairs along arch, sorted L→R; bias toward upper or lower tooth surface. */
+/** Midpoint between paired inner-lip points; bias toward upper or lower tooth surface (no raster). */
 export function getTeethArchControlPoints(landmarks, iw, ih, isUpper) {
   const out = [];
   for (let i = 0; i < UPPER_INNER_ARCH.length; i++) {
@@ -77,6 +127,7 @@ function catmullRom2D(p0, p1, p2, p3, t) {
   };
 }
 
+/** Zero run-out: duplicate terminal studs so the open spline terminates at first/last bracket only. */
 function expandCatmullEnds(pts) {
   if (pts.length < 2) return pts.map((p) => ({ ...p }));
   const n = pts.length;
@@ -112,7 +163,7 @@ export function smoothOpenCatmull(pts, stepsPerSeg) {
   return out;
 }
 
-/** Even spacing along polyline by arc length. */
+/** Even spacing along polyline by arc length (prevents clumping). */
 export function resampleCurveEqualArcLength(pts, nOut) {
   if (!pts.length || nOut < 2) return pts.length ? [pts[0], pts[pts.length - 1]] : [];
   if (pts.length === 1) return Array(nOut).fill(null).map(() => ({ ...pts[0] }));
@@ -159,20 +210,35 @@ function tangentAngleAt(row, i) {
   return Math.atan2(row[i + 1].y - row[i - 1].y, row[i + 1].x - row[i - 1].x);
 }
 
-/** Per-bracket tangent rotation + lateral perspective + index perspective (center larger) + optional Z depth. */
+/**
+ * Tangent rotation + oval perspective + ~20% molar shrink vs incisors + Z-depth scaling.
+ */
 export function computeBracketTransforms(row, iw, ih, oval) {
   const n = row.length;
   const centerIndex = (n - 1) / 2;
   const ocx = oval?.cx != null ? oval.cx : row[Math.floor(n / 2)]?.x ?? iw * 0.5;
   const orx = Math.max(oval?.rx ?? iw * 0.18, 1);
+
+  const zs = row.map((r) => r.z ?? 0);
+  const zMin = Math.min(...zs);
+  const zMax = Math.max(...zs);
+  const zSpan = Math.max(zMax - zMin, 1e-6);
+  const zMed = (zMin + zMax) * 0.5;
+
   return row.map((p, i) => {
     const ang = tangentAngleAt(row, i);
     const edge = clamp(Math.abs((p.x - ocx) / orx), 0, 1);
     const perspective = 0.56 + 0.44 * (1 - edge);
-    const scaleIdx = Math.max(0.5, 1 - Math.abs(i - centerIndex) * 0.05);
-    const zScale = clamp(1 + (p.z ?? 0) * 0.14, 0.93, 1.1);
-    const wMult = Math.max(0.82, perspective * scaleIdx * zScale);
+
+    const lateralT = Math.abs(i - centerIndex) / Math.max(centerIndex, 1e-6);
+    const molarScale = 1 - 0.2 * clamp(lateralT, 0, 1);
+
+    const zDist = Math.abs((p.z ?? 0) - zMed) / zSpan;
+    const zScale = clamp(1.05 - 0.2 * zDist, 0.85, 1.05);
+
+    const wMult = Math.max(0.72, perspective * molarScale * zScale);
     const hMult = wMult * (0.68 + 0.32 * (1 - edge));
+
     return {
       x: clamp(p.x, 4, iw - 5),
       y: clamp(p.y, 4, ih - 5),
@@ -185,16 +251,32 @@ export function computeBracketTransforms(row, iw, ih, oval) {
   });
 }
 
+/** Wire polyline: Catmull through stud centers only (ARCH_EXTEND_ZERO → no cheek run-out). */
 export function sampleWireFromStuds(studs, stepsPerSeg) {
   if (!studs || studs.length < 2) return studs?.map((p) => ({ x: p.x, y: p.y })) ?? [];
   return smoothOpenCatmull(studs, stepsPerSeg).map(({ x, y }) => ({ x, y }));
 }
 
 /**
- * Full pack for canvas render: anchors from geometry only.
+ * @param {object} [opts]
+ * @param {number} [opts.bracketCountUpper] default 12; use 16 for full upper molar span
+ * @param {number} [opts.bracketCountLower] default 12; use 14 typical
+ * @param {number} [opts.faceSafeFrac] middle fraction of tooth face for y (default 0.25)
  */
-export function buildGeometricBracesPack(landmarks, iw, ih, oval) {
+export function buildGeometricBracesPack(landmarks, iw, ih, oval, opts = {}) {
   if (!landmarks?.length) return null;
+
+  const bracketCountUpper = clamp(
+    Math.round(opts.bracketCountUpper ?? DEFAULT_UPPER_COUNT),
+    10,
+    16,
+  );
+  const bracketCountLower = clamp(
+    Math.round(opts.bracketCountLower ?? DEFAULT_LOWER_COUNT),
+    10,
+    16,
+  );
+  const faceSafeFrac = typeof opts.faceSafeFrac === "number" ? opts.faceSafeFrac : 0.25;
 
   const upperCtrl = getTeethArchControlPoints(landmarks, iw, ih, true);
   const lowerCtrl = getTeethArchControlPoints(landmarks, iw, ih, false);
@@ -203,8 +285,11 @@ export function buildGeometricBracesPack(landmarks, iw, ih, oval) {
   const uDense = smoothOpenCatmull(upperCtrl, 16);
   const lDense = smoothOpenCatmull(lowerCtrl, 16);
 
-  const uStuds = resampleCurveEqualArcLength(uDense, BRACKET_COUNT_UPPER);
-  const lStuds = resampleCurveEqualArcLength(lDense, BRACKET_COUNT_LOWER);
+  let uStuds = resampleCurveEqualArcLength(uDense, bracketCountUpper);
+  let lStuds = resampleCurveEqualArcLength(lDense, bracketCountLower);
+
+  uStuds = clampStudsVerticalToAnatomicalBand(uStuds, landmarks, iw, ih, true, faceSafeFrac);
+  lStuds = clampStudsVerticalToAnatomicalBand(lStuds, landmarks, iw, ih, false, faceSafeFrac);
 
   const upperAnchors = computeBracketTransforms(uStuds, iw, ih, oval);
   const lowerAnchors = computeBracketTransforms(lStuds, iw, ih, oval);
