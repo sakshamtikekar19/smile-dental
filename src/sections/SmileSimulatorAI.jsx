@@ -59,8 +59,8 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Total arch edge-to-edge: expanded brace hull + lateral enamel outside tight poly; density peaks <=14 upper, <=12 lower;
- * 28-col fallback; 20% face clamp; 5-pt wire smooth; 1.2px solid + 3px shadow.
+ * Full smile: commissure-wide mouth strip + loose lateral enamel mask; density peaks + 28-col merge (<=14 upper, <=14 lower);
+ * 20% face clamp; 5-pt smooth; 1.2px wire + 3px shadow.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
@@ -73,14 +73,14 @@ const LUMINANCE_PEAK_STRIP_WIDTH_PX = 3;
 const BRACKET_VERTICAL_FACE_SAFE_FRAC = 0.2;
 /** 1D box half-width (px) on summed luminance density before local-max scan. */
 const ENAMEL_DENSITY_BLUR_HALF_WX = 2;
-/** Local peak kept only if density >= this fraction of arch max (drops interdental noise). */
-const ENAMEL_DENSITY_PEAK_MIN_FRAC = 0.22;
+/** Local peak vs arch max; lower = keep dimmer molars at left/right. */
+const ENAMEL_DENSITY_PEAK_MIN_FRAC = 0.14;
 /** Lower-arch studs must sit at least this far below arch midline Y (image px). */
 const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
 /** Max upper-arch studs (wide smile / molars). */
 const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 14;
-/** Lower arch: max studs after mirroring upper (target 10–12 for most smiles). */
-const LOWER_ARCH_SUBSAMPLE_MAX = 12;
+/** Lower arch: cap after mirroring upper (match wide upper arch). */
+const LOWER_ARCH_SUBSAMPLE_MAX = 14;
 /** Surgical silver spline (mandate). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 /** Cap studs per arch (wide smiles). */
@@ -1109,6 +1109,23 @@ const SmileSimulatorAI = () => {
     return true;
   };
 
+  /** Slightly looser enamel test for commissure strip only (shadowed lateral teeth). */
+  const pixelEnamelBracesLateral = (data, w, h, gx, gy) => {
+    if (pixelEnamelInTeethMask(data, w, h, gx, gy)) return true;
+    if (gx < 1 || gy < 1 || gx >= w - 1 || gy >= h - 1) return false;
+    const i = (Math.floor(gy) * w + Math.floor(gx)) * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const maxc = Math.max(r, g, b);
+    const minc = Math.min(r, g, b);
+    const sat = maxc < 1 ? 0 : (maxc - minc) / maxc;
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    if (lum < 10 || lum > ENAMEL_LUM_MAX || sat > 0.64) return false;
+    if (r > g + 18 && r > b + 12 && sat > 0.2) return false;
+    return true;
+  };
+
   const catmullRomPoint2D = (p0, p1, p2, p3, t) => {
     const t2 = t * t;
     const t3 = t2 * t;
@@ -1322,7 +1339,7 @@ const SmileSimulatorAI = () => {
       } else if (sm[j] > pl) peakIdx.push(j);
     }
 
-    const minSep = clamp(Math.floor(span / 18), 5, 18);
+    const minSep = clamp(Math.floor(span / 24), 4, 12);
     peakIdx.sort((a, b) => sm[b] - sm[a]);
     const keptJ = [];
     for (const j of peakIdx) {
@@ -1505,6 +1522,20 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
+  /** Fill missing lateral studs: merge density picks with column luminance picks (min X gap). */
+  const mergeUpperStudRowsByMinSep = (primary, filler, maxN, minSepPx) => {
+    const out = [...primary].map((p) => ({ cx: p.cx, cy: p.cy, area: p.area ?? 1 }));
+    out.sort((a, b) => a.cx - b.cx);
+    const byX = [...filler].sort((a, b) => a.cx - b.cx);
+    for (const f of byX) {
+      if (out.length >= maxN) break;
+      if (out.some((u) => Math.abs(u.cx - f.cx) < minSepPx)) continue;
+      out.push({ cx: f.cx, cy: f.cy, area: 1 });
+    }
+    out.sort((a, b) => a.cx - b.cx);
+    return out.slice(0, maxN);
+  };
+
   const sampleOpenCatmullRomChain = (pts, stepsPerSeg) => {
     if (pts.length < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
     const steps = Math.max(20, stepsPerSeg | 0);
@@ -1525,8 +1556,7 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * Total arch expansion: padded hull captures lateral enamel outside the inner TEETH_WHITEN loop; mask bbox = full enamel;
-   * density local maxima + 28-col fallback; 5-pt smooth; 20% face clamp.
+   * Commissure-bounded strip includes lateral molars; density peaks merged with column luminance picks for edge-to-edge studs.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
@@ -1538,12 +1568,20 @@ const SmileSimulatorAI = () => {
     const polyMaxX = Math.max(...poly.map((p) => p.x));
     const polyMinY = Math.min(...poly.map((p) => p.y));
     const polyMaxY = Math.max(...poly.map((p) => p.y));
-    const archPadX = Math.max(10, (polyMaxX - polyMinX) * 0.12);
-    const archPadY = Math.max(4, (polyMaxY - polyMinY) * 0.06);
+    const archPadX = Math.max(14, (polyMaxX - polyMinX) * 0.2);
+    const archPadY = Math.max(5, (polyMaxY - polyMinY) * 0.08);
 
-    let minX = Math.floor(polyMinX - archPadX);
+    const lm61 = landmarks[COMMISSURE_LEFT_IDX];
+    const lm291 = landmarks[COMMISSURE_RIGHT_IDX];
+    const cl = lm61?.x != null ? lm61.x * iw : polyMinX;
+    const cr = lm291?.x != null ? lm291.x * iw : polyMaxX;
+    const comPad = Math.max(22, (polyMaxX - polyMinX) * 0.1);
+    const comMin = Math.min(cl, cr) - comPad;
+    const comMax = Math.max(cl, cr) + comPad;
+
+    let minX = Math.floor(Math.min(polyMinX - archPadX, comMin));
     let minY = Math.floor(polyMinY - 2);
-    let maxX = Math.ceil(polyMaxX + archPadX);
+    let maxX = Math.ceil(Math.max(polyMaxX + archPadX, comMax));
     let maxY = Math.ceil(polyMaxY + 2);
     minX = clamp(minX, 0, w - 2);
     minY = clamp(minY, 0, h - 2);
@@ -1554,18 +1592,24 @@ const SmileSimulatorAI = () => {
     if (bw < 10 || bh < 10) return null;
 
     const mask = new Uint8Array(bw * bh);
+    const stripY0 = polyMinY - archPadY;
+    const stripY1 = polyMaxY + archPadY;
     for (let ly = 0; ly < bh; ly++) {
       for (let lx = 0; lx < bw; lx++) {
         const gx = minX + lx;
         const gy = minY + ly;
-        if (!pixelEnamelInTeethMask(data, w, h, gx, gy)) continue;
+        const inMouthStrip = gx >= comMin && gx <= comMax && gy >= stripY0 && gy <= stripY1;
+        const hasEnamel = inMouthStrip
+          ? pixelEnamelBracesLateral(data, w, h, gx, gy)
+          : pixelEnamelInTeethMask(data, w, h, gx, gy);
+        if (!hasEnamel) continue;
         const inPoly = pointInPolygonPx(gx + 0.5, gy + 0.5, poly);
         const inExpandedArch =
           gx >= polyMinX - archPadX &&
           gx <= polyMaxX + archPadX &&
           gy >= polyMinY - archPadY &&
           gy <= polyMaxY + archPadY;
-        if (inPoly || inExpandedArch) mask[ly * bw + lx] = 1;
+        if (inPoly || inExpandedArch || inMouthStrip) mask[ly * bw + lx] = 1;
       }
     }
 
@@ -1613,30 +1657,34 @@ const SmileSimulatorAI = () => {
       maxUpper,
     );
 
+    const upperCands = [];
+    for (let c = 0; c < cols; c++) {
+      const xStart = enamelMinLx + Math.floor((c * ew) / cols);
+      const xEnd = Math.min(enamelMaxLx, enamelMinLx + Math.ceil(((c + 1) * ew) / cols) - 1);
+      if (xEnd < xStart) continue;
+      const u = pickColumnStudLuminancePeak(
+        data,
+        w,
+        h,
+        mask,
+        bw,
+        minX,
+        minY,
+        xStart,
+        xEnd,
+        yU0,
+        yU1,
+        LUMINANCE_PEAK_STRIP_WIDTH_PX,
+      );
+      if (u) upperCands.push(u);
+    }
+    upperCands.sort((a, b) => a.cx - b.cx);
+
     if (upper.length < 2) {
-      const upperCands = [];
-      for (let c = 0; c < cols; c++) {
-        const xStart = enamelMinLx + Math.floor((c * ew) / cols);
-        const xEnd = Math.min(enamelMaxLx, enamelMinLx + Math.ceil(((c + 1) * ew) / cols) - 1);
-        if (xEnd < xStart) continue;
-        const u = pickColumnStudLuminancePeak(
-          data,
-          w,
-          h,
-          mask,
-          bw,
-          minX,
-          minY,
-          xStart,
-          xEnd,
-          yU0,
-          yU1,
-          LUMINANCE_PEAK_STRIP_WIDTH_PX,
-        );
-        if (u) upperCands.push(u);
-      }
-      upperCands.sort((a, b) => a.cx - b.cx);
       upper = pickUpperArchColumnPeaks(upperCands, maxUpper);
+    } else {
+      const minDx = clamp(Math.floor(ew / 26), 7, 16);
+      upper = mergeUpperStudRowsByMinSep(upper, upperCands, maxUpper, minDx);
     }
 
     if (upper.length === 0) return null;
