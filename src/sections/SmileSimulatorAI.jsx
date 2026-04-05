@@ -59,8 +59,8 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Full-arch precision-lock: TEETH_WHITEN ROI full width × 24 cols, 3px-wide luminance peak (snap to tooth face) →
- * bbox Y-split (no lip landmarks) → upper ≤12, lower mirror capped at 8 → 3-pt avg → 1.2px solid + 3px shadow.
+ * Edge-to-edge anatomical lock: brace scan uses widened TEETH_WHITEN hull (no lip inset/guard) + commissure span,
+ * 24 cols × 3px luminance peak, even upper subsample ≤12, lower luminance in band capped at 8 → 3-pt avg → 1.2px + 3px shadow.
  */
 const BRACKET_DRAW_SIDE_PX = 10;
 /** Catmull–Rom samples per inter-centroid segment (smooth archwire; minimum 20 enforced in sampler). */
@@ -77,8 +77,6 @@ const LOWER_ARCH_Y_SPLIT_OFFSET_PX = 10;
 const UPPER_ARCH_MAX_LUMINANCE_PEAKS = 12;
 /** Lower arch: subsample mirrored row to at most this many (narrow lower jaw / overlap guard). */
 const LOWER_ARCH_SUBSAMPLE_MAX = 8;
-/** Drop grid samples closer than this to the previous kept point (fallback / lower rescue). */
-const GRID_SCAN_MIN_NEIGHBOR_DIST_PX = 12;
 /** Surgical silver spline (mandate). */
 const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 /** Cap studs per arch (wide smiles); raise to keep one stud per visible tooth. */
@@ -733,6 +731,64 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
+  /**
+   * Polygon for brace enamel raster only: same gum Y-clamps as whitening mask, but no centroid inset or
+   * lip-guard (those shrink X and clip molars). Horizontal span is stretched to at least commissure width.
+   */
+  const getBraceScanPolygonPoints = (landmarks, iw, ih) => {
+    const p13 = landmarks[13];
+    const p14 = landmarks[14];
+    if (!p13 || !p14) return null;
+    const midYpx = ((p13.y + p14.y) / 2) * ih;
+    const pts = TEETH_WHITEN_MASK_INDICES.map((idx) => {
+      const p = landmarks[idx];
+      if (!p || typeof p.x !== "number") return null;
+      return { x: p.x * iw, y: p.y * ih };
+    }).filter(Boolean);
+    if (pts.length < 3) return null;
+    const out = pts.map((p) => ({ x: p.x, y: p.y }));
+    const lower = out.filter((p) => p.y > midYpx - 0.5);
+    if (lower.length >= 2) {
+      const lowerGumY = Math.min(...lower.map((p) => p.y));
+      const lowerLipY = Math.max(...lower.map((p) => p.y));
+      const span = Math.max(6, lowerLipY - lowerGumY);
+      const yMaxSafe = lowerLipY - LOWER_GUM_CLEARANCE_PX;
+      const yMinLower = Math.min(lowerGumY + span * 0.4, yMaxSafe - 4);
+      out.forEach((p) => {
+        if (p.y > midYpx - 0.5) {
+          p.y = Math.max(p.y, yMinLower);
+          p.y = Math.min(p.y, yMaxSafe);
+        }
+      });
+    }
+    const upper = out.filter((p) => p.y <= midYpx + 0.5);
+    if (upper.length >= 2) {
+      const upperGumY = Math.min(...upper.map((p) => p.y));
+      const upperToothY = Math.max(...upper.map((p) => p.y));
+      const span = Math.max(6, upperToothY - upperGumY);
+      const yMinSafe = Math.max(upperGumY + GUM_CLEARANCE_PX, upperGumY + GUM_CLEARANCE_PX + span * 0.1);
+      out.forEach((p) => {
+        if (p.y <= midYpx + 0.5) p.y = Math.max(p.y, yMinSafe);
+      });
+    }
+    const comL = landmarks[COMMISSURE_LEFT_IDX];
+    const comR = landmarks[COMMISSURE_RIGHT_IDX];
+    if (comL && comR && typeof comL.x === "number" && typeof comR.x === "number") {
+      const xs = out.map((p) => p.x);
+      const minXp = Math.min(...xs);
+      const maxXp = Math.max(...xs);
+      const w0 = Math.max(1e-3, maxXp - minXp);
+      const wMouth = Math.abs(comR.x * iw - comL.x * iw);
+      const wTarget = Math.max(w0, wMouth * 0.93);
+      const cx = (minXp + maxXp) * 0.5;
+      const scale = wTarget / w0;
+      for (const p of out) {
+        p.x = cx + (p.x - cx) * scale;
+      }
+    }
+    return out;
+  };
+
   /** Anatomical teeth region from landmarks; caller must ctx.save() before and ctx.restore() after. */
   const generateTeethMask = (landmarks, ctx, iw, ih) => {
     const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
@@ -1106,32 +1162,6 @@ const SmileSimulatorAI = () => {
     return clamp(midLy, lo, hi);
   };
 
-  const longestRunOneLx = (mask, bw, lx, y0, y1) => {
-    let runTop = -1;
-    let runLen = 0;
-    let brTop = -1;
-    let brBot = -1;
-    let brLen = 0;
-    const flush = () => {
-      if (runLen > brLen) {
-        brLen = runLen;
-        brTop = runTop;
-        brBot = runTop + runLen - 1;
-      }
-      runLen = 0;
-      runTop = -1;
-    };
-    for (let ly = y0; ly <= y1; ly++) {
-      if (mask[ly * bw + lx] === 1) {
-        if (runLen === 0) runTop = ly;
-        runLen++;
-      } else flush();
-    }
-    flush();
-    if (brLen === 0) return null;
-    return { top: brTop, bot: brBot, len: brLen };
-  };
-
   /**
    * Per column: slide a 3px-wide horizontal window; highest mean enamel luminance wins X (peak strip center).
    * Y = (top+bottom)/2 of enamel in that strip, clamped 15% from gum and incisal (tooth face).
@@ -1202,62 +1232,64 @@ const SmileSimulatorAI = () => {
     };
   };
 
-  /** Strict local maxima on luminance (peakMetric) along columns; fallback = bright spaced picks (≤8). */
-  const pickStrictLuminancePeaks = (cands) => {
+  /**
+   * Subsample column peaks left→right (≤ maxN). Strict local luminance maxima removed lateral teeth; even spacing keeps molars.
+   */
+  const pickUpperArchColumnPeaks = (cands, maxN) => {
     if (cands.length === 0) return [];
-    if (cands.length === 1) return [cands[0]];
-    const n = cands.length;
-    const strict = [];
-    for (let i = 0; i < n; i++) {
-      const prev = i > 0 ? cands[i - 1].peakMetric : -Infinity;
-      const next = i < n - 1 ? cands[i + 1].peakMetric : -Infinity;
-      if (cands[i].peakMetric > prev && cands[i].peakMetric > next) strict.push(cands[i]);
+    const sorted = [...cands].sort((a, b) => a.cx - b.cx);
+    if (sorted.length <= maxN) return sorted;
+    const n = sorted.length;
+    const out = [];
+    for (let k = 0; k < maxN; k++) {
+      const idx = Math.round((k * (n - 1)) / Math.max(1, maxN - 1));
+      out.push(sorted[idx]);
     }
-    if (strict.length >= 2) {
-      strict.sort((a, b) => a.cx - b.cx);
-      return strict;
-    }
-    const minD2 = GRID_SCAN_MIN_NEIGHBOR_DIST_PX * GRID_SCAN_MIN_NEIGHBOR_DIST_PX;
-    const sorted = [...cands].sort((a, b) => b.peakMetric - a.peakMetric);
-    const fallback = [];
-    for (const c of sorted) {
-      let ok = true;
-      for (const p of fallback) {
-        const dx = p.cx - c.cx;
-        if (dx * dx < minD2) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) fallback.push(c);
-      if (fallback.length >= UPPER_ARCH_MAX_LUMINANCE_PEAKS) break;
-    }
-    fallback.sort((a, b) => a.cx - b.cx);
-    return (fallback.length > 0 ? fallback : [...cands]).sort((a, b) => a.cx - b.cx);
+    return out;
   };
 
-  /** Same cx as upper; cy from lower-band run at nearest lx, forced ≥ ySplit + offset. */
-  const mirrorLowerStudsToUpper = (mask, bw, bh, minX, minY, yLower0, yLower1, ySplitImg, upperRow) => {
+  /**
+   * Lower arch: 3px luminance peak in the lower band near each upper stud (tooth-face center), Y ≥ split + offset.
+   */
+  const mirrorLowerStudsLuminancePeak = (
+    data,
+    w,
+    imgH,
+    mask,
+    bw,
+    minX,
+    minY,
+    yLower0,
+    yLower1,
+    ySplitImg,
+    upperRow,
+  ) => {
+    const half = Math.max(1, Math.floor(LUMINANCE_PEAK_STRIP_WIDTH_PX / 2));
     return upperRow.map((u) => {
-      const lx0 = clamp(Math.round(u.cx - minX), 0, bw - 1);
-      let bestRun = null;
-      for (let d = 0; d <= 6; d++) {
-        const tries =
-          d === 0
-            ? [lx0]
-            : [clamp(lx0 - d, 0, bw - 1), clamp(lx0 + d, 0, bw - 1)];
-        for (const lx of tries) {
-          const run = longestRunOneLx(mask, bw, lx, yLower0, yLower1);
-          if (run && (!bestRun || run.len > bestRun.len)) bestRun = run;
-        }
-      }
+      const lxCenter = clamp(Math.round(u.cx - minX), 0, bw - 1);
+      const xStart = clamp(lxCenter - half - 1, 0, bw - 1);
+      const xEnd = clamp(lxCenter + half + 1, xStart, bw - 1);
+      const lo = pickColumnStudLuminancePeak(
+        data,
+        w,
+        imgH,
+        mask,
+        bw,
+        minX,
+        minY,
+        xStart,
+        xEnd,
+        yLower0,
+        yLower1,
+        LUMINANCE_PEAK_STRIP_WIDTH_PX,
+      );
+      let cx = u.cx;
       let cy = Math.max(ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX, minY + yLower0 + 2);
-      if (bestRun) {
-        const midRaw = (bestRun.top + bestRun.bot) * 0.5;
-        const midClamped = clampBracketMidYFrac(midRaw, bestRun.top, bestRun.bot, BRACKET_VERTICAL_FACE_SAFE_FRAC);
-        cy = Math.max(minY + midClamped, ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX);
+      if (lo) {
+        cx = lo.cx;
+        cy = Math.max(lo.cy, ySplitImg + LOWER_ARCH_Y_SPLIT_OFFSET_PX);
       }
-      return { cx: u.cx, cy, area: 1 };
+      return { cx, cy, area: 1 };
     });
   };
 
@@ -1306,12 +1338,12 @@ const SmileSimulatorAI = () => {
   };
 
   /**
-   * TEETH_WHITEN full-width ROI → 24 lum-peak columns → ≤12 upper peaks → mirror lower ≤8 → 3-pt avg → Catmull.
+   * Widened brace hull (commissure span) → 24 lum-peak columns → ≤12 upper → lower lum-peak band ≤8 → 3-pt avg → Catmull.
    */
   const buildCentroidBracesPack = (landmarks, iw, ih, oval, enamelSnap) => {
     if (!enamelSnap?.data || !landmarks) return null;
     const { data, width: w, height: h } = enamelSnap;
-    const poly = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+    const poly = getBraceScanPolygonPoints(landmarks, iw, ih);
     if (!poly || poly.length < 3) return null;
 
     let minX = Math.floor(Math.min(...poly.map((p) => p.x)));
@@ -1377,11 +1409,25 @@ const SmileSimulatorAI = () => {
       if (u) upperCands.push(u);
     }
     upperCands.sort((a, b) => a.cx - b.cx);
-    let upper = pickStrictLuminancePeaks(upperCands);
-    upper = upper.slice(0, Math.min(UPPER_ARCH_MAX_LUMINANCE_PEAKS, MAX_CENTROID_STUDS_PER_ARCH));
+    let upper = pickUpperArchColumnPeaks(
+      upperCands,
+      Math.min(UPPER_ARCH_MAX_LUMINANCE_PEAKS, MAX_CENTROID_STUDS_PER_ARCH),
+    );
     if (upper.length === 0) return null;
 
-    let lower = mirrorLowerStudsToUpper(mask, bw, bh, minX, minY, yLowerStart, bh - 1, ySplitImg, upper);
+    let lower = mirrorLowerStudsLuminancePeak(
+      data,
+      w,
+      h,
+      mask,
+      bw,
+      minX,
+      minY,
+      yLowerStart,
+      bh - 1,
+      ySplitImg,
+      upper,
+    );
     const lowerN = Math.min(upper.length, LOWER_ARCH_SUBSAMPLE_MAX);
     if (lower.length > lowerN) {
       lower = subsampleArchRowToCount(lower, lowerN);
