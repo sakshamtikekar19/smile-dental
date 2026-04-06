@@ -146,11 +146,12 @@ export function renderBracket3D(ctx, br, baseW, baseH, starFlare = false, omitDr
     ctx.shadowOffsetY = 2;
   }
 
-  const grad = ctx.createLinearGradient(-hw, -hh, hw, hh);
-  grad.addColorStop(0, "#ffffff");
-  grad.addColorStop(0.28, "#d8d8dc");
-  grad.addColorStop(0.55, "#8e9098");
-  grad.addColorStop(1, "#3a3c44");
+  const rad = Math.hypot(hw, hh) * 1.05;
+  const grad = ctx.createRadialGradient(0, -hh * 0.08, rad * 0.08, 0, 0, rad);
+  grad.addColorStop(0, "#f2f3f6");
+  grad.addColorStop(0.35, "#d0d2da");
+  grad.addColorStop(0.62, "#8a8c96");
+  grad.addColorStop(1, "#3d4048");
 
   ctx.beginPath();
   if (typeof ctx.roundRect === "function") {

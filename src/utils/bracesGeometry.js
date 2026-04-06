@@ -188,12 +188,12 @@ function applyPerspectiveScaleToAnchors(anchors, studs) {
   const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);
   const mid = Math.floor(studs.length / 2);
   const centerScale = Math.max(
-    Math.max(0.55, 1 - (Math.abs(studs[mid].x - centerX) / halfW) * 0.25),
+    Math.max(0.75, 1 - (Math.abs(studs[mid].x - centerX) / halfW) * 0.25),
     0.01,
   );
   return anchors.map((a, i) => {
     const dist = Math.abs(studs[i].x - centerX);
-    const s = Math.max(0.55, 1 - (dist / halfW) * 0.25);
+    const s = Math.max(0.75, 1 - (dist / halfW) * 0.25);
     const ratio = s / centerScale;
     return {
       ...a,
@@ -306,8 +306,8 @@ export function computeBracketTransforms(row, iw, ih, oval) {
 
     const zDist = Math.abs((p.z ?? 0) - zMed) / zSpan;
     const zScale = clamp(1.03 - 0.16 * zDist, 0.88, 1.04);
-    /** Landmark depth: up to 25% smaller toward molars (distal z). */
-    const molarDepthScale = clamp(1 - 0.25 * zDist, 0.75, 1);
+    /** Far molars: 75% scale vs ~100% at mid-arch (MediaPipe Z). */
+    const molarDepthScale = 0.75 + 0.25 * (1 - clamp(zDist, 0, 1));
 
     const scaleZ = clamp(1 / (1 + (p.z ?? 0) * 1.5), 0.7, 1.14);
     const normD = distFromCenter / maxDist;

@@ -1,6 +1,6 @@
 /**
- * Geometric-anatomical segmentation: horizontal enamel histogram + fixed slots (upper 14 / lower 12),
- * vertical enamel centroid per slot; gaps skipped. Arc span = left–right enamel extent on merged image.
+ * Anatomical slotting (not loose pixel tracing): fixed 14 upper / 12 lower vertical slots over enamel span;
+ * per-slot enamel fraction + occlusal midline (lip 13/14 ↔ biting edge) with 25% vertical safe zone.
  */
 
 import { landmarkToPx, reprojectBracesPackAfterStudMove } from "./bracesGeometry";
@@ -21,7 +21,11 @@ const SAT_MAX = 0.58;
 const UPPER_SLOT_COUNT = 14;
 const LOWER_SLOT_COUNT = 12;
 const MIN_COLUMN_ENAMEL_PX = 4;
-const MIN_SEGMENT_WEIGHT = 14;
+/** Slot must be at least this fraction enamel (else gap / dark corner → skip bracket). */
+const MIN_SLOT_ENAMEL_FRACTION = 0.1;
+const MIN_ENAMEL_PIXELS_ABS = 8;
+/** Inner 50% of crown height: 25% margin from gum and from incisal edge. */
+const SAFE_ZONE_FRAC = 0.25;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -106,14 +110,16 @@ function enamelSpanX(hist, width, xa, xb) {
 }
 
 /**
- * One bracket per slot: weighted centroid in strip; skip if no enamel (gap).
+ * Exactly `slotCount` equal vertical slots over [xMin,xMax]. Per slot: enamel fraction ≥10% else skip.
+ * X = geometric center of enamel; Y = occlusal midline (lip ↔ biting edge), clamped to 25% safe band on crown.
  */
-function studsFromHorizontalSlots(data, width, height, xMin, xMax, y0, y1, slotCount) {
+function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY1, slotCount, lipY, upper) {
   const studs = [];
   const span = xMax - xMin;
   if (span < 12) return studs;
-  const ya = clamp(Math.floor(y0), 0, height - 1);
-  const yb = clamp(Math.ceil(y1), 0, height - 1);
+  const ya = clamp(Math.floor(bandY0), 0, height - 1);
+  const yb = clamp(Math.ceil(bandY1), 0, height - 1);
+  const slotH = yb - ya + 1;
 
   for (let s = 0; s < slotCount; s++) {
     const t0 = xMin + (span * s) / slotCount;
@@ -122,9 +128,17 @@ function studsFromHorizontalSlots(data, width, height, xMin, xMax, y0, y1, slotC
     const sx1 = Math.ceil(t1) - 1;
     if (sx1 < sx0) continue;
 
+    const slotW = sx1 - sx0 + 1;
+    const slotPixels = slotW * slotH;
+    if (slotPixels < 1) continue;
+
     let sumX = 0;
     let sumY = 0;
     let wsum = 0;
+    let enamelPx = 0;
+    let minYE = Infinity;
+    let maxYE = -Infinity;
+
     for (let x = sx0; x <= sx1; x++) {
       if (x < 0 || x >= width) continue;
       for (let y = ya; y <= yb; y++) {
@@ -133,15 +147,41 @@ function studsFromHorizontalSlots(data, width, height, xMin, xMax, y0, y1, slotC
         const g = data[i + 1];
         const b = data[i + 2];
         if (!isEnamelLike(r, g, b)) continue;
+        enamelPx++;
         const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
         const w = 0.35 + (lum / 255) * 0.65;
         sumX += x * w;
         sumY += y * w;
         wsum += w;
+        if (y < minYE) minYE = y;
+        if (y > maxYE) maxYE = y;
       }
     }
-    if (wsum < MIN_SEGMENT_WEIGHT) continue;
-    studs.push({ x: sumX / wsum, y: sumY / wsum, z: 0 });
+
+    if (enamelPx < MIN_ENAMEL_PIXELS_ABS) continue;
+    if (enamelPx / slotPixels < MIN_SLOT_ENAMEL_FRACTION) continue;
+    if (wsum < 1e-6 || minYE === Infinity) continue;
+
+    const H = maxYE - minYE;
+    if (H < 2) continue;
+
+    const ySafeLo = minYE + SAFE_ZONE_FRAC * H;
+    const ySafeHi = maxYE - SAFE_ZONE_FRAC * H;
+    if (ySafeHi <= ySafeLo) continue;
+
+    let yBitingEdge;
+    if (upper) {
+      yBitingEdge = maxYE;
+    } else {
+      yBitingEdge = minYE;
+    }
+    const yOcclusalMid = (lipY + yBitingEdge) * 0.5;
+    const xCentroid = sumX / wsum;
+    const yCentroid = sumY / wsum;
+    const yBlend = yOcclusalMid * 0.62 + yCentroid * 0.38;
+    const yFinal = clamp(yBlend, ySafeLo, ySafeHi);
+
+    studs.push({ x: xCentroid, y: yFinal, z: 0 });
   }
   studs.sort((a, b) => a.x - b.x);
   return studs;
@@ -203,10 +243,32 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
   if (!spanU && !spanL) return null;
 
   let upperStuds = spanU
-    ? studsFromHorizontalSlots(data, width, height, spanU.minX, spanU.maxX, upperY0, upperY1, UPPER_SLOT_COUNT)
+    ? studsFromHorizontalSlots(
+        data,
+        width,
+        height,
+        spanU.minX,
+        spanU.maxX,
+        upperY0,
+        upperY1,
+        UPPER_SLOT_COUNT,
+        lip13.y,
+        true,
+      )
     : [];
   let lowerStuds = spanL
-    ? studsFromHorizontalSlots(data, width, height, spanL.minX, spanL.maxX, lowerY0, lowerY1, LOWER_SLOT_COUNT)
+    ? studsFromHorizontalSlots(
+        data,
+        width,
+        height,
+        spanL.minX,
+        spanL.maxX,
+        lowerY0,
+        lowerY1,
+        LOWER_SLOT_COUNT,
+        lip14.y,
+        false,
+      )
     : [];
 
   if (upperStuds.length < 2 && lowerStuds.length < 2) return null;
