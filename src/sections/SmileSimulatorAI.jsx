@@ -6,7 +6,12 @@ import ReactCompareImage from "react-compare-image";
 import PremiumButton from "../components/PremiumButton";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
-import { buildGeometricBracesPack, reprojectBracesPackAfterStudMove } from "../utils/bracesGeometry";
+import {
+  buildGeometricBracesPack,
+  reprojectBracesPackAfterStudMove,
+  LANDMARK_BRACKET_COUNT_UPPER,
+  LANDMARK_BRACKET_COUNT_LOWER,
+} from "../utils/bracesGeometry";
 import { snapBracesStudsToEnamel } from "../utils/bracesEnamelSnap";
 import { buildAnatomicalArchLockPack } from "../utils/bracesAnatomicalLock";
 import {
@@ -979,8 +984,8 @@ const SmileSimulatorAI = () => {
     const baseW = BRACKET_DRAW_SIDE_PX;
     const baseH = BRACKET_DRAW_SIDE_PX;
     const pack = buildGeometricBracesPack(landmarks, iw, ih, oval, {
-      bracketCountUpper: 14,
-      bracketCountLower: 12,
+      bracketCountUpper: LANDMARK_BRACKET_COUNT_UPPER,
+      bracketCountLower: LANDMARK_BRACKET_COUNT_LOWER,
     });
     if (!pack) return null;
     return { ...pack, baseW, baseH };

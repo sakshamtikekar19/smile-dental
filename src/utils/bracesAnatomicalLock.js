@@ -1,18 +1,19 @@
 /**
- * Surgical arch-lock (enamel-bound):
- * — Span: far-left/right from TEETH_WHITEN x-band (not lip corners).
- * — Slots: 14/12; X = luminance peak on enamel; Y = vertical center of each slot’s enamel face (clamped to 25% safe band).
- * — Radial: terminal molars nudged 5% toward midline after slotting.
- * — Clip: teethWhitenMaskPath.clipBracesToTeethEnamel in renderer (not here).
+ * Enamel-bound braces: primary = one bracket per MediaPipe tooth-row landmark (upper/lower counts match arch indices);
+ * optional per-stud enamel refinement on the merged bitmap; histogram slotting is fallback only.
  */
 
-import { landmarkToPx, reprojectBracesPackAfterStudMove, applyRadialMolarEnrollment } from "./bracesGeometry";
+import {
+  landmarkToPx,
+  reprojectBracesPackAfterStudMove,
+  applyRadialMolarEnrollment,
+  buildStudRowsFromLandmarkTeeth,
+} from "./bracesGeometry";
 import { TEETH_WHITEN_MASK_INDICES } from "./teethWhitenMaskIndices";
 
 const INNER_LIP_UPPER_IDX = 13;
 const INNER_LIP_LOWER_IDX = 14;
 
-/** Upper / lower tooth contours for sampling MediaPipe z at stud x. */
 const UPPER_Z_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
 const LOWER_Z_INDICES = [78, 191, 80, 81, 82, 87, 178, 88, 95, 14];
 
@@ -20,19 +21,15 @@ const LUM_MIN = 15;
 const LUM_MAX = 252;
 const SAT_MAX = 0.58;
 
-const UPPER_SLOT_COUNT = 14;
-const LOWER_SLOT_COUNT = 12;
-/** Distal molar columns can be dark; allow first/last enamel hits with a low floor. */
 const MIN_COLUMN_ENAMEL_EDGE_PX = 2;
-/** Interior columns: stricter to reduce cheek noise. */
 const MIN_COLUMN_ENAMEL_PX = 4;
-/** Slot must be at least this fraction enamel (else gap → skip bracket). */
 const MIN_SLOT_ENAMEL_FRACTION = 0.1;
 const MIN_ENAMEL_PIXELS_ABS = 8;
-/** Inner 50% of crown height: 25% margin from gum and from incisal edge. */
 const SAFE_ZONE_FRAC = 0.25;
-/** Horizontal pad (px) outside TEETH_WHITEN hull x-range for column scan. */
 const MASK_HULL_PAD_X_PX = 18;
+
+/** ~px per tooth when guessing slot count from span (fallback only). */
+const FALLBACK_TOOTH_PX_EST = 26;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -56,9 +53,6 @@ function loadImage(src) {
   });
 }
 
-/**
- * Far-left / far-right x of the TEETH_WHITEN landmark hull (ignores lip commissures 61/291).
- */
 function teethWhitenMaskHorizontalBounds(landmarks, iw, ih) {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -117,9 +111,6 @@ function columnHistogram(data, width, height, x0, x1, y0, y1) {
   return hist;
 }
 
-/**
- * Far-left / far-right columns with enamel; relaxed threshold in distal ~12% so dark molars still anchor the arch.
- */
 function enamelSpanFromHistogram(hist, width, xa, xb) {
   const x0 = clamp(Math.floor(xa), 0, width - 1);
   const x1 = clamp(Math.ceil(xb), 0, width - 1);
@@ -147,9 +138,68 @@ function enamelSpanFromHistogram(hist, width, xa, xb) {
 }
 
 /**
- * 14 / 12 equal vertical slots. X = luminance peak on enamel. Y = midpoint of enamel column (visible face center).
+ * Snap each landmark stud to local luminance peak + vertical enamel center in band.
  */
-function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY1, slotCount, _lipY, _upper) {
+function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, halfWin = 18) {
+  const ya = clamp(Math.floor(bandY0), 0, height - 1);
+  const yb = clamp(Math.ceil(bandY1), 0, height - 1);
+  const out = [];
+  for (const stud of studs) {
+    const x0 = clamp(Math.floor(stud.x - halfWin), 0, width - 1);
+    const x1 = clamp(Math.ceil(stud.x + halfWin), 0, width - 1);
+    let bestLum = -1;
+    let bx = stud.x;
+    for (let x = x0; x <= x1; x++) {
+      for (let y = ya; y <= yb; y++) {
+        const i = (y * width + x) * 4;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        if (!isEnamelLike(r, g, b)) continue;
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        if (lum > bestLum) {
+          bestLum = lum;
+          bx = x;
+        }
+      }
+    }
+    if (bestLum < 0) {
+      out.push({ ...stud });
+      continue;
+    }
+    const xc = clamp(Math.round(bx), 0, width - 1);
+    let minYE = Infinity;
+    let maxYE = -Infinity;
+    let hits = 0;
+    for (let y = ya; y <= yb; y++) {
+      const i = (y * width + xc) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (!isEnamelLike(r, g, b)) continue;
+      hits++;
+      if (y < minYE) minYE = y;
+      if (y > maxYE) maxYE = y;
+    }
+    if (hits < 3 || minYE === Infinity) {
+      out.push({ ...stud });
+      continue;
+    }
+    const H = maxYE - minYE;
+    const ySafeLo = minYE + SAFE_ZONE_FRAC * H;
+    const ySafeHi = maxYE - SAFE_ZONE_FRAC * H;
+    const yMid = (minYE + maxYE) * 0.5;
+    const yFinal = clamp(yMid, ySafeLo, ySafeHi);
+    out.push({ x: bx, y: yFinal, z: stud.z ?? 0 });
+  }
+  return out;
+}
+
+function slotsForSpan(spanPx) {
+  return clamp(Math.round(spanPx / FALLBACK_TOOTH_PX_EST), 6, 16);
+}
+
+function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY1, slotCount) {
   const studs = [];
   const span = xMax - xMin;
   if (span < 12) return studs;
@@ -236,37 +286,64 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
   const lowerY0 = lip14.y - mouthOpen * 0.52;
   const lowerY1 = lip14.y - mouthOpen * 0.035;
 
-  let img;
+  const landmarkRows = buildStudRowsFromLandmarkTeeth(landmarks, iw, ih);
+
+  let data;
+  let width;
+  let height;
+  let bitmapOk = false;
   try {
-    img = await loadImage(imageDataUrl);
+    const img = await loadImage(imageDataUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = iw;
+    canvas.height = ih;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, iw, ih);
+    const imageData = ctx.getImageData(0, 0, iw, ih);
+    data = imageData.data;
+    width = imageData.width;
+    height = imageData.height;
+    bitmapOk = true;
   } catch {
-    return null;
+    bitmapOk = false;
   }
 
-  const canvas = document.createElement("canvas");
-  canvas.width = iw;
-  canvas.height = ih;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
-  ctx.drawImage(img, 0, 0, iw, ih);
-  let imageData;
-  try {
-    imageData = ctx.getImageData(0, 0, iw, ih);
-  } catch {
-    return null;
+  let upperStuds = [];
+  let lowerStuds = [];
+  let usedLandmarkPrimary = false;
+
+  if (landmarkRows) {
+    usedLandmarkPrimary = true;
+    if (bitmapOk) {
+      upperStuds = refineStudsToEnamelInBand(data, width, height, landmarkRows.upperStuds, upperY0, upperY1);
+      lowerStuds = refineStudsToEnamelInBand(data, width, height, landmarkRows.lowerStuds, lowerY0, lowerY1);
+    } else {
+      upperStuds = landmarkRows.upperStuds.map((s) => ({ ...s }));
+      lowerStuds = landmarkRows.lowerStuds.map((s) => ({ ...s }));
+    }
   }
-  const { data, width, height } = imageData;
 
-  const histU = columnHistogram(data, width, height, scanX0, scanX1, upperY0, upperY1);
-  const spanU = enamelSpanFromHistogram(histU, width, scanX0, scanX1);
-
-  const histL = columnHistogram(data, width, height, scanX0, scanX1, lowerY0, lowerY1);
-  const spanL = enamelSpanFromHistogram(histL, width, scanX0, scanX1);
-
-  if (!spanU && !spanL) return null;
-
-  let upperStuds = spanU
-    ? studsFromHorizontalSlots(
+  if (!usedLandmarkPrimary && bitmapOk) {
+    const histU = columnHistogram(data, width, height, scanX0, scanX1, upperY0, upperY1);
+    const spanU = enamelSpanFromHistogram(histU, width, scanX0, scanX1);
+    const histL = columnHistogram(data, width, height, scanX0, scanX1, lowerY0, lowerY1);
+    const spanL = enamelSpanFromHistogram(histL, width, scanX0, scanX1);
+    if (spanU) {
+      const nU = slotsForSpan(spanU.maxX - spanU.minX);
+      upperStuds = studsFromHorizontalSlots(data, width, height, spanU.minX, spanU.maxX, upperY0, upperY1, nU);
+    }
+    if (spanL) {
+      const nL = slotsForSpan(spanL.maxX - spanL.minX);
+      lowerStuds = studsFromHorizontalSlots(data, width, height, spanL.minX, spanL.maxX, lowerY0, lowerY1, nL);
+    }
+  } else if (usedLandmarkPrimary && upperStuds.length < 2 && lowerStuds.length < 2 && bitmapOk) {
+    const histU = columnHistogram(data, width, height, scanX0, scanX1, upperY0, upperY1);
+    const spanU = enamelSpanFromHistogram(histU, width, scanX0, scanX1);
+    const histL = columnHistogram(data, width, height, scanX0, scanX1, lowerY0, lowerY1);
+    const spanL = enamelSpanFromHistogram(histL, width, scanX0, scanX1);
+    if (spanU && upperStuds.length < 2) {
+      upperStuds = studsFromHorizontalSlots(
         data,
         width,
         height,
@@ -274,13 +351,11 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
         spanU.maxX,
         upperY0,
         upperY1,
-        UPPER_SLOT_COUNT,
-        lip13.y,
-        true,
-      )
-    : [];
-  let lowerStuds = spanL
-    ? studsFromHorizontalSlots(
+        slotsForSpan(spanU.maxX - spanU.minX),
+      );
+    }
+    if (spanL && lowerStuds.length < 2) {
+      lowerStuds = studsFromHorizontalSlots(
         data,
         width,
         height,
@@ -288,29 +363,32 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
         spanL.maxX,
         lowerY0,
         lowerY1,
-        LOWER_SLOT_COUNT,
-        lip14.y,
-        false,
-      )
-    : [];
+        slotsForSpan(spanL.maxX - spanL.minX),
+      );
+    }
+  }
 
   if (upperStuds.length < 2 && lowerStuds.length < 2) return null;
 
   if (upperStuds.length < 2) upperStuds = [];
   if (lowerStuds.length < 2) lowerStuds = [];
 
-  if (upperStuds.length >= 6) upperStuds = applyRadialMolarEnrollment(upperStuds);
-  if (lowerStuds.length >= 6) lowerStuds = applyRadialMolarEnrollment(lowerStuds);
+  if (!usedLandmarkPrimary) {
+    if (upperStuds.length >= 6) upperStuds = applyRadialMolarEnrollment(upperStuds);
+    if (lowerStuds.length >= 6) lowerStuds = applyRadialMolarEnrollment(lowerStuds);
+  }
 
   upperStuds = attachZToStuds(upperStuds, landmarks, iw, ih, true);
   lowerStuds = attachZToStuds(lowerStuds, landmarks, iw, ih, false);
+
+  const mo = landmarkRows?.mouthOpen ?? mouthOpen;
 
   const pack = reprojectBracesPackAfterStudMove(
     {
       wireMode: "polyline",
       upperStuds,
       lowerStuds,
-      mouthOpen,
+      mouthOpen: mo,
     },
     iw,
     ih,

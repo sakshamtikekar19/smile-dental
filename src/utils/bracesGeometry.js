@@ -14,10 +14,10 @@ import {
   evalUpperArchParabolaDydx,
 } from "./bracesDentalArc";
 
-/** Upper arch: inner upper lip + upper teeth ridge, left→right in image space (after sort by x). */
-const UPPER_TEETH_ARCH_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
-/** Lower arch: lower lip / lower teeth-facing contour (same 468-style indices as whitening mask lower set). */
-const LOWER_TEETH_ARCH_INDICES = [78, 191, 80, 81, 82, 87, 178, 88, 95, 14];
+/** Upper arch: one MediaPipe sample per “tooth station” along the ridge (left→right). */
+export const UPPER_TEETH_ARCH_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
+/** Lower arch: tooth-row samples (count matches visible bracket stations). */
+export const LOWER_TEETH_ARCH_INDICES = [78, 191, 80, 81, 82, 87, 178, 88, 95, 14];
 const INNER_LIP_UPPER_IDX = 13;
 const INNER_LIP_LOWER_IDX = 14;
 const COMMISSURE_LEFT_IDX = 61;
@@ -37,12 +37,15 @@ const ARCHWIRE_TERMINAL_TUCK_PX = 2;
 const ARCH_CATMULL_DEPTH_BOOST = 1;
 /** Distal molars vs centrals (~25% smaller linear size ⇒ incisors read ~1.25× molar). */
 export const MOLAR_DEPTH_SCALE_MIN = 0.8;
-/** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */
-const CENTROID_BRACKET_MIN = 12;
-const CENTROID_BRACKET_MAX = 14;
+/** Centroid/parametric pack: default counts follow landmark tooth-row length. */
+const CENTROID_BRACKET_MIN = 6;
+const CENTROID_BRACKET_MAX = 16;
 const CATMULL_WIRE_STEPS_AFTER_SNAP = 22;
-const DEFAULT_BRACKET_COUNT_UPPER = 14;
-const DEFAULT_BRACKET_COUNT_LOWER = 12;
+const DEFAULT_BRACKET_COUNT_UPPER = UPPER_TEETH_ARCH_INDICES.length;
+const DEFAULT_BRACKET_COUNT_LOWER = LOWER_TEETH_ARCH_INDICES.length;
+/** Default bracket counts = one station per tooth-row landmark (preview / centroid). */
+export const LANDMARK_BRACKET_COUNT_UPPER = DEFAULT_BRACKET_COUNT_UPPER;
+export const LANDMARK_BRACKET_COUNT_LOWER = DEFAULT_BRACKET_COUNT_LOWER;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -130,7 +133,8 @@ function extractUpperTeethControls(landmarks, iw, ih) {
   if (!lipU) return { pts: [], mouthOpen: 0, bandDepth: 0 };
 
   const mouthOpen = lipL ? Math.abs(lipL.y - lipU.y) : Math.max(28, ih * 0.04);
-  const bandDepth = clamp(mouthOpen * 0.16, 6, 28);
+  /** Facial crown band: smaller offset keeps brackets on enamel, not inter-arch gap. */
+  const bandDepth = clamp(mouthOpen * 0.11, 4, 20);
 
   const pts = [];
   for (const idx of UPPER_TEETH_ARCH_INDICES) {
@@ -153,7 +157,7 @@ function extractLowerTeethControls(landmarks, iw, ih) {
   if (!lipL) return { pts: [], mouthOpen: 0 };
 
   const mouthOpen = lipU ? Math.abs(lipL.y - lipU.y) : Math.max(28, ih * 0.04);
-  const bandDepth = clamp(mouthOpen * 0.15, 5, 24);
+  const bandDepth = clamp(mouthOpen * 0.11, 4, 22);
 
   const pts = [];
   for (const idx of LOWER_TEETH_ARCH_INDICES) {
@@ -167,6 +171,26 @@ function extractLowerTeethControls(landmarks, iw, ih) {
   }
   pts.sort((a, b) => a.x - b.x);
   return { pts, mouthOpen, bandDepth };
+}
+
+/**
+ * One bracket station per upper/lower tooth-row landmark (same count as arch indices).
+ * Positions sit on the facial band used for the archwire spline.
+ */
+export function buildStudRowsFromLandmarkTeeth(landmarks, iw, ih) {
+  const lipU = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  const lipL = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  if (!lipU || !lipL) return null;
+  const mouthOpen = Math.abs(lipL.y - lipU.y);
+  if (mouthOpen < 4) return null;
+
+  const u = extractUpperTeethControls(landmarks, iw, ih);
+  const l = extractLowerTeethControls(landmarks, iw, ih);
+  if (u.pts.length < 2 || l.pts.length < 2) return null;
+
+  const upperStuds = u.pts.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 })).sort((a, b) => a.x - b.x);
+  const lowerStuds = l.pts.map((p) => ({ x: p.x, y: p.y, z: p.z ?? 0 })).sort((a, b) => a.x - b.x);
+  return { upperStuds, lowerStuds, mouthOpen };
 }
 
 /** Piecewise-linear Y along a sorted-by-x polyline; extrapolates past ends. */
@@ -224,7 +248,7 @@ export function sampleWireAlongToothBand(landmarks, iw, ih, studs, upper, mouthO
 
   const cx = (xMin + xMax) * 0.5;
   const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);
-  const sagExtra = clamp(halfW * 0.058 + mo * 0.065, 10, 48);
+  const sagExtra = clamp(halfW * 0.072 + mo * 0.08, 14, 56);
 
   const out = [];
   const n = TOOTH_BAND_WIRE_SAMPLES;
@@ -746,7 +770,7 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   const nL = clamp(
     Math.round(opts.bracketCountLower ?? opts.bracketCount ?? DEFAULT_BRACKET_COUNT_LOWER),
     CENTROID_BRACKET_MIN,
-    12,
+    CENTROID_BRACKET_MAX,
   );
 
   const left = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
