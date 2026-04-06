@@ -27,7 +27,7 @@ const WIRE_MOLAR_END_EXTEND_PX = 0;
  */
 const ARCHWIRE_TERMINAL_TUCK_PX = 2;
 /** Extra smile sag on Catmull wire vs flat chord (fraction of clamped mouth sag). */
-const ARCH_CATMULL_DEPTH_BOOST = 0.3;
+const ARCH_CATMULL_DEPTH_BOOST = 0.39;
 /** Extreme molars: ~20% smaller linear size than centrals (Z + lateral perspective). */
 const MOLAR_DEPTH_SCALE_MIN = 0.8;
 /** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */

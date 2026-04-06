@@ -1,6 +1,8 @@
 /**
  * Canvas 2D: archwire + 3D-style brackets (geometry supplied by bracesDentalArc / bracesGeometry).
+ * Hard enamel clip: use clipBracesToTeethEnamel() from teethWhitenMaskPath before drawing.
  */
+export { clipBracesToTeethEnamel } from "./teethWhitenMaskPath";
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -72,7 +74,7 @@ function splitWireTerminalFade(pts, frac) {
  */
 export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
   const clinical = opts.clinical === true;
-  const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : clinical ? 1.2 : 3;
+  const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : clinical ? 1.1 : 3;
   const clipMouth = opts.clipMouth;
   const mouthOpen = typeof opts.mouthOpen === "number" ? opts.mouthOpen : 0;
   const up = wireSamplesUpper;

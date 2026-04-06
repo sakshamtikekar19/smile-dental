@@ -144,8 +144,7 @@ function enamelSpanFromHistogram(hist, width, xa, xb) {
 }
 
 /**
- * 14 / 12 equal vertical slots. Bracket Y = midpoint(inner lip 13/14, biting edge), clamped to 25% safe zone.
- * X = enamel centroid in slot.
+ * 14 / 12 equal vertical slots. X = local max(luminance) on enamel (tooth face peak). Y = occlusal mid in safe zone.
  */
 function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY1, slotCount, lipY, upper) {
   const studs = [];
@@ -166,74 +165,8 @@ function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY
     const slotPixels = slotW * slotH;
     if (slotPixels < 1) continue;
 
-    let sumX = 0;
-    let sumY = 0;
-    let wsum = 0;
-    let enamelPx = 0;
-    let minYE = Infinity;
-    let maxYE = -Infinity;
-
-    for (let x = sx0; x <= sx1; x++) {
-      if (x < 0 || x >= width) continue;
-      for (let y = ya; y <= yb; y++) {
-        const i = (y * width + x) * 4;
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        if (!isEnamelLike(r, g, b)) continue;
-        enamelPx++;
-        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        const w = 0.35 + (lum / 255) * 0.65;
-        sumX += x * w;
-        sumY += y * w;
-        wsum += w;
-        if (y < minYE) minYE = y;
-        if (y > maxYE) maxYE = y;
-      }
-    }
-
-    if (enamelPx < MIN_ENAMEL_PIXELS_ABS) continue;
-    if (enamelPx / slotPixels < MIN_SLOT_ENAMEL_FRACTION) continue;
-    if (wsum < 1e-6 || minYE === Infinity) continue;
-
-    const H = maxYE - minYE;
-    if (H < 2) continue;
-
-    const ySafeLo = minYE + SAFE_ZONE_FRAC * H;
-    const ySafeHi = maxYE - SAFE_ZONE_FRAC * H;
-    if (ySafeHi <= ySafeLo) continue;
-
-    const yBitingEdge = upper ? maxYE : minYE;
-    const yOcclusalMid = (lipY + yBitingEdge) * 0.5;
-    const xCentroid = sumX / wsum;
-    const yFinal = clamp(yOcclusalMid, ySafeLo, ySafeHi);
-
-    studs.push({ x: xCentroid, y: yFinal, z: 0 });
-  }
-  studs.sort((a, b) => a.x - b.x);
-  return studs;
-}
-
-/**
- * Histogram miss fallback: per strip, brightest enamel-like pixel ≈ tooth center; same occlusal Y rule.
- */
-function studsFromLuminancePeakStrips(data, width, height, xMin, xMax, bandY0, bandY1, slotCount, lipY, upper) {
-  const studs = [];
-  const span = xMax - xMin;
-  if (span < 12) return studs;
-  const ya = clamp(Math.floor(bandY0), 0, height - 1);
-  const yb = clamp(Math.ceil(bandY1), 0, height - 1);
-
-  for (let s = 0; s < slotCount; s++) {
-    const t0 = xMin + (span * s) / slotCount;
-    const t1 = xMin + (span * (s + 1)) / slotCount;
-    const sx0 = Math.floor(t0);
-    const sx1 = Math.ceil(t1) - 1;
-    if (sx1 < sx0) continue;
-
     let bestLum = -1;
     let bx = 0;
-    let by = 0;
     let enamelPx = 0;
     let minYE = Infinity;
     let maxYE = -Infinity;
@@ -253,12 +186,13 @@ function studsFromLuminancePeakStrips(data, width, height, xMin, xMax, bandY0, b
         if (lum > bestLum) {
           bestLum = lum;
           bx = x;
-          by = y;
         }
       }
     }
 
-    if (enamelPx < MIN_ENAMEL_PIXELS_ABS || bestLum < 0 || minYE === Infinity) continue;
+    if (enamelPx < MIN_ENAMEL_PIXELS_ABS) continue;
+    if (enamelPx / slotPixels < MIN_SLOT_ENAMEL_FRACTION) continue;
+    if (bestLum < 0 || minYE === Infinity) continue;
 
     const H = maxYE - minYE;
     if (H < 2) continue;
@@ -357,37 +291,6 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
         false,
       )
     : [];
-
-  if (spanU && upperStuds.length < 2) {
-    const lumU = studsFromLuminancePeakStrips(
-      data,
-      width,
-      height,
-      spanU.minX,
-      spanU.maxX,
-      upperY0,
-      upperY1,
-      UPPER_SLOT_COUNT,
-      lip13.y,
-      true,
-    );
-    if (lumU.length > upperStuds.length) upperStuds = lumU;
-  }
-  if (spanL && lowerStuds.length < 2) {
-    const lumL = studsFromLuminancePeakStrips(
-      data,
-      width,
-      height,
-      spanL.minX,
-      spanL.maxX,
-      lowerY0,
-      lowerY1,
-      LOWER_SLOT_COUNT,
-      lip14.y,
-      false,
-    );
-    if (lumL.length > lowerStuds.length) lowerStuds = lumL;
-  }
 
   if (upperStuds.length < 2 && lowerStuds.length < 2) return null;
 

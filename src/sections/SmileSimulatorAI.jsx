@@ -16,6 +16,7 @@ import {
 } from "../utils/bracesTextureWarp";
 import { renderWire, renderBrackets } from "../utils/bracesCanvasRender";
 import { TEETH_WHITEN_MASK_INDICES } from "../utils/teethWhitenMaskIndices";
+import { getTightenedWhiteningMaskPoints, clipBracesToTeethEnamel } from "../utils/teethWhitenMaskPath";
 
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
@@ -72,8 +73,8 @@ const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14
  * Geometric arch-lock: mesh-only studs, 13/14 occlusal mid + 25% vertical safe band; wire stud-to-stud only;
  * ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0; ≤16 / ≤14 brackets; 1.5px wire, 3px shadow blur, 1.35px shadow Y.
  */
-/** Base clear-bracket size (−15% vs legacy 11px for tooth-scale match). */
-const BRACKET_DRAW_SIDE_PX = 11 * 0.85;
+/** Base clear-bracket size (−20% vs legacy 11px). */
+const BRACKET_DRAW_SIDE_PX = 11 * 0.8;
 /** Catmull–Rom samples per segment (higher = smoother U-shaped clinical arch). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 26;
 /** High-density grid columns across full arch span (anatomical center-lock / gap avoidance). */
@@ -115,8 +116,8 @@ const OCCLUSAL_SPLIT_LOWER_MARGIN_PX = 4;
 /** Legacy density merge cap. */
 const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_UPPER_BRACKETS;
 const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
-/** Solid silver archwire (px) — thinner reads more clinical vs “railway”. */
-const ARCHWIRE_LINE_WIDTH_PX = 1.2;
+/** Solid silver archwire (px). */
+const ARCHWIRE_LINE_WIDTH_PX = 1.1;
 /**
  * >0 mirrors Catmull past terminal studs. 0 = geometric lock: spline runs bracket-to-bracket only (no void run-out).
  */
@@ -754,94 +755,8 @@ const SmileSimulatorAI = () => {
     return canvas.toDataURL("image/jpeg", 0.92);
   };
 
-  /**
-   * Gum clearance (strict) + inner inset toward centroid so paint stays off lips; prefer bare enamel
-   * over tinting soft tissue.
-   */
-  const getTightenedWhiteningMaskPoints = (landmarks, iw, ih) => {
-    const p13 = landmarks[13];
-    const p14 = landmarks[14];
-    if (!p13 || !p14) return null;
-    const midYpx = ((p13.y + p14.y) / 2) * ih;
-    const pts = TEETH_WHITEN_MASK_INDICES.map((idx) => {
-      const p = landmarks[idx];
-      if (!p || typeof p.x !== "number") return null;
-      return { x: p.x * iw, y: p.y * ih };
-    }).filter(Boolean);
-    if (pts.length < 3) return null;
-    const out = pts.map((p) => ({ x: p.x, y: p.y }));
-    const lower = out.filter((p) => p.y > midYpx - 0.5);
-    if (lower.length >= 2) {
-      const lowerGumY = Math.min(...lower.map((p) => p.y));
-      const lowerLipY = Math.max(...lower.map((p) => p.y));
-      const span = Math.max(6, lowerLipY - lowerGumY);
-      const yMaxSafe = lowerLipY - LOWER_GUM_CLEARANCE_PX;
-      const yMinLower = Math.min(lowerGumY + span * 0.4, yMaxSafe - 4);
-      out.forEach((p) => {
-        if (p.y > midYpx - 0.5) {
-          p.y = Math.max(p.y, yMinLower);
-          p.y = Math.min(p.y, yMaxSafe);
-        }
-      });
-    }
-    const upper = out.filter((p) => p.y <= midYpx + 0.5);
-    if (upper.length >= 2) {
-      const upperGumY = Math.min(...upper.map((p) => p.y));
-      const upperToothY = Math.max(...upper.map((p) => p.y));
-      const span = Math.max(6, upperToothY - upperGumY);
-      const yMinSafe = Math.max(upperGumY + GUM_CLEARANCE_PX, upperGumY + GUM_CLEARANCE_PX + span * 0.1);
-      out.forEach((p) => {
-        if (p.y <= midYpx + 0.5) p.y = Math.max(p.y, yMinSafe);
-      });
-    }
-    const cx = out.reduce((s, p) => s + p.x, 0) / out.length;
-    const cy = out.reduce((s, p) => s + p.y, 0) / out.length;
-    const xs = out.map((p) => p.x);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const cornerBand = Math.max(20, (maxX - minX) * 0.2);
-    out.forEach((p) => {
-      const nearCorner = p.x <= minX + cornerBand || p.x >= maxX - cornerBand;
-      const inset = nearCorner ? WHITEN_MASK_LIP_INSET_CORNER_PX : WHITEN_MASK_LIP_INSET_PX;
-      const dx = p.x - cx;
-      const dy = p.y - cy;
-      const len = Math.hypot(dx, dy) || 1;
-      p.x -= (dx / len) * inset;
-      p.y -= (dy / len) * inset;
-    });
-    const lipGumPx = [...new Set([...MOUTH_PERIMETER_INDICES, 312, 308, 415, 310])]
-      .map((idx) => landmarks[idx])
-      .filter((p) => p && typeof p.x === "number")
-      .map((p) => ({ x: p.x * iw, y: p.y * ih }));
-    const g = LIP_GUM_LANDMARK_GUARD_PX;
-    out.forEach((p) => {
-      lipGumPx.forEach((L) => {
-        const dx = p.x - L.x;
-        const dy = p.y - L.y;
-        const d = Math.hypot(dx, dy);
-        if (d < g && d > 1e-6) {
-          const push = (g - d) / d;
-          p.x += dx * push;
-          p.y += dy * push;
-        }
-      });
-    });
-    return out;
-  };
-
   /** Anatomical teeth region from landmarks; caller must ctx.save() before and ctx.restore() after. */
-  const generateTeethMask = (landmarks, ctx, iw, ih) => {
-    const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
-    if (!pts || pts.length < 3) return false;
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.closePath();
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.clip();
-    return true;
-  };
+  const generateTeethMask = (landmarks, ctx, iw, ih) => clipBracesToTeethEnamel(ctx, landmarks, iw, ih);
 
   /** iOS / mobile: subtle contrast + saturation on mouth crop so previews read clearly after boostMouthGuideRegion. */
   const applyMouthPopFilter = (ctx, bounds) => {
@@ -1113,10 +1028,16 @@ const SmileSimulatorAI = () => {
 
   /**
    * Wire → contact shadows → studs. `layers`: 'wire' | 'shadows' | 'studs' | 'both'.
-   * @param {{ omitStudShadow?: boolean, outerAlpha?: number, layers?: 'wire' | 'shadows' | 'studs' | 'both' }} opts
+   * @param {{ omitStudShadow?: boolean, outerAlpha?: number, layers?: 'wire' | 'shadows' | 'studs' | 'both', skipTeethClip?: boolean, precomputedPack?: object }} opts
    */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
-    const { omitStudShadow = false, layers = "both", outerAlpha = 0.95, precomputedPack = null } = opts;
+    const {
+      omitStudShadow = false,
+      layers = "both",
+      outerAlpha = 0.95,
+      precomputedPack = null,
+      skipTeethClip = false,
+    } = opts;
     const wireDarkW = ARCHWIRE_LINE_WIDTH_PX;
     const pack =
       precomputedPack &&
@@ -1129,13 +1050,16 @@ const SmileSimulatorAI = () => {
     ctx.save();
     ctx.globalAlpha = outerAlpha;
 
-    const teethClipped = landmarks && generateTeethMask(landmarks, ctx, iw, ih);
     const mo = typeof mouthOpen === "number" ? mouthOpen : 20;
-    if (!teethClipped && oval?.rx > 0 && oval?.ry > 0) {
-      const openPad = Math.min(oval.ry * 0.4, Math.max(5, mo * 0.14));
-      ctx.beginPath();
-      ctx.ellipse(oval.cx, oval.cy, oval.rx * 1.07, oval.ry + openPad, 0, 0, Math.PI * 2);
-      ctx.clip();
+    let teethClipped = false;
+    if (!skipTeethClip) {
+      teethClipped = Boolean(landmarks && generateTeethMask(landmarks, ctx, iw, ih));
+      if (!teethClipped && oval?.rx > 0 && oval?.ry > 0) {
+        const openPad = Math.min(oval.ry * 0.4, Math.max(5, mo * 0.14));
+        ctx.beginPath();
+        ctx.ellipse(oval.cx, oval.cy, oval.rx * 1.07, oval.ry + openPad, 0, 0, Math.PI * 2);
+        ctx.clip();
+      }
     }
 
     if (layers === "wire" || layers === "both") {
@@ -1144,7 +1068,8 @@ const SmileSimulatorAI = () => {
         clinical: true,
         shadowOffsetY: ARCHWIRE_SHADOW_OFFSET_Y_PX,
         shadowBlur: ARCHWIRE_SHADOW_BLUR_PX,
-        clipMouth: teethClipped ? undefined : oval?.rx > 0 && oval?.ry > 0 ? oval : undefined,
+        clipMouth:
+          skipTeethClip || teethClipped ? undefined : oval?.rx > 0 && oval?.ry > 0 ? oval : undefined,
         mouthOpen: mo,
         terminalBuccalFade: { frac: 0.05, alpha: 0.2 },
       });
@@ -1293,21 +1218,29 @@ const SmileSimulatorAI = () => {
     await flushPaintBeforeVectorHardware();
     await delayMs(BRACES_HARDWARE_SETTLE_MS);
 
+    const moOv = pack.mouthOpen ?? 20;
     octx.save();
+    const enamelClipOk = clipBracesToTeethEnamel(octx, lm, iw, ih);
+    if (!enamelClipOk && ov?.rx > 0 && ov?.ry > 0) {
+      const openPad = Math.min(ov.ry * 0.4, Math.max(5, moOv * 0.14));
+      octx.beginPath();
+      octx.ellipse(ov.cx, ov.cy, ov.rx * 1.07, ov.ry + openPad, 0, 0, Math.PI * 2);
+      octx.clip();
+    }
     octx.globalAlpha = 0.84;
     drawWarpedBracesSegments(octx, atlasUpper, pack, {
       toothDepthPx,
       baseHScale: 0.88,
       lowerAtlas: atlasLower ?? undefined,
     });
-    octx.restore();
-
     renderBraces(lm, octx, iw, ih, ov, {
       omitStudShadow: true,
       layers: "wire",
       outerAlpha: 0.88,
       precomputedPack: pack,
+      skipTeethClip: true,
     });
+    octx.restore();
 
     applyUpperLipBracesOcclusion(octx, lm, iw, ih, pack.mouthOpen);
 

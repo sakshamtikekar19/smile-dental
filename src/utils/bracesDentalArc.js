@@ -34,7 +34,7 @@ export function generateDentalArc(left, right, upperLip, lowerLip, count = 10) {
   const width = mouthWidth / 2;
 
   const teethY = upperLip.y + UPPER_TEETHY_FRAC * mouthHeight;
-  const arcHeight = mouthHeight * 0.15 * 1.3;
+  const arcHeight = mouthHeight * 0.15 * 1.45;
 
   const points = [];
   const n = Math.max(2, Math.round(count));
@@ -64,7 +64,7 @@ export function getLowerArchBracketPoints(left, right, upperLip, lowerLip, count
   const centerX = (left.x + right.x) / 2;
   const width = mouthWidth / 2;
   const teethY = lowerLip.y - mouthHeight * 0.38;
-  const arcHeight = mouthHeight * 0.12 * 1.3;
+  const arcHeight = mouthHeight * 0.12 * 1.45;
 
   const n = Math.max(2, Math.round(count));
   const out = [];
@@ -90,7 +90,7 @@ export function getBracketPoints(left, right, upperLip, lowerLip, count = 10) {
   const centerX = (left.x + right.x) / 2;
   const width = mouthWidth / 2;
   const teethY = upperLip.y + UPPER_TEETHY_FRAC * mouthHeight;
-  const arcHeight = mouthHeight * 0.15 * 1.3;
+  const arcHeight = mouthHeight * 0.15 * 1.45;
 
   const n = Math.max(2, Math.round(count));
   const out = [];
