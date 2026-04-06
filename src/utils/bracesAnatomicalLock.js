@@ -1,6 +1,9 @@
 /**
- * Dental arch geometric lock: horizontal span from TEETH_WHITEN mask hull (not commissures), then
- * 14 / 12 fixed vertical slots over enamel; Catmull–Rom wire through bracket centers (see bracesGeometry).
+ * Surgical arch-lock (enamel-bound):
+ * — Span: far-left/right from image column histogram in TEETH_WHITEN x-band (not lip corners).
+ * — Slots: 14 upper / 12 lower; per-slot bracket X = argmax luminance on enamel-like pixels (tooth face peak); skip if gap.
+ * — Y: occlusal mid vs lip 13/14 + biting edge, 25% vertical safe zone.
+ * — Clip for drawing: SmileSimulatorAI + teethWhitenMaskPath.clipBracesToTeethEnamel (not in this module).
  */
 
 import { landmarkToPx, reprojectBracesPackAfterStudMove } from "./bracesGeometry";

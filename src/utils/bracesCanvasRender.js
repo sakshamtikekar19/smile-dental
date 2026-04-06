@@ -1,6 +1,7 @@
 /**
- * Canvas 2D: archwire + 3D-style brackets (geometry supplied by bracesDentalArc / bracesGeometry).
- * Hard enamel clip: use clipBracesToTeethEnamel() from teethWhitenMaskPath before drawing.
+ * Canvas 2D: archwire + metallic brackets.
+ * Anti-lip: callers must ctx.save(), clipBracesToTeethEnamel(ctx, landmarks, iw, ih), draw renderWire/renderBrackets, ctx.restore().
+ * Re-export clip helper for any render pass that must not paint outside enamel.
  */
 export { clipBracesToTeethEnamel } from "./teethWhitenMaskPath";
 

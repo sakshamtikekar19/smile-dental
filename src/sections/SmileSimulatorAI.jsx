@@ -68,10 +68,9 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 /** Mean Y of these → lower lip band; with upper mean, defines enamel vertical span for bracket rows. */
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
- * Geometric segmentation lock: full TEETH_WHITEN mask horizontal ROI (lip corners ignored); valley (>40%) morph
- * per arch; one bracket per segment 2D face centroid; 25% vertical safe zone; 1–4–6–4–1 cy smooth (terminals raw);
- * Geometric arch-lock: mesh-only studs, 13/14 occlusal mid + 25% vertical safe band; wire stud-to-stud only;
- * ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0; ≤16 / ≤14 brackets; 1.5px wire, 3px shadow blur, 1.35px shadow Y.
+ * Braces: TEETH_WHITEN clip (teethWhitenMaskPath) before vector + texture overlay; anatomical 14/12 slots;
+ * parabolic depth 1.45; luminance peak per slot; ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0; 1.1px wire; bracket 0.8×11px;
+ * 3px shadow blur, 1.35px shadow Y; molar depth floor 0.8 (≈25% smaller than centrals).
  */
 /** Base clear-bracket size (−20% vs legacy 11px). */
 const BRACKET_DRAW_SIDE_PX = 11 * 0.8;

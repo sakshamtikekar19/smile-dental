@@ -1,7 +1,10 @@
 /**
  * Math-based upper dental arc from mouth corners + inner lips only (not raw tooth curves).
  * MediaPipe indices: commissures 61, 291; inner upper/lower lip 13, 14.
+ * Parabolic sag uses PARABOLIC_ARCH_DEPTH_FACTOR (clinical wrap vs flat “railway”).
  */
+/** Multiplier on baseline arc sag (deep jaw wrap). */
+export const PARABOLIC_ARCH_DEPTH_FACTOR = 1.45;
 
 /** Base vertical blend: inner upper lip → into open mouth (fraction of mouth height). */
 const UPPER_TEETHY_FRAC_BASE = 0.35;
@@ -34,7 +37,7 @@ export function generateDentalArc(left, right, upperLip, lowerLip, count = 10) {
   const width = mouthWidth / 2;
 
   const teethY = upperLip.y + UPPER_TEETHY_FRAC * mouthHeight;
-  const arcHeight = mouthHeight * 0.15 * 1.45;
+  const arcHeight = mouthHeight * 0.15 * PARABOLIC_ARCH_DEPTH_FACTOR;
 
   const points = [];
   const n = Math.max(2, Math.round(count));
@@ -64,7 +67,7 @@ export function getLowerArchBracketPoints(left, right, upperLip, lowerLip, count
   const centerX = (left.x + right.x) / 2;
   const width = mouthWidth / 2;
   const teethY = lowerLip.y - mouthHeight * 0.38;
-  const arcHeight = mouthHeight * 0.12 * 1.45;
+  const arcHeight = mouthHeight * 0.12 * PARABOLIC_ARCH_DEPTH_FACTOR;
 
   const n = Math.max(2, Math.round(count));
   const out = [];
@@ -90,7 +93,7 @@ export function getBracketPoints(left, right, upperLip, lowerLip, count = 10) {
   const centerX = (left.x + right.x) / 2;
   const width = mouthWidth / 2;
   const teethY = upperLip.y + UPPER_TEETHY_FRAC * mouthHeight;
-  const arcHeight = mouthHeight * 0.15 * 1.45;
+  const arcHeight = mouthHeight * 0.15 * PARABOLIC_ARCH_DEPTH_FACTOR;
 
   const n = Math.max(2, Math.round(count));
   const out = [];
