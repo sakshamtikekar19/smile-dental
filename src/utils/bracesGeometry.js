@@ -23,9 +23,11 @@ const WIRE_SAMPLES = 100;
 /** 0 = wire terminates at terminal bracket centers (no run-out into cheeks). */
 const WIRE_MOLAR_END_EXTEND_PX = 0;
 /**
- * Inward bend in the last ~10–12% of arc length (endpoints fixed) toward stud centroid — buccal-tube tuck vs flat tangent.
+ * Inward bend (px) near terminals; first/last wire samples stay on stud centers (preview: terminal + tuck).
  */
 const ARCHWIRE_TERMINAL_TUCK_PX = 2;
+/** Molar bracket linear scale vs mid-arch when Z-dist is max (~ incisors 25% larger than molars → molars at 0.8×). */
+const MOLAR_DEPTH_SCALE_MIN = 0.8;
 /** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */
 const CENTROID_BRACKET_MIN = 12;
 const CENTROID_BRACKET_MAX = 14;
@@ -188,12 +190,12 @@ function applyPerspectiveScaleToAnchors(anchors, studs) {
   const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);
   const mid = Math.floor(studs.length / 2);
   const centerScale = Math.max(
-    Math.max(0.75, 1 - (Math.abs(studs[mid].x - centerX) / halfW) * 0.25),
+    Math.max(MOLAR_DEPTH_SCALE_MIN, 1 - (Math.abs(studs[mid].x - centerX) / halfW) * (1 - MOLAR_DEPTH_SCALE_MIN)),
     0.01,
   );
   return anchors.map((a, i) => {
     const dist = Math.abs(studs[i].x - centerX);
-    const s = Math.max(0.75, 1 - (dist / halfW) * 0.25);
+    const s = Math.max(MOLAR_DEPTH_SCALE_MIN, 1 - (dist / halfW) * (1 - MOLAR_DEPTH_SCALE_MIN));
     const ratio = s / centerScale;
     return {
       ...a,
@@ -306,8 +308,9 @@ export function computeBracketTransforms(row, iw, ih, oval) {
 
     const zDist = Math.abs((p.z ?? 0) - zMed) / zSpan;
     const zScale = clamp(1.03 - 0.16 * zDist, 0.88, 1.04);
-    /** Far molars: 75% scale vs ~100% at mid-arch (MediaPipe Z). */
-    const molarDepthScale = 0.75 + 0.25 * (1 - clamp(zDist, 0, 1));
+    /** Distal molars vs centrals: ~25% smaller linear size (1/1.25 ≈ 0.8). */
+    const molarDepthScale =
+      MOLAR_DEPTH_SCALE_MIN + (1 - MOLAR_DEPTH_SCALE_MIN) * (1 - clamp(zDist, 0, 1));
 
     const scaleZ = clamp(1 / (1 + (p.z ?? 0) * 1.5), 0.7, 1.14);
     const normD = distFromCenter / maxDist;
