@@ -28,6 +28,12 @@ const MIN_ENAMEL_PIXELS_ABS = 8;
 const SAFE_ZONE_FRAC = 0.25;
 const MASK_HULL_PAD_X_PX = 18;
 
+/**
+ * Bitmap enamel snap can pull many studs to the same column and break full-arch spacing.
+ * Landmark tooth rows stay one bracket per station; forced quadratic wire still follows studs smoothly.
+ */
+const USE_ENAMEL_REFINE = false;
+
 /** ~px per tooth when guessing slot count from span (fallback only). */
 const FALLBACK_TOOTH_PX_EST = 26;
 
@@ -327,7 +333,7 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
 
   if (landmarkRows) {
     usedLandmarkPrimary = true;
-    if (bitmapOk) {
+    if (bitmapOk && USE_ENAMEL_REFINE) {
       upperStuds = refineStudsToEnamelInBand(
         data,
         width,

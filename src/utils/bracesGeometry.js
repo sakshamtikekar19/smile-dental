@@ -268,6 +268,58 @@ function smoothWireYLight(pts) {
   });
 }
 
+/**
+ * Primary archwire: least-squares quadratic through **all** bracket positions + mandatory parabolic sag,
+ * sampled across commissure width. Always smooth (no Catmull/spline artifacts); never a broken/kinked polyline.
+ */
+export function sampleWireForcedQuadraticArch(landmarks, iw, ih, studs, upper, mouthOpen) {
+  if (!landmarks?.length || !studs || studs.length < 2) return null;
+  const sorted = [...studs].sort((a, b) => a.x - b.x);
+  const cl = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
+  const cr = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
+  let xMin = sorted[0].x;
+  let xMax = sorted[sorted.length - 1].x;
+  if (cl && cr) {
+    xMin = Math.min(xMin, cl.x);
+    xMax = Math.max(xMax, cr.x);
+  }
+  const pad = Math.max(6, (xMax - xMin) * 0.028);
+  xMin -= pad;
+  xMax += pad;
+  if (xMax - xMin < 14) return null;
+
+  const mo = typeof mouthOpen === "number" ? mouthOpen : 24;
+  const cx = (xMin + xMax) * 0.5;
+  const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);
+  const sagMin = clamp(halfW * 0.07 + mo * 0.085, 14, 52);
+
+  let q;
+  if (sorted.length >= 3) {
+    q = fitQuadraticYofX(sorted);
+  } else {
+    const p0 = sorted[0];
+    const p1 = sorted[1];
+    const dx = p1.x - p0.x || 1e-6;
+    const m = (p1.y - p0.y) / dx;
+    q = { a: 0, b: m, c: p0.y - m * p0.x };
+  }
+
+  const n = 140;
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const x = xMin + t * (xMax - xMin);
+    let y = evalQuad(q, x);
+    const u = (x - cx) / halfW;
+    const u2 = clamp(u * u, 0, 1);
+    y += (upper ? 1 : -1) * sagMin * (1 - u2);
+    out.push({ x, y });
+  }
+  let banded = clampArchWireYToLipBands(out, landmarks, iw, ih, upper, mo);
+  banded = smoothWireYLight(banded);
+  return banded;
+}
+
 const TOOTH_BAND_WIRE_SAMPLES = 120;
 
 /**
@@ -911,11 +963,13 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
 
   const steps = typeof opts.catmullWireSteps === "number" ? opts.catmullWireSteps : CATMULL_WIRE_STEPS_AFTER_SNAP;
   const wireSamplesUpper =
+    sampleWireForcedQuadraticArch(landmarks, iw, ih, upperStuds, true, mouthOpen) ??
     sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mouthOpen) ??
     sampleWireFromStuds(upperStuds, steps, { mouthOpen, upper: true, landmarks, iw, ih });
   const wireSamplesLower =
     lowerStuds.length >= 2
-      ? sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
+      ? sampleWireForcedQuadraticArch(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
+        sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
         sampleWireFromStuds(lowerStuds, steps, { mouthOpen, upper: false, landmarks, iw, ih })
       : [];
 
@@ -952,7 +1006,8 @@ export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval, landmarks =
   const mo = typeof pack.mouthOpen === "number" ? pack.mouthOpen : 24;
   const wireSamplesUpper =
     upperStuds.length >= 2
-      ? sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mo) ??
+      ? sampleWireForcedQuadraticArch(landmarks, iw, ih, upperStuds, true, mo) ??
+        sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mo) ??
         sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, {
           mouthOpen: mo,
           upper: true,
@@ -963,7 +1018,8 @@ export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval, landmarks =
       : [];
   const wireSamplesLower =
     lowerStuds.length >= 2
-      ? sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mo) ??
+      ? sampleWireForcedQuadraticArch(landmarks, iw, ih, lowerStuds, false, mo) ??
+        sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mo) ??
         sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, {
           mouthOpen: mo,
           upper: false,
