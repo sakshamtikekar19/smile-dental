@@ -233,7 +233,7 @@ export function clampArchWireYToLipBands(pts, landmarks, iw, ih, upper, mouthOpe
   if (!lipU || !lipL) return pts;
   const yMid = (lipU.y + lipL.y) * 0.5;
   const mo = typeof mouthOpen === "number" ? mouthOpen : Math.abs(lipL.y - lipU.y);
-  const gap = Math.max(mo * 0.09, 6);
+  const gap = Math.max(mo * 0.028, 2.5);
   const yMaxUpper = yMid - gap;
   const yMinLower = yMid + gap;
   return pts.map((p) => ({
@@ -249,9 +249,9 @@ export function clampArchWireYToLipBands(pts, landmarks, iw, ih, upper, mouthOpe
 export function sampleWireAlongToothBand(landmarks, iw, ih, studs, upper, mouthOpen) {
   if (!landmarks?.length || !studs || studs.length < 2) return null;
   const xs = studs.map((s) => s.x);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
-  if (xMax - xMin < 10) return null;
+  const xMinStud = Math.min(...xs);
+  const xMaxStud = Math.max(...xs);
+  if (xMaxStud - xMinStud < 10) return null;
 
   const mo = typeof mouthOpen === "number" ? mouthOpen : 24;
   const row = upper ? extractUpperTeethControls(landmarks, iw, ih) : extractLowerTeethControls(landmarks, iw, ih);
@@ -265,6 +265,10 @@ export function sampleWireAlongToothBand(landmarks, iw, ih, studs, upper, mouthO
     if (!thin.length || p.x > thin[thin.length - 1].x + 0.25) thin.push(p);
   }
   if (thin.length < 2) return null;
+
+  const bx = base.map((p) => p.x);
+  const xMin = Math.min(xMinStud, ...bx);
+  const xMax = Math.max(xMaxStud, ...bx);
 
   const cx = (xMin + xMax) * 0.5;
   const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);

@@ -3,7 +3,7 @@
  * Anti-lip: callers must ctx.save(), clipBracesToTeethEnamel(ctx, landmarks, iw, ih), draw renderWire/renderBrackets, ctx.restore().
  * Re-export clip helper for any render pass that must not paint outside enamel.
  */
-export { clipBracesToTeethEnamel } from "./teethWhitenMaskPath";
+export { clipBracesToTeethEnamel, getBracesTeethClipPoints } from "./teethWhitenMaskPath";
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));

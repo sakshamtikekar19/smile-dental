@@ -90,11 +90,33 @@ export function getTightenedWhiteningMaskPoints(landmarks, iw, ih) {
 }
 
 /**
+ * Slightly expanded teeth hull so distal brackets/wire aren’t clipped by corner inset (whitening mask is tighter).
+ */
+export function getBracesTeethClipPoints(landmarks, iw, ih) {
+  const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+  if (!pts || pts.length < 3) return null;
+  let sx = 0;
+  let sy = 0;
+  for (const p of pts) {
+    sx += p.x;
+    sy += p.y;
+  }
+  const cx = sx / pts.length;
+  const cy = sy / pts.length;
+  const scale = 1.072;
+  return pts.map((p) => ({
+    x: cx + (p.x - cx) * scale,
+    y: cy + (p.y - cy) * scale,
+  }));
+}
+
+/**
  * Anti-lip shield: clip all subsequent drawing to enamel hull. Caller must `ctx.save()` before.
+ * Uses an expanded hull vs whitening so buccal brackets stay visible.
  * @returns {boolean} whether clip was applied
  */
 export function clipBracesToTeethEnamel(ctx, landmarks, iw, ih) {
-  const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+  const pts = getBracesTeethClipPoints(landmarks, iw, ih);
   if (!pts || pts.length < 3) return false;
   ctx.beginPath();
   ctx.moveTo(pts[0].x, pts[0].y);

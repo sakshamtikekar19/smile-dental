@@ -145,10 +145,9 @@ function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, u
   const ya0 = clamp(Math.floor(bandY0), 0, height - 1);
   const yb0 = clamp(Math.ceil(bandY1), 0, height - 1);
   const yMid = (lip13y + lip14y) * 0.5;
-  const mouthGap = Math.abs(lip14y - lip13y);
-  const sep = Math.max(5, mouthGap * 0.07);
-  const yUpperMax = yMid - sep;
-  const yLowerMin = yMid + sep;
+  /** Strict split at inner-lip midline — not a wide band, or valid enamel on the “wrong” row is excluded. */
+  const upperRowMaxY = yMid - 1;
+  const lowerRowMinY = yMid + 1;
   const out = [];
   for (const stud of studs) {
     const x0 = clamp(Math.floor(stud.x - halfWin), 0, width - 1);
@@ -157,8 +156,8 @@ function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, u
     let bx = stud.x;
     for (let x = x0; x <= x1; x++) {
       for (let y = ya0; y <= yb0; y++) {
-        if (upper && y > yUpperMax) continue;
-        if (!upper && y < yLowerMin) continue;
+        if (upper && y > upperRowMaxY) continue;
+        if (!upper && y < lowerRowMinY) continue;
         const i = (y * width + x) * 4;
         const r = data[i];
         const g = data[i + 1];
@@ -181,8 +180,8 @@ function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, u
     let maxYE = -Infinity;
     let hits = 0;
     for (let y = ya0; y <= yb0; y++) {
-      if (upper && y > yUpperMax) continue;
-      if (!upper && y < yLowerMin) continue;
+      if (upper && y > upperRowMaxY) continue;
+      if (!upper && y < lowerRowMinY) continue;
       const i = (y * width + xc) * 4;
       const r = data[i];
       const g = data[i + 1];
@@ -201,8 +200,8 @@ function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, u
     const ySafeHi = maxYE - SAFE_ZONE_FRAC * H;
     const yMidCol = (minYE + maxYE) * 0.5;
     let yFinal = clamp(yMidCol, ySafeLo, ySafeHi);
-    if (upper) yFinal = Math.min(yFinal, yUpperMax);
-    else yFinal = Math.max(yFinal, yLowerMin);
+    if (upper) yFinal = Math.min(yFinal, upperRowMaxY);
+    else yFinal = Math.max(yFinal, lowerRowMinY);
     out.push({ x: bx, y: yFinal, z: stud.z ?? 0 });
   }
   return out;

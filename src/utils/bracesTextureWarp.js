@@ -93,7 +93,7 @@ const MIN_ATLAS_ASPECT = 2.0;
 
 /** Rasterize AI (or synthetic) into a fixed wide strip for stable per-bracket slices. */
 export async function prepareBracesAtlasCanvas(sourceDataUrl, segmentCount) {
-  const nSeg = Math.max(8, Math.min(14, Math.round(segmentCount) || 10));
+  const nSeg = Math.max(8, Math.min(16, Math.round(segmentCount) || 10));
   if (!sourceDataUrl || typeof sourceDataUrl !== "string") {
     return createSyntheticBracesAtlas(nSeg);
   }
