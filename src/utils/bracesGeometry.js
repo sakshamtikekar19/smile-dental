@@ -223,8 +223,28 @@ function interpolateYAtXSorted(pts, x) {
 const TOOTH_BAND_WIRE_SAMPLES = 100;
 
 /**
+ * Keeps upper archwire strictly above the oral midplane and lower strictly below, so the two
+ * polylines never read as one “V” crossing the bite.
+ */
+export function clampArchWireYToLipBands(pts, landmarks, iw, ih, upper, mouthOpen) {
+  if (!pts?.length || !landmarks?.length) return pts;
+  const lipU = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
+  const lipL = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
+  if (!lipU || !lipL) return pts;
+  const yMid = (lipU.y + lipL.y) * 0.5;
+  const mo = typeof mouthOpen === "number" ? mouthOpen : Math.abs(lipL.y - lipU.y);
+  const gap = Math.max(mo * 0.09, 6);
+  const yMaxUpper = yMid - gap;
+  const yMinLower = yMid + gap;
+  return pts.map((p) => ({
+    ...p,
+    y: upper ? Math.min(p.y, yMaxUpper) : Math.max(p.y, yMinLower),
+  }));
+}
+
+/**
  * Archwire that follows the facial tooth-row spline (landmarks) from left bracket to right bracket,
- * plus a mild parabolic sag so it never reads as a flat chord. Falls back to null if unusable.
+ * plus a mild parabolic sag. Upper sag is capped so the wire cannot dip into the lower row.
  */
 export function sampleWireAlongToothBand(landmarks, iw, ih, studs, upper, mouthOpen) {
   if (!landmarks?.length || !studs || studs.length < 2) return null;
@@ -248,7 +268,8 @@ export function sampleWireAlongToothBand(landmarks, iw, ih, studs, upper, mouthO
 
   const cx = (xMin + xMax) * 0.5;
   const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);
-  const sagExtra = clamp(halfW * 0.072 + mo * 0.08, 14, 56);
+  let sagExtra = clamp(halfW * 0.055 + mo * 0.06, 8, 36);
+  if (upper) sagExtra *= 0.42;
 
   const out = [];
   const n = TOOTH_BAND_WIRE_SAMPLES;
@@ -261,7 +282,7 @@ export function sampleWireAlongToothBand(landmarks, iw, ih, studs, upper, mouthO
     y += (upper ? 1 : -1) * sagExtra * (1 - u2);
     out.push({ x, y });
   }
-  return out;
+  return clampArchWireYToLipBands(out, landmarks, iw, ih, upper, mo);
 }
 
 /** Push polyline ends outward ~molar/buccal tube (along end tangents). */
@@ -678,6 +699,9 @@ export function sampleWireFromStuds(studs, stepsPerSeg, opts = {}) {
   if (typeof mo === "number" && opts.upper != null) {
     pts = applyArchDepthBoost(pts, studs, mo, opts.upper);
   }
+  if (opts.landmarks && typeof opts.iw === "number" && typeof opts.ih === "number" && opts.upper != null && typeof mo === "number") {
+    pts = clampArchWireYToLipBands(pts, opts.landmarks, opts.iw, opts.ih, opts.upper, mo);
+  }
   return pts;
 }
 
@@ -713,6 +737,7 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
     extendEndsPx: WIRE_MOLAR_END_EXTEND_PX,
   });
   wireSamplesUpper = applyTerminalWireTuck(wireSamplesUpper, upperStuds, ARCHWIRE_TERMINAL_TUCK_PX);
+  wireSamplesUpper = clampArchWireYToLipBands(wireSamplesUpper, landmarks, iw, ih, true, mouthOpen);
 
   const bpLo = getLowerArchBracketPoints(left, right, upperLip, lowerLip, nLower);
   let lowerStuds = [];
@@ -738,7 +763,13 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
       lowerDense.push({ x, y });
     }
     wireSamplesLower = extendWireSamplesAlongTangents(
-      sampleWireFromStuds(lowerDense, 6, { mouthOpen, upper: false }),
+      sampleWireFromStuds(lowerDense, 6, {
+        mouthOpen,
+        upper: false,
+        landmarks,
+        iw,
+        ih,
+      }),
       WIRE_MOLAR_END_EXTEND_PX,
     );
   }
@@ -825,11 +856,11 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   const steps = typeof opts.catmullWireSteps === "number" ? opts.catmullWireSteps : CATMULL_WIRE_STEPS_AFTER_SNAP;
   const wireSamplesUpper =
     sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mouthOpen) ??
-    sampleWireFromStuds(upperStuds, steps, { mouthOpen, upper: true });
+    sampleWireFromStuds(upperStuds, steps, { mouthOpen, upper: true, landmarks, iw, ih });
   const wireSamplesLower =
     lowerStuds.length >= 2
       ? sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
-        sampleWireFromStuds(lowerStuds, steps, { mouthOpen, upper: false })
+        sampleWireFromStuds(lowerStuds, steps, { mouthOpen, upper: false, landmarks, iw, ih })
       : [];
 
   return {
@@ -866,12 +897,24 @@ export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval, landmarks =
   const wireSamplesUpper =
     upperStuds.length >= 2
       ? sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mo) ??
-        sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, { mouthOpen: mo, upper: true })
+        sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, {
+          mouthOpen: mo,
+          upper: true,
+          landmarks,
+          iw,
+          ih,
+        })
       : [];
   const wireSamplesLower =
     lowerStuds.length >= 2
       ? sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mo) ??
-        sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, { mouthOpen: mo, upper: false })
+        sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, {
+          mouthOpen: mo,
+          upper: false,
+          landmarks,
+          iw,
+          ih,
+        })
       : [];
 
   return {

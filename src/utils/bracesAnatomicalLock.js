@@ -138,11 +138,17 @@ function enamelSpanFromHistogram(hist, width, xa, xb) {
 }
 
 /**
- * Snap each landmark stud to local luminance peak + vertical enamel center in band.
+ * Snap each landmark stud to local luminance peak on the correct arch row only (upper vs lower),
+ * so refiners do not jump to the opposite jawline. X drift is capped to reduce clustering.
  */
-function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, halfWin = 18) {
-  const ya = clamp(Math.floor(bandY0), 0, height - 1);
-  const yb = clamp(Math.ceil(bandY1), 0, height - 1);
+function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, upper, lip13y, lip14y, halfWin = 12) {
+  const ya0 = clamp(Math.floor(bandY0), 0, height - 1);
+  const yb0 = clamp(Math.ceil(bandY1), 0, height - 1);
+  const yMid = (lip13y + lip14y) * 0.5;
+  const mouthGap = Math.abs(lip14y - lip13y);
+  const sep = Math.max(5, mouthGap * 0.07);
+  const yUpperMax = yMid - sep;
+  const yLowerMin = yMid + sep;
   const out = [];
   for (const stud of studs) {
     const x0 = clamp(Math.floor(stud.x - halfWin), 0, width - 1);
@@ -150,7 +156,9 @@ function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, h
     let bestLum = -1;
     let bx = stud.x;
     for (let x = x0; x <= x1; x++) {
-      for (let y = ya; y <= yb; y++) {
+      for (let y = ya0; y <= yb0; y++) {
+        if (upper && y > yUpperMax) continue;
+        if (!upper && y < yLowerMin) continue;
         const i = (y * width + x) * 4;
         const r = data[i];
         const g = data[i + 1];
@@ -163,6 +171,7 @@ function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, h
         }
       }
     }
+    bx = clamp(bx, stud.x - 14, stud.x + 14);
     if (bestLum < 0) {
       out.push({ ...stud });
       continue;
@@ -171,7 +180,9 @@ function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, h
     let minYE = Infinity;
     let maxYE = -Infinity;
     let hits = 0;
-    for (let y = ya; y <= yb; y++) {
+    for (let y = ya0; y <= yb0; y++) {
+      if (upper && y > yUpperMax) continue;
+      if (!upper && y < yLowerMin) continue;
       const i = (y * width + xc) * 4;
       const r = data[i];
       const g = data[i + 1];
@@ -188,8 +199,10 @@ function refineStudsToEnamelInBand(data, width, height, studs, bandY0, bandY1, h
     const H = maxYE - minYE;
     const ySafeLo = minYE + SAFE_ZONE_FRAC * H;
     const ySafeHi = maxYE - SAFE_ZONE_FRAC * H;
-    const yMid = (minYE + maxYE) * 0.5;
-    const yFinal = clamp(yMid, ySafeLo, ySafeHi);
+    const yMidCol = (minYE + maxYE) * 0.5;
+    let yFinal = clamp(yMidCol, ySafeLo, ySafeHi);
+    if (upper) yFinal = Math.min(yFinal, yUpperMax);
+    else yFinal = Math.max(yFinal, yLowerMin);
     out.push({ x: bx, y: yFinal, z: stud.z ?? 0 });
   }
   return out;
@@ -316,8 +329,28 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
   if (landmarkRows) {
     usedLandmarkPrimary = true;
     if (bitmapOk) {
-      upperStuds = refineStudsToEnamelInBand(data, width, height, landmarkRows.upperStuds, upperY0, upperY1);
-      lowerStuds = refineStudsToEnamelInBand(data, width, height, landmarkRows.lowerStuds, lowerY0, lowerY1);
+      upperStuds = refineStudsToEnamelInBand(
+        data,
+        width,
+        height,
+        landmarkRows.upperStuds,
+        upperY0,
+        upperY1,
+        true,
+        lip13.y,
+        lip14.y,
+      );
+      lowerStuds = refineStudsToEnamelInBand(
+        data,
+        width,
+        height,
+        landmarkRows.lowerStuds,
+        lowerY0,
+        lowerY1,
+        false,
+        lip13.y,
+        lip14.y,
+      );
     } else {
       upperStuds = landmarkRows.upperStuds.map((s) => ({ ...s }));
       lowerStuds = landmarkRows.lowerStuds.map((s) => ({ ...s }));
