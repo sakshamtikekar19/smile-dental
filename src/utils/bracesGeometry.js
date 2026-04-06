@@ -26,7 +26,7 @@ const WIRE_MOLAR_END_EXTEND_PX = 0;
  * Inward bend (px) near terminals; first/last wire samples stay on stud centers (preview: terminal + tuck).
  */
 const ARCHWIRE_TERMINAL_TUCK_PX = 2;
-/** Molar bracket linear scale vs mid-arch when Z-dist is max (~ incisors 25% larger than molars → molars at 0.8×). */
+/** Extreme molars: ~20% smaller linear size than centrals (Z + lateral perspective). */
 const MOLAR_DEPTH_SCALE_MIN = 0.8;
 /** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */
 const CENTROID_BRACKET_MIN = 12;
@@ -308,7 +308,7 @@ export function computeBracketTransforms(row, iw, ih, oval) {
 
     const zDist = Math.abs((p.z ?? 0) - zMed) / zSpan;
     const zScale = clamp(1.03 - 0.16 * zDist, 0.88, 1.04);
-    /** Distal molars vs centrals: ~25% smaller linear size (1/1.25 ≈ 0.8). */
+    /** Distal molars: up to 20% shrink vs mid-arch (landmark Z). */
     const molarDepthScale =
       MOLAR_DEPTH_SCALE_MIN + (1 - MOLAR_DEPTH_SCALE_MIN) * (1 - clamp(zDist, 0, 1));
 

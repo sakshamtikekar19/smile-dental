@@ -15,6 +15,7 @@ import {
   applyUpperLipBracesOcclusion,
 } from "../utils/bracesTextureWarp";
 import { renderWire, renderBrackets } from "../utils/bracesCanvasRender";
+import { TEETH_WHITEN_MASK_INDICES } from "../utils/teethWhitenMaskIndices";
 
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
@@ -53,8 +54,6 @@ const ENAMEL_SAT_MAX = 0.58;
 /** Longest edge (px) for Replicate payload — smaller = faster upload + GPU; merged back to full bounds in the client. */
 const API_MOUTH_MAX_EDGE = 768;
 
-/** Inner-only teeth loop — tissue-safe whitening (tighter than lip line). */
-const TEETH_WHITEN_MASK_INDICES = [13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 191, 80, 81, 82];
 /** Inner mouth cluster used for adaptive biometric tooth scan. */
 const MOUTH_LANDMARKS = TEETH_WHITEN_MASK_INDICES;
 /** Nose–chin axis (facial midline X). */

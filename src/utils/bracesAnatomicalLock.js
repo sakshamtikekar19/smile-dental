@@ -1,14 +1,13 @@
 /**
- * Anatomical slotting (not loose pixel tracing): fixed 14 upper / 12 lower vertical slots over enamel span;
- * per-slot enamel fraction + occlusal midline (lip 13/14 ↔ biting edge) with 25% vertical safe zone.
+ * Dental arch geometric lock: horizontal span from TEETH_WHITEN mask hull (not commissures), then
+ * 14 / 12 fixed vertical slots over enamel; Catmull–Rom wire through bracket centers (see bracesGeometry).
  */
 
 import { landmarkToPx, reprojectBracesPackAfterStudMove } from "./bracesGeometry";
+import { TEETH_WHITEN_MASK_INDICES } from "./teethWhitenMaskIndices";
 
 const INNER_LIP_UPPER_IDX = 13;
 const INNER_LIP_LOWER_IDX = 14;
-const COMMISSURE_LEFT_IDX = 61;
-const COMMISSURE_RIGHT_IDX = 291;
 
 /** Upper / lower tooth contours for sampling MediaPipe z at stud x. */
 const UPPER_Z_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
@@ -20,12 +19,17 @@ const SAT_MAX = 0.58;
 
 const UPPER_SLOT_COUNT = 14;
 const LOWER_SLOT_COUNT = 12;
+/** Distal molar columns can be dark; allow first/last enamel hits with a low floor. */
+const MIN_COLUMN_ENAMEL_EDGE_PX = 2;
+/** Interior columns: stricter to reduce cheek noise. */
 const MIN_COLUMN_ENAMEL_PX = 4;
-/** Slot must be at least this fraction enamel (else gap / dark corner → skip bracket). */
+/** Slot must be at least this fraction enamel (else gap → skip bracket). */
 const MIN_SLOT_ENAMEL_FRACTION = 0.1;
 const MIN_ENAMEL_PIXELS_ABS = 8;
 /** Inner 50% of crown height: 25% margin from gum and from incisal edge. */
 const SAFE_ZONE_FRAC = 0.25;
+/** Horizontal pad (px) outside TEETH_WHITEN hull x-range for column scan. */
+const MASK_HULL_PAD_X_PX = 18;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -47,6 +51,26 @@ function loadImage(src) {
     img.onerror = () => reject(new Error("anatomical lock: image load failed"));
     img.src = src;
   });
+}
+
+/**
+ * Far-left / far-right x of the TEETH_WHITEN landmark hull (ignores lip commissures 61/291).
+ */
+function teethWhitenMaskHorizontalBounds(landmarks, iw, ih) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const idx of TEETH_WHITEN_MASK_INDICES) {
+    const p = landmarkToPx(landmarks, idx, iw, ih);
+    if (!p) continue;
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+  }
+  if (!Number.isFinite(minX) || maxX - minX < 8) return null;
+  const pad = MASK_HULL_PAD_X_PX;
+  return {
+    scanX0: clamp(minX - pad, 0, iw - 1),
+    scanX1: clamp(maxX + pad, 0, iw - 1),
+  };
 }
 
 function sampleZAtX(landmarks, iw, ih, indices, xTarget) {
@@ -73,10 +97,6 @@ function attachZToStuds(studs, landmarks, iw, ih, upper) {
   }));
 }
 
-/**
- * Column sums of enamel-like pixels in [x0,x1] × [y0,y1].
- * @returns {Int32Array} length = width (only indices x0..x1 used)
- */
 function columnHistogram(data, width, height, x0, x1, y0, y1) {
   const hist = new Int32Array(width);
   const xa = clamp(Math.floor(x0), 0, width - 1);
@@ -94,24 +114,38 @@ function columnHistogram(data, width, height, x0, x1, y0, y1) {
   return hist;
 }
 
-function enamelSpanX(hist, width, xa, xb) {
-  let minX = -1;
-  let maxX = -1;
+/**
+ * Far-left / far-right columns with enamel; relaxed threshold in distal ~12% so dark molars still anchor the arch.
+ */
+function enamelSpanFromHistogram(hist, width, xa, xb) {
   const x0 = clamp(Math.floor(xa), 0, width - 1);
   const x1 = clamp(Math.ceil(xb), 0, width - 1);
-  for (let x = x0; x <= x1; x++) {
-    if (hist[x] >= MIN_COLUMN_ENAMEL_PX) {
-      if (minX < 0) minX = x;
-      maxX = x;
+  const spanW = x1 - x0;
+  const edgeW = Math.max(8, spanW * 0.12);
+
+  const scan = (edgePx, interiorPx) => {
+    let minX = -1;
+    let maxX = -1;
+    for (let x = x0; x <= x1; x++) {
+      const atEdge = spanW > 24 && (x <= x0 + edgeW || x >= x1 - edgeW);
+      const thresh = atEdge ? edgePx : interiorPx;
+      if (hist[x] >= thresh) {
+        if (minX < 0) minX = x;
+        maxX = x;
+      }
     }
-  }
-  if (minX < 0 || maxX < 0 || maxX - minX < 16) return null;
-  return { minX, maxX };
+    return minX >= 0 ? { minX, maxX } : null;
+  };
+
+  let r = scan(MIN_COLUMN_ENAMEL_EDGE_PX, MIN_COLUMN_ENAMEL_PX);
+  if (!r) r = scan(MIN_COLUMN_ENAMEL_EDGE_PX, MIN_COLUMN_ENAMEL_EDGE_PX);
+  if (!r || r.maxX - r.minX < 16) return null;
+  return r;
 }
 
 /**
- * Exactly `slotCount` equal vertical slots over [xMin,xMax]. Per slot: enamel fraction ≥10% else skip.
- * X = geometric center of enamel; Y = occlusal midline (lip ↔ biting edge), clamped to 25% safe band on crown.
+ * 14 / 12 equal vertical slots. Bracket Y = midpoint(inner lip 13/14, biting edge), clamped to 25% safe zone.
+ * X = enamel centroid in slot.
  */
 function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY1, slotCount, lipY, upper) {
   const studs = [];
@@ -169,17 +203,10 @@ function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY
     const ySafeHi = maxYE - SAFE_ZONE_FRAC * H;
     if (ySafeHi <= ySafeLo) continue;
 
-    let yBitingEdge;
-    if (upper) {
-      yBitingEdge = maxYE;
-    } else {
-      yBitingEdge = minYE;
-    }
+    const yBitingEdge = upper ? maxYE : minYE;
     const yOcclusalMid = (lipY + yBitingEdge) * 0.5;
     const xCentroid = sumX / wsum;
-    const yCentroid = sumY / wsum;
-    const yBlend = yOcclusalMid * 0.62 + yCentroid * 0.38;
-    const yFinal = clamp(yBlend, ySafeLo, ySafeHi);
+    const yFinal = clamp(yOcclusalMid, ySafeLo, ySafeHi);
 
     studs.push({ x: xCentroid, y: yFinal, z: 0 });
   }
@@ -189,24 +216,21 @@ function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY
 
 /**
  * @param {string} imageDataUrl — merged full-frame (post–AI), same pixels as landmarks
- * @returns {Promise<object|null>} braces pack compatible with reprojectBracesPackAfterStudMove / texture warp
  */
 export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, ih, oval) {
   if (!landmarks?.length || !imageDataUrl) return null;
 
-  const left = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
-  const right = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
   const lip13 = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
   const lip14 = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
-  if (!left || !right || !lip13 || !lip14) return null;
+  if (!lip13 || !lip14) return null;
 
   const mouthOpen = Math.abs(lip14.y - lip13.y);
   if (mouthOpen < 6) return null;
 
-  const mouthW = Math.abs(right.x - left.x);
-  const padX = clamp(mouthW * 0.1, 8, 36);
-  const scanX0 = clamp(Math.min(left.x, right.x) - padX, 0, iw - 1);
-  const scanX1 = clamp(Math.max(left.x, right.x) + padX, 0, iw - 1);
+  const maskX = teethWhitenMaskHorizontalBounds(landmarks, iw, ih);
+  if (!maskX) return null;
+
+  const { scanX0, scanX1 } = maskX;
 
   const upperY0 = lip13.y + mouthOpen * 0.035;
   const upperY1 = lip13.y + mouthOpen * 0.52;
@@ -235,10 +259,10 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
   const { data, width, height } = imageData;
 
   const histU = columnHistogram(data, width, height, scanX0, scanX1, upperY0, upperY1);
-  const spanU = enamelSpanX(histU, width, scanX0, scanX1);
+  const spanU = enamelSpanFromHistogram(histU, width, scanX0, scanX1);
 
   const histL = columnHistogram(data, width, height, scanX0, scanX1, lowerY0, lowerY1);
-  const spanL = enamelSpanX(histL, width, scanX0, scanX1);
+  const spanL = enamelSpanFromHistogram(histL, width, scanX0, scanX1);
 
   if (!spanU && !spanL) return null;
 
