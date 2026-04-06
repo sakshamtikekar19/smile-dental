@@ -30,8 +30,11 @@ const WIRE_MOLAR_END_EXTEND_PX = 0;
  * Inward bend (px) near terminals; first/last wire samples stay on stud centers (preview: terminal + tuck).
  */
 const ARCHWIRE_TERMINAL_TUCK_PX = 2;
-/** Extra smile sag on Catmull wire vs flat chord (fraction of clamped mouth sag). */
-const ARCH_CATMULL_DEPTH_BOOST = 0.46;
+/**
+ * Scales how much extra parabolic sag we stack on the Catmull wire (see applyArchDepthBoost).
+ * Sag is primarily derived from arch half-width in pixels so the curve stays visible at any zoom.
+ */
+const ARCH_CATMULL_DEPTH_BOOST = 1;
 /** Distal molars vs centrals (~25% smaller linear size ⇒ incisors read ~1.25× molar). */
 export const MOLAR_DEPTH_SCALE_MIN = 0.8;
 /** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */
@@ -554,12 +557,17 @@ function applyArchDepthBoost(wirePts, studs, mouthOpen, upper) {
   const maxX = Math.max(...xs);
   const cx = (minX + maxX) * 0.5;
   const halfW = Math.max((maxX - minX) * 0.5, 1e-3);
-  const baseSag = clamp(mouthOpen * 0.062, 3, 13);
-  const extra = baseSag * ARCH_CATMULL_DEPTH_BOOST;
+  // Old formula capped extra at ~6px — reads as ruler-straight on full-frame faces. Sag must scale with
+  // arch span (half-width) so midline displacement is a visible % of the smile (~6–11% of half-width typical).
+  const spanTerm = halfW * 0.092;
+  const openTerm = mouthOpen * 0.11;
+  let sagMid = spanTerm * 0.62 + openTerm * 0.38;
+  sagMid = clamp(sagMid, 12, 78);
+  sagMid *= 0.88 + 0.12 * clamp(ARCH_CATMULL_DEPTH_BOOST, 0.5, 1.5);
   return wirePts.map((p) => {
     const u = (p.x - cx) / halfW;
     const u2 = clamp(u * u, 0, 1);
-    const delta = extra * (1 - u2);
+    const delta = sagMid * (1 - u2);
     return { x: p.x, y: p.y + (upper ? delta : -delta) };
   });
 }
