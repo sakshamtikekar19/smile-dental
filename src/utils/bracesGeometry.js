@@ -169,6 +169,77 @@ function extractLowerTeethControls(landmarks, iw, ih) {
   return { pts, mouthOpen, bandDepth };
 }
 
+/** Piecewise-linear Y along a sorted-by-x polyline; extrapolates past ends. */
+function interpolateYAtXSorted(pts, x) {
+  if (!pts?.length) return 0;
+  if (pts.length === 1) return pts[0].y;
+  if (x <= pts[0].x) {
+    const p0 = pts[0];
+    const p1 = pts[1];
+    const dx = p1.x - p0.x || 1e-6;
+    return p0.y + ((x - p0.x) / dx) * (p1.y - p0.y);
+  }
+  const L = pts.length - 1;
+  if (x >= pts[L].x) {
+    const p0 = pts[L - 1];
+    const p1 = pts[L];
+    const dx = p1.x - p0.x || 1e-6;
+    return p0.y + ((x - p0.x) / dx) * (p1.y - p0.y);
+  }
+  for (let i = 0; i < L; i++) {
+    if (x >= pts[i].x && x <= pts[i + 1].x) {
+      const dx = pts[i + 1].x - pts[i].x || 1e-6;
+      const t = (x - pts[i].x) / dx;
+      return pts[i].y + t * (pts[i + 1].y - pts[i].y);
+    }
+  }
+  return pts[Math.floor(pts.length / 2)].y;
+}
+
+const TOOTH_BAND_WIRE_SAMPLES = 100;
+
+/**
+ * Archwire that follows the facial tooth-row spline (landmarks) from left bracket to right bracket,
+ * plus a mild parabolic sag so it never reads as a flat chord. Falls back to null if unusable.
+ */
+export function sampleWireAlongToothBand(landmarks, iw, ih, studs, upper, mouthOpen) {
+  if (!landmarks?.length || !studs || studs.length < 2) return null;
+  const xs = studs.map((s) => s.x);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  if (xMax - xMin < 10) return null;
+
+  const mo = typeof mouthOpen === "number" ? mouthOpen : 24;
+  const row = upper ? extractUpperTeethControls(landmarks, iw, ih) : extractLowerTeethControls(landmarks, iw, ih);
+  let base = row.pts ?? [];
+  if (base.length < 2) return null;
+  base = medianSmoothY(removeYSpikes(base));
+  let dense = smoothOpenCatmull(base, 16).map(({ x, y }) => ({ x, y }));
+  dense.sort((a, b) => a.x - b.x);
+  const thin = [];
+  for (const p of dense) {
+    if (!thin.length || p.x > thin[thin.length - 1].x + 0.25) thin.push(p);
+  }
+  if (thin.length < 2) return null;
+
+  const cx = (xMin + xMax) * 0.5;
+  const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);
+  const sagExtra = clamp(halfW * 0.058 + mo * 0.065, 10, 48);
+
+  const out = [];
+  const n = TOOTH_BAND_WIRE_SAMPLES;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const x = xMin + t * (xMax - xMin);
+    let y = interpolateYAtXSorted(thin, x);
+    const u = (x - cx) / halfW;
+    const u2 = clamp(u * u, 0, 1);
+    y += (upper ? 1 : -1) * sagExtra * (1 - u2);
+    out.push({ x, y });
+  }
+  return out;
+}
+
 /** Push polyline ends outward ~molar/buccal tube (along end tangents). */
 function extendArchEnds(pts, padPx) {
   if (!pts || pts.length < 2 || padPx <= 0) return pts;
@@ -661,8 +732,8 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
 }
 
 /**
- * Two independent parabolic arches (inner lip 13 / 14), 12–14 equal parameter segments,
- * 25% molar scale via getBracketPoints, Catmull wire stud-to-stud only (zero terminal extension).
+ * Bracket sites on parametric arches; wire follows MediaPipe tooth-row splines from distal stud to distal stud
+ * (see sampleWireAlongToothBand), with Catmull-on-studs fallback.
  */
 export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   if (!landmarks?.length) return null;
@@ -728,9 +799,14 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   }
 
   const steps = typeof opts.catmullWireSteps === "number" ? opts.catmullWireSteps : CATMULL_WIRE_STEPS_AFTER_SNAP;
-  const wireSamplesUpper = sampleWireFromStuds(upperStuds, steps, { mouthOpen, upper: true });
+  const wireSamplesUpper =
+    sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mouthOpen) ??
+    sampleWireFromStuds(upperStuds, steps, { mouthOpen, upper: true });
   const wireSamplesLower =
-    lowerStuds.length >= 2 ? sampleWireFromStuds(lowerStuds, steps, { mouthOpen, upper: false }) : [];
+    lowerStuds.length >= 2
+      ? sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
+        sampleWireFromStuds(lowerStuds, steps, { mouthOpen, upper: false })
+      : [];
 
   return {
     wireMode: "polyline",
@@ -744,8 +820,8 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   };
 }
 
-/** Recompute tangents, perspective, and Catmull wires after stud positions change (e.g. enamel snap). */
-export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval) {
+/** Recompute tangents, perspective, and wires after stud positions change (e.g. enamel snap). */
+export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval, landmarks = null) {
   if (!pack) return pack;
   const upperStuds = pack.upperStuds ?? [];
   const lowerStuds = pack.lowerStuds ?? [];
@@ -765,11 +841,13 @@ export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval) {
   const mo = typeof pack.mouthOpen === "number" ? pack.mouthOpen : 24;
   const wireSamplesUpper =
     upperStuds.length >= 2
-      ? sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, { mouthOpen: mo, upper: true })
+      ? sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mo) ??
+        sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, { mouthOpen: mo, upper: true })
       : [];
   const wireSamplesLower =
     lowerStuds.length >= 2
-      ? sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, { mouthOpen: mo, upper: false })
+      ? sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mo) ??
+        sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, { mouthOpen: mo, upper: false })
       : [];
 
   return {

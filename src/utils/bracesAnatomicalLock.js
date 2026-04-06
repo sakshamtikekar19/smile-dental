@@ -315,6 +315,7 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
     iw,
     ih,
     oval,
+    landmarks,
   );
 
   return pack?.upperStuds?.length >= 2 || pack?.lowerStuds?.length >= 2 ? pack : null;

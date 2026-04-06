@@ -1195,6 +1195,7 @@ const SmileSimulatorAI = () => {
         iw,
         ih,
         ov,
+        lm,
       );
       if (!pack?.upperAnchors?.length) {
         throw new Error("Could not reproject braces after enamel snap.");
