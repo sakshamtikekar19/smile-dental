@@ -78,7 +78,8 @@ const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14
  * 1.0px wire, 2.0px shadow Y; bracket 0.8×11px; molar depth floor 0.8.
  */
 /** Base clear-bracket size (−20% vs legacy 11px). */
-const BRACKET_DRAW_SIDE_PX = 11 * 0.8;
+/** Base stud size; wMult/hMult from computeBracketTransforms include BRACKET_VISUAL_SCALE. */
+const BRACKET_DRAW_SIDE_PX = 11 * 0.62;
 /** Catmull–Rom samples per segment (higher = smoother U-shaped clinical arch). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 26;
 /** High-density grid columns across full arch span (anatomical center-lock / gap avoidance). */

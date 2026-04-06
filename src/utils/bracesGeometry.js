@@ -14,10 +14,13 @@ import {
   evalUpperArchParabolaDydx,
 } from "./bracesDentalArc";
 
-/** Upper arch: one MediaPipe sample per “tooth station” along the ridge (left→right). */
-export const UPPER_TEETH_ARCH_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
-/** Lower arch: tooth-row samples (count matches visible bracket stations). */
-export const LOWER_TEETH_ARCH_INDICES = [78, 191, 80, 81, 82, 87, 178, 88, 95, 14];
+/**
+ * Upper arch: tooth-row only (left molar → right molar). Do not use inner lip 13 — it sits on the
+ * lip contour; mixed with teeth it creates a midline Y spike and zigzag wires after sort-by-x.
+ */
+export const UPPER_TEETH_ARCH_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317];
+/** Lower arch: tooth-row only (no inner lip 14 — same midline spike issue as 13 upper). */
+export const LOWER_TEETH_ARCH_INDICES = [78, 191, 80, 81, 82, 87, 178, 88, 95];
 const INNER_LIP_UPPER_IDX = 13;
 const INNER_LIP_LOWER_IDX = 14;
 const COMMISSURE_LEFT_IDX = 61;
@@ -46,6 +49,9 @@ const DEFAULT_BRACKET_COUNT_LOWER = LOWER_TEETH_ARCH_INDICES.length;
 /** Default bracket counts = one station per tooth-row landmark (preview / centroid). */
 export const LANDMARK_BRACKET_COUNT_UPPER = DEFAULT_BRACKET_COUNT_UPPER;
 export const LANDMARK_BRACKET_COUNT_LOWER = DEFAULT_BRACKET_COUNT_LOWER;
+
+/** Uniform scale for vector + texture bracket quads (clinical size). */
+export const BRACKET_VISUAL_SCALE = 0.78;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -133,8 +139,8 @@ function extractUpperTeethControls(landmarks, iw, ih) {
   if (!lipU) return { pts: [], mouthOpen: 0, bandDepth: 0 };
 
   const mouthOpen = lipL ? Math.abs(lipL.y - lipU.y) : Math.max(28, ih * 0.04);
-  /** Facial crown band: smaller offset keeps brackets on enamel, not inter-arch gap. */
-  const bandDepth = clamp(mouthOpen * 0.11, 4, 20);
+  /** Facial crown band — slightly deeper reads closer to labial face center. */
+  const bandDepth = clamp(mouthOpen * 0.125, 5, 22);
 
   const pts = [];
   for (const idx of UPPER_TEETH_ARCH_INDICES) {
@@ -157,7 +163,7 @@ function extractLowerTeethControls(landmarks, iw, ih) {
   if (!lipL) return { pts: [], mouthOpen: 0 };
 
   const mouthOpen = lipU ? Math.abs(lipL.y - lipU.y) : Math.max(28, ih * 0.04);
-  const bandDepth = clamp(mouthOpen * 0.11, 4, 22);
+  const bandDepth = clamp(mouthOpen * 0.125, 5, 24);
 
   const pts = [];
   for (const idx of LOWER_TEETH_ARCH_INDICES) {
@@ -567,7 +573,8 @@ export function computeBracketTransforms(row, iw, ih, oval) {
     const normD = distFromCenter / maxDist;
     const depthOpacity = clamp(1 - normD * 0.3, 0.62, 1);
 
-    const wMult = Math.max(0.62, perspective * scaleIdx * zScale) * molarDepthScale;
+    const wMult =
+      Math.max(0.62, perspective * scaleIdx * zScale) * molarDepthScale * BRACKET_VISUAL_SCALE;
     const hMult = wMult * (0.72 + 0.28 * (1 - edge));
 
     const yPersp = -edge * 1.4 * normD;
@@ -963,13 +970,13 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
 
   const steps = typeof opts.catmullWireSteps === "number" ? opts.catmullWireSteps : CATMULL_WIRE_STEPS_AFTER_SNAP;
   const wireSamplesUpper =
-    sampleWireForcedQuadraticArch(landmarks, iw, ih, upperStuds, true, mouthOpen) ??
     sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mouthOpen) ??
+    sampleWireForcedQuadraticArch(landmarks, iw, ih, upperStuds, true, mouthOpen) ??
     sampleWireFromStuds(upperStuds, steps, { mouthOpen, upper: true, landmarks, iw, ih });
   const wireSamplesLower =
     lowerStuds.length >= 2
-      ? sampleWireForcedQuadraticArch(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
-        sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
+      ? sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
+        sampleWireForcedQuadraticArch(landmarks, iw, ih, lowerStuds, false, mouthOpen) ??
         sampleWireFromStuds(lowerStuds, steps, { mouthOpen, upper: false, landmarks, iw, ih })
       : [];
 
@@ -1006,8 +1013,8 @@ export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval, landmarks =
   const mo = typeof pack.mouthOpen === "number" ? pack.mouthOpen : 24;
   const wireSamplesUpper =
     upperStuds.length >= 2
-      ? sampleWireForcedQuadraticArch(landmarks, iw, ih, upperStuds, true, mo) ??
-        sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mo) ??
+      ? sampleWireAlongToothBand(landmarks, iw, ih, upperStuds, true, mo) ??
+        sampleWireForcedQuadraticArch(landmarks, iw, ih, upperStuds, true, mo) ??
         sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, {
           mouthOpen: mo,
           upper: true,
@@ -1018,8 +1025,8 @@ export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval, landmarks =
       : [];
   const wireSamplesLower =
     lowerStuds.length >= 2
-      ? sampleWireForcedQuadraticArch(landmarks, iw, ih, lowerStuds, false, mo) ??
-        sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mo) ??
+      ? sampleWireAlongToothBand(landmarks, iw, ih, lowerStuds, false, mo) ??
+        sampleWireForcedQuadraticArch(landmarks, iw, ih, lowerStuds, false, mo) ??
         sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, {
           mouthOpen: mo,
           upper: false,

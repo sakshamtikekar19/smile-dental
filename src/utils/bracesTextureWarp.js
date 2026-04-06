@@ -3,7 +3,7 @@
  * Placement uses buildGeometricBracesPack upperStuds / upperAnchors only — not AI coordinates.
  */
 
-import { landmarkToPx } from "./bracesGeometry";
+import { BRACKET_VISUAL_SCALE, landmarkToPx } from "./bracesGeometry";
 
 const UPPER_LIP_OCCLUDER = [61, 185, 40, 39, 37, 267, 269, 270, 409, 291];
 
@@ -174,8 +174,8 @@ function drawWarpedArchSegments(ctx, atlas, studs, anchors, opts = {}) {
     let dw = slotW * sc * 0.96;
     let dh = ah * baseHScale * sc;
     const shrink = Math.min(1, maxW / Math.max(dw, 1e-6), maxH / Math.max(dh, 1e-6));
-    dw *= shrink;
-    dh *= shrink;
+    dw *= shrink * BRACKET_VISUAL_SCALE;
+    dh *= shrink * BRACKET_VISUAL_SCALE;
 
     const x = s.x;
     const y = s.y + depth;

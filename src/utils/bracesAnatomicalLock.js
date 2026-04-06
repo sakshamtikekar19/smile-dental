@@ -14,8 +14,8 @@ import { TEETH_WHITEN_MASK_INDICES } from "./teethWhitenMaskIndices";
 const INNER_LIP_UPPER_IDX = 13;
 const INNER_LIP_LOWER_IDX = 14;
 
-const UPPER_Z_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317, 13];
-const LOWER_Z_INDICES = [78, 191, 80, 81, 82, 87, 178, 88, 95, 14];
+const UPPER_Z_INDICES = [312, 311, 310, 415, 308, 324, 318, 402, 317];
+const LOWER_Z_INDICES = [78, 191, 80, 81, 82, 87, 178, 88, 95];
 
 const LUM_MIN = 15;
 const LUM_MAX = 252;
