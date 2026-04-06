@@ -72,8 +72,8 @@ const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14
  * Geometric arch-lock: mesh-only studs, 13/14 occlusal mid + 25% vertical safe band; wire stud-to-stud only;
  * ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0; ≤16 / ≤14 brackets; 1.5px wire, 3px shadow blur, 1.35px shadow Y.
  */
-/** Base clear-bracket size (reference: ~10–11px ceramic squares on tooth center). */
-const BRACKET_DRAW_SIDE_PX = 11;
+/** Base clear-bracket size (−15% vs legacy 11px for tooth-scale match). */
+const BRACKET_DRAW_SIDE_PX = 11 * 0.85;
 /** Catmull–Rom samples per segment (higher = smoother U-shaped clinical arch). */
 const CATMULL_WIRE_STEPS_PER_SEGMENT = 26;
 /** High-density grid columns across full arch span (anatomical center-lock / gap avoidance). */
@@ -115,8 +115,8 @@ const OCCLUSAL_SPLIT_LOWER_MARGIN_PX = 4;
 /** Legacy density merge cap. */
 const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_UPPER_BRACKETS;
 const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
-/** Solid silver archwire (px). */
-const ARCHWIRE_LINE_WIDTH_PX = 1.5;
+/** Solid silver archwire (px) — thinner reads more clinical vs “railway”. */
+const ARCHWIRE_LINE_WIDTH_PX = 1.2;
 /**
  * >0 mirrors Catmull past terminal studs. 0 = geometric lock: spline runs bracket-to-bracket only (no void run-out).
  */
@@ -1129,14 +1129,24 @@ const SmileSimulatorAI = () => {
     ctx.save();
     ctx.globalAlpha = outerAlpha;
 
+    const teethClipped = landmarks && generateTeethMask(landmarks, ctx, iw, ih);
+    const mo = typeof mouthOpen === "number" ? mouthOpen : 20;
+    if (!teethClipped && oval?.rx > 0 && oval?.ry > 0) {
+      const openPad = Math.min(oval.ry * 0.4, Math.max(5, mo * 0.14));
+      ctx.beginPath();
+      ctx.ellipse(oval.cx, oval.cy, oval.rx * 1.07, oval.ry + openPad, 0, 0, Math.PI * 2);
+      ctx.clip();
+    }
+
     if (layers === "wire" || layers === "both") {
       renderWire(ctx, wireSamplesUpper, wireSamplesLower ?? [], {
         lineWidth: wireDarkW,
         clinical: true,
         shadowOffsetY: ARCHWIRE_SHADOW_OFFSET_Y_PX,
         shadowBlur: ARCHWIRE_SHADOW_BLUR_PX,
-        clipMouth: oval?.rx > 0 && oval?.ry > 0 ? oval : undefined,
-        mouthOpen,
+        clipMouth: teethClipped ? undefined : oval?.rx > 0 && oval?.ry > 0 ? oval : undefined,
+        mouthOpen: mo,
+        terminalBuccalFade: { frac: 0.05, alpha: 0.2 },
       });
     }
     if (layers === "shadows" || layers === "both") {

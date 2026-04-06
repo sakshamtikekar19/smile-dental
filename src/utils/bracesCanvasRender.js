@@ -26,16 +26,53 @@ function traceArchPolyline(ctx, upper, lower) {
   }
 }
 
+function strokeClinicalPolyline(ctx, pts, wireDarkW, shadowY, shadowBlur) {
+  if (!pts || pts.length < 2) return;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.strokeStyle = "rgba(38,40,44,0.9)";
+  ctx.lineWidth = wireDarkW;
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = shadowBlur;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = shadowY;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.strokeStyle = "rgba(198,200,208,0.98)";
+  ctx.lineWidth = wireDarkW;
+  ctx.stroke();
+}
+
+/** Buccal corridor: fade first/last `frac` of polyline (by point count). */
+function splitWireTerminalFade(pts, frac) {
+  const n = pts.length;
+  if (n < 4 || frac <= 0) return [{ pts, faded: false }];
+  const ne = Math.max(1, Math.floor(n * frac));
+  const i0 = ne;
+  const i1 = n - 1 - ne;
+  if (i1 <= i0) return [{ pts, faded: false }];
+  const out = [];
+  if (i0 >= 1) out.push({ pts: pts.slice(0, i0 + 1), faded: true });
+  out.push({ pts: pts.slice(i0, i1 + 1), faded: false });
+  if (i1 < n - 1) out.push({ pts: pts.slice(i1), faded: true });
+  return out;
+}
+
 /**
  * Archwire: shadow stroke → metallic body → thin highlight.
  * @param {CanvasRenderingContext2D} ctx
  * @param {{ x: number, y: number }[]} wireSamplesUpper
  * @param {{ x: number, y: number }[]} [wireSamplesLower]
- * @param {{ lineWidth?: number, clipMouth?: { cx: number, cy: number, rx: number, ry: number }, mouthOpen?: number }} [opts]
+ * @param {{ lineWidth?: number, clipMouth?: { cx: number, cy: number, rx: number, ry: number }, mouthOpen?: number, terminalBuccalFade?: { frac?: number, alpha?: number } }} [opts]
  */
 export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
   const clinical = opts.clinical === true;
-  const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : clinical ? 1.5 : 3;
+  const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : clinical ? 1.2 : 3;
   const clipMouth = opts.clipMouth;
   const mouthOpen = typeof opts.mouthOpen === "number" ? opts.mouthOpen : 0;
   const up = wireSamplesUpper;
@@ -65,20 +102,28 @@ export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
   if (clinical) {
     const shadowY = typeof opts.shadowOffsetY === "number" ? opts.shadowOffsetY : 1.35;
     const shadowBlur = typeof opts.shadowBlur === "number" ? opts.shadowBlur : 3;
-    buildPath();
-    ctx.strokeStyle = "rgba(38,40,44,0.9)";
-    ctx.lineWidth = wireDarkW;
-    ctx.shadowColor = "rgba(0,0,0,0.45)";
-    ctx.shadowBlur = shadowBlur;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = shadowY;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-    buildPath();
-    ctx.strokeStyle = "rgba(198,200,208,0.98)";
-    ctx.lineWidth = wireDarkW;
-    ctx.stroke();
+    const fade = opts.terminalBuccalFade;
+    const fadeFrac = fade && typeof fade.frac === "number" ? fade.frac : 0.05;
+    const fadeAlpha = fade && typeof fade.alpha === "number" ? fade.alpha : 0.2;
+
+    const drawOneArch = (pts) => {
+      if (!pts || pts.length < 2) return;
+      if (!fade || fadeFrac <= 0) {
+        strokeClinicalPolyline(ctx, pts, wireDarkW, shadowY, shadowBlur);
+        return;
+      }
+      const segs = splitWireTerminalFade(pts, fadeFrac);
+      for (const seg of segs) {
+        if (seg.pts.length < 2) continue;
+        ctx.save();
+        if (seg.faded) ctx.globalAlpha *= fadeAlpha;
+        strokeClinicalPolyline(ctx, seg.pts, wireDarkW, shadowY, shadowBlur);
+        ctx.restore();
+      }
+    };
+
+    drawOneArch(hasUpper ? up : null);
+    if (hasLower) drawOneArch(lo);
     ctx.restore();
     return;
   }

@@ -26,6 +26,8 @@ const WIRE_MOLAR_END_EXTEND_PX = 0;
  * Inward bend (px) near terminals; first/last wire samples stay on stud centers (preview: terminal + tuck).
  */
 const ARCHWIRE_TERMINAL_TUCK_PX = 2;
+/** Extra smile sag on Catmull wire vs flat chord (fraction of clamped mouth sag). */
+const ARCH_CATMULL_DEPTH_BOOST = 0.3;
 /** Extreme molars: ~20% smaller linear size than centrals (Z + lateral perspective). */
 const MOLAR_DEPTH_SCALE_MIN = 0.8;
 /** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */
@@ -523,10 +525,35 @@ function applyTerminalWireTuck(wirePts, studs, tuckPx) {
   return out;
 }
 
-export function sampleWireFromStuds(studs, stepsPerSeg) {
+function applyArchDepthBoost(wirePts, studs, mouthOpen, upper) {
+  if (!wirePts?.length || !studs?.length || mouthOpen < 2) return wirePts?.map((p) => ({ ...p })) ?? [];
+  const xs = studs.map((s) => s.x);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const cx = (minX + maxX) * 0.5;
+  const halfW = Math.max((maxX - minX) * 0.5, 1e-3);
+  const baseSag = clamp(mouthOpen * 0.062, 3, 13);
+  const extra = baseSag * ARCH_CATMULL_DEPTH_BOOST;
+  return wirePts.map((p) => {
+    const u = (p.x - cx) / halfW;
+    const u2 = clamp(u * u, 0, 1);
+    const delta = extra * (1 - u2);
+    return { x: p.x, y: p.y + (upper ? delta : -delta) };
+  });
+}
+
+/**
+ * @param {{ mouthOpen?: number, upper?: boolean }} [opts] — deepens stud-chain wire to match parabolic arch
+ */
+export function sampleWireFromStuds(studs, stepsPerSeg, opts = {}) {
   if (!studs || studs.length < 2) return studs?.map((p) => ({ x: p.x, y: p.y })) ?? [];
-  const base = smoothOpenCatmull(studs, stepsPerSeg).map(({ x, y }) => ({ x, y }));
-  return applyTerminalWireTuck(base, studs, ARCHWIRE_TERMINAL_TUCK_PX);
+  let pts = smoothOpenCatmull(studs, stepsPerSeg).map(({ x, y }) => ({ x, y }));
+  pts = applyTerminalWireTuck(pts, studs, ARCHWIRE_TERMINAL_TUCK_PX);
+  const mo = opts.mouthOpen;
+  if (typeof mo === "number" && opts.upper != null) {
+    pts = applyArchDepthBoost(pts, studs, mo, opts.upper);
+  }
+  return pts;
 }
 
 /** Fallback when tooth landmarks are missing or degenerate. */
@@ -589,7 +616,10 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
       const y = teethYLo - arcH * (1 - u * u);
       lowerDense.push({ x, y });
     }
-    wireSamplesLower = extendWireSamplesAlongTangents(sampleWireFromStuds(lowerDense, 6), WIRE_MOLAR_END_EXTEND_PX);
+    wireSamplesLower = extendWireSamplesAlongTangents(
+      sampleWireFromStuds(lowerDense, 6, { mouthOpen, upper: false }),
+      WIRE_MOLAR_END_EXTEND_PX,
+    );
   }
 
   return {
@@ -662,8 +692,9 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   }
 
   const steps = typeof opts.catmullWireSteps === "number" ? opts.catmullWireSteps : CATMULL_WIRE_STEPS_AFTER_SNAP;
-  const wireSamplesUpper = sampleWireFromStuds(upperStuds, steps);
-  const wireSamplesLower = lowerStuds.length >= 2 ? sampleWireFromStuds(lowerStuds, steps) : [];
+  const wireSamplesUpper = sampleWireFromStuds(upperStuds, steps, { mouthOpen, upper: true });
+  const wireSamplesLower =
+    lowerStuds.length >= 2 ? sampleWireFromStuds(lowerStuds, steps, { mouthOpen, upper: false }) : [];
 
   return {
     wireMode: "polyline",
@@ -695,10 +726,15 @@ export function reprojectBracesPackAfterStudMove(pack, iw, ih, oval) {
     if (lowerStuds.length >= 2) lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
   }
 
+  const mo = typeof pack.mouthOpen === "number" ? pack.mouthOpen : 24;
   const wireSamplesUpper =
-    upperStuds.length >= 2 ? sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP) : [];
+    upperStuds.length >= 2
+      ? sampleWireFromStuds(upperStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, { mouthOpen: mo, upper: true })
+      : [];
   const wireSamplesLower =
-    lowerStuds.length >= 2 ? sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP) : [];
+    lowerStuds.length >= 2
+      ? sampleWireFromStuds(lowerStuds, CATMULL_WIRE_STEPS_AFTER_SNAP, { mouthOpen: mo, upper: false })
+      : [];
 
   return {
     ...pack,
