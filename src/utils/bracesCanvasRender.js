@@ -75,7 +75,7 @@ function splitWireTerminalFade(pts, frac) {
  */
 export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
   const clinical = opts.clinical === true;
-  const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : clinical ? 1.1 : 3;
+  const wireDarkW = typeof opts.lineWidth === "number" ? opts.lineWidth : clinical ? 1.0 : 3;
   const clipMouth = opts.clipMouth;
   const mouthOpen = typeof opts.mouthOpen === "number" ? opts.mouthOpen : 0;
   const up = wireSamplesUpper;
@@ -103,7 +103,7 @@ export function renderWire(ctx, wireSamplesUpper, wireSamplesLower, opts = {}) {
   ctx.setLineDash([]);
 
   if (clinical) {
-    const shadowY = typeof opts.shadowOffsetY === "number" ? opts.shadowOffsetY : 1.35;
+    const shadowY = typeof opts.shadowOffsetY === "number" ? opts.shadowOffsetY : 2.0;
     const shadowBlur = typeof opts.shadowBlur === "number" ? opts.shadowBlur : 3;
     const fade = opts.terminalBuccalFade;
     const fadeFrac = fade && typeof fade.frac === "number" ? fade.frac : 0.05;

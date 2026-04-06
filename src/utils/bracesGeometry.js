@@ -8,6 +8,10 @@ import {
   getLowerArchBracketPoints,
   sampleParametricArc,
   extendWireSamplesAlongTangents,
+  evalLowerArchParabolaY,
+  evalLowerArchParabolaDydx,
+  evalUpperArchParabolaY,
+  evalUpperArchParabolaDydx,
 } from "./bracesDentalArc";
 
 /** Upper arch: inner upper lip + upper teeth ridge, left→right in image space (after sort by x). */
@@ -27,7 +31,7 @@ const WIRE_MOLAR_END_EXTEND_PX = 0;
  */
 const ARCHWIRE_TERMINAL_TUCK_PX = 2;
 /** Extra smile sag on Catmull wire vs flat chord (fraction of clamped mouth sag). */
-const ARCH_CATMULL_DEPTH_BOOST = 0.39;
+const ARCH_CATMULL_DEPTH_BOOST = 0.46;
 /** Distal molars vs centrals (~25% smaller linear size ⇒ incisors read ~1.25× molar). */
 export const MOLAR_DEPTH_SCALE_MIN = 0.8;
 /** Clinical pack: 12–14 segments per arch (one slot per visible tooth). */
@@ -181,6 +185,24 @@ function extendArchEnds(pts, padPx) {
   const vy = (la.y - pr.y) / lenR;
   out[L - 1] = { x: la.x + vx * padPx, y: la.y + vy * padPx, z: la.z ?? 0 };
   return out;
+}
+
+/**
+ * Terminal “radial enrollment”: last three brackets on each side shift 5% toward midline (jaw taper).
+ */
+export function applyRadialMolarEnrollment(studs) {
+  if (!studs?.length) return studs ?? [];
+  const sorted = [...studs].sort((a, b) => a.x - b.x);
+  const n = sorted.length;
+  if (n < 6) return studs;
+  const cx = (sorted[0].x + sorted[n - 1].x) * 0.5;
+  const inward = 0.95;
+  return sorted.map((s, i) => {
+    const isLeft = i < 3;
+    const isRight = i >= n - 3;
+    if (!isLeft && !isRight) return { ...s };
+    return { ...s, x: cx + (s.x - cx) * inward };
+  });
 }
 
 function applyPerspectiveScaleToAnchors(anchors, studs) {
@@ -568,13 +590,18 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
   if (!bp?.length) return null;
 
   const mouthOpen = Math.abs(lowerLip.y - upperLip.y);
-  const upperStuds = bp.map((p) => ({ x: p.x, y: p.y, z: 0 }));
+  let upperStuds = bp.map((p) => ({ x: p.x, y: p.y, z: 0 }));
+  upperStuds = applyRadialMolarEnrollment(upperStuds);
+  upperStuds = upperStuds.map((s) => ({
+    ...s,
+    y: evalUpperArchParabolaY(s.x, left, right, upperLip, lowerLip),
+  }));
   let upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
   const mid = Math.floor(nUpper / 2);
   const centerScale = Math.max(bp[mid]?.scale ?? 1, 0.01);
   upperAnchors = upperAnchors.map((a, i) => ({
     ...a,
-    ang: bp[i]?.ang ?? a.ang,
+    ang: Math.atan2(evalUpperArchParabolaDydx(upperStuds[i].x, left, right, upperLip, lowerLip), 1),
     wMult: (a.wMult ?? 1) * ((bp[i]?.scale ?? 1) / centerScale),
     hMult: (a.hMult ?? 1) * ((bp[i]?.scale ?? 1) / centerScale),
   }));
@@ -584,36 +611,27 @@ function buildParametricFallbackPack(landmarks, iw, ih, oval, nUpper, nLower) {
   });
   wireSamplesUpper = applyTerminalWireTuck(wireSamplesUpper, upperStuds, ARCHWIRE_TERMINAL_TUCK_PX);
 
-  const bpLo = getBracketPoints(left, right, upperLip, lowerLip, nLower);
+  const bpLo = getLowerArchBracketPoints(left, right, upperLip, lowerLip, nLower);
   let lowerStuds = [];
   let lowerAnchors = [];
   let wireSamplesLower = [];
   if (bpLo?.length) {
-    const teethYLo = lowerLip.y - mouthOpen * 0.38;
-    const arcH = mouthOpen * 0.12;
-    const centerX = (left.x + right.x) * 0.5;
-    const width = Math.max((right.x - left.x) * 0.5, 1e-3);
-    const lowerAngs = [];
-    lowerStuds = bpLo.map((_, i) => {
-      const t = nLower === 1 ? 0.5 : i / (nLower - 1);
-      const x = left.x + t * (right.x - left.x);
-      const u = (x - centerX) / width;
-      const y = teethYLo - arcH * (1 - u * u);
-      const dydx = (-2 * arcH * (x - centerX)) / (width * width);
-      lowerAngs.push(Math.atan2(dydx, 1));
-      return { x, y, z: 0 };
-    });
+    lowerStuds = bpLo.map((p) => ({ x: p.x, y: p.y, z: 0 }));
+    lowerStuds = applyRadialMolarEnrollment(lowerStuds);
+    lowerStuds = lowerStuds.map((s) => ({
+      ...s,
+      y: evalLowerArchParabolaY(s.x, left, right, upperLip, lowerLip),
+    }));
     lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval).map((a, i) => ({
       ...a,
-      ang: lowerAngs[i] ?? a.ang,
+      ang: Math.atan2(evalLowerArchParabolaDydx(lowerStuds[i].x, left, right, upperLip, lowerLip), 1),
     }));
     lowerAnchors = applyPerspectiveScaleToAnchors(lowerAnchors, lowerStuds);
     const lowerDense = [];
     for (let s = 0; s <= 48; s++) {
       const t = s / 48;
       const x = left.x + t * (right.x - left.x);
-      const u = (x - centerX) / width;
-      const y = teethYLo - arcH * (1 - u * u);
+      const y = evalLowerArchParabolaY(x, left, right, upperLip, lowerLip);
       lowerDense.push({ x, y });
     }
     wireSamplesLower = extendWireSamplesAlongTangents(
@@ -665,13 +683,18 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   if (!bpU?.length) return buildParametricFallbackPack(landmarks, iw, ih, oval, nU, nL);
 
   const mouthOpen = Math.abs(lip14.y - lip13.y);
-  const upperStuds = bpU.map((p) => ({ x: p.x, y: p.y, z: 0 }));
+  let upperStuds = bpU.map((p) => ({ x: p.x, y: p.y, z: 0 }));
+  upperStuds = applyRadialMolarEnrollment(upperStuds);
+  upperStuds = upperStuds.map((s) => ({
+    ...s,
+    y: evalUpperArchParabolaY(s.x, left, right, lip13, lip14),
+  }));
   let upperAnchors = computeBracketTransforms(upperStuds, iw, ih, oval);
   const midU = Math.floor(nU / 2);
   const centerSU = Math.max(bpU[midU]?.scale ?? 1, 0.01);
   upperAnchors = upperAnchors.map((a, i) => ({
     ...a,
-    ang: bpU[i]?.ang ?? a.ang,
+    ang: Math.atan2(evalUpperArchParabolaDydx(upperStuds[i].x, left, right, lip13, lip14), 1),
     wMult: (a.wMult ?? 1) * ((bpU[i]?.scale ?? 1) / centerSU),
     hMult: (a.hMult ?? 1) * ((bpU[i]?.scale ?? 1) / centerSU),
   }));
@@ -680,12 +703,17 @@ export function buildCentroidBracesPack(landmarks, iw, ih, oval, opts = {}) {
   let lowerAnchors = [];
   if (bpL?.length) {
     lowerStuds = bpL.map((p) => ({ x: p.x, y: p.y, z: 0 }));
+    lowerStuds = applyRadialMolarEnrollment(lowerStuds);
+    lowerStuds = lowerStuds.map((s) => ({
+      ...s,
+      y: evalLowerArchParabolaY(s.x, left, right, lip13, lip14),
+    }));
     lowerAnchors = computeBracketTransforms(lowerStuds, iw, ih, oval);
     const midL = Math.floor(nL / 2);
     const centerSL = Math.max(bpL[midL]?.scale ?? 1, 0.01);
     lowerAnchors = lowerAnchors.map((a, i) => ({
       ...a,
-      ang: bpL[i]?.ang ?? a.ang,
+      ang: Math.atan2(evalLowerArchParabolaDydx(lowerStuds[i].x, left, right, lip13, lip14), 1),
       wMult: (a.wMult ?? 1) * ((bpL[i]?.scale ?? 1) / centerSL),
       hMult: (a.hMult ?? 1) * ((bpL[i]?.scale ?? 1) / centerSL),
     }));

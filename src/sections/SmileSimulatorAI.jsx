@@ -69,8 +69,8 @@ const BRACES_UPPER_LIP_Y_INDICES = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78,
 const BRACES_LOWER_LIP_Y_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375, 14, 87, 178, 88, 95, 308, 324, 318];
 /**
  * Braces: TEETH_WHITEN clip (teethWhitenMaskPath) before vector + texture overlay; anatomical 14/12 slots;
- * parabolic depth 1.45; luminance peak per slot; ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0; 1.1px wire; bracket 0.8×11px;
- * 3px shadow blur, 1.35px shadow Y; molar depth floor 0.8 (≈25% smaller than centrals).
+ * radial parabola vertex @ 13/14, depth 1.65; luminance peak + enamel-face Y; ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0;
+ * 1.0px wire, 2.0px shadow Y; bracket 0.8×11px; molar depth floor 0.8.
  */
 /** Base clear-bracket size (−20% vs legacy 11px). */
 const BRACKET_DRAW_SIDE_PX = 11 * 0.8;
@@ -116,13 +116,13 @@ const OCCLUSAL_SPLIT_LOWER_MARGIN_PX = 4;
 const UPPER_ARCH_MAX_LUMINANCE_PEAKS = MORPH_MAX_UPPER_BRACKETS;
 const LOWER_ARCH_SUBSAMPLE_MAX = MORPH_MAX_LOWER_BRACKETS;
 /** Solid silver archwire (px). */
-const ARCHWIRE_LINE_WIDTH_PX = 1.1;
+const ARCHWIRE_LINE_WIDTH_PX = 1.0;
 /**
  * >0 mirrors Catmull past terminal studs. 0 = geometric lock: spline runs bracket-to-bracket only (no void run-out).
  */
 const ARCHWIRE_EXTEND_BEYOND_STUDS_PX = 0;
 /** Match stud drop shadow so wire reads threaded through brackets, not floating in front. */
-const ARCHWIRE_SHADOW_OFFSET_Y_PX = 1.35;
+const ARCHWIRE_SHADOW_OFFSET_Y_PX = 2.0;
 /** Smile-curve depth: upper arch dips at center (+Y), lower rises (−Y); scales with half-arch width. */
 const SMILE_CURVE_DEPTH_FRAC_OF_HALF_ARCH = 0.062;
 const SMILE_CURVE_DEPTH_MIN_PX = 3;
@@ -1029,6 +1029,7 @@ const SmileSimulatorAI = () => {
    * Wire → contact shadows → studs. `layers`: 'wire' | 'shadows' | 'studs' | 'both'.
    * @param {{ omitStudShadow?: boolean, outerAlpha?: number, layers?: 'wire' | 'shadows' | 'studs' | 'both', skipTeethClip?: boolean, precomputedPack?: object }} opts
    */
+  /** Wire + brackets share one clip for the whole pass unless `skipTeethClip` (parent already clipped). */
   const renderBraces = (landmarks, ctx, iw, ih, oval, opts = {}) => {
     const {
       omitStudShadow = false,

@@ -1,12 +1,12 @@
 /**
  * Surgical arch-lock (enamel-bound):
- * — Span: far-left/right from image column histogram in TEETH_WHITEN x-band (not lip corners).
- * — Slots: 14 upper / 12 lower; per-slot bracket X = argmax luminance on enamel-like pixels (tooth face peak); skip if gap.
- * — Y: occlusal mid vs lip 13/14 + biting edge, 25% vertical safe zone.
- * — Clip for drawing: SmileSimulatorAI + teethWhitenMaskPath.clipBracesToTeethEnamel (not in this module).
+ * — Span: far-left/right from TEETH_WHITEN x-band (not lip corners).
+ * — Slots: 14/12; X = luminance peak on enamel; Y = vertical center of each slot’s enamel face (clamped to 25% safe band).
+ * — Radial: terminal molars nudged 5% toward midline after slotting.
+ * — Clip: teethWhitenMaskPath.clipBracesToTeethEnamel in renderer (not here).
  */
 
-import { landmarkToPx, reprojectBracesPackAfterStudMove } from "./bracesGeometry";
+import { landmarkToPx, reprojectBracesPackAfterStudMove, applyRadialMolarEnrollment } from "./bracesGeometry";
 import { TEETH_WHITEN_MASK_INDICES } from "./teethWhitenMaskIndices";
 
 const INNER_LIP_UPPER_IDX = 13;
@@ -147,9 +147,9 @@ function enamelSpanFromHistogram(hist, width, xa, xb) {
 }
 
 /**
- * 14 / 12 equal vertical slots. X = local max(luminance) on enamel (tooth face peak). Y = occlusal mid in safe zone.
+ * 14 / 12 equal vertical slots. X = luminance peak on enamel. Y = midpoint of enamel column (visible face center).
  */
-function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY1, slotCount, lipY, upper) {
+function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY1, slotCount, _lipY, _upper) {
   const studs = [];
   const span = xMax - xMin;
   if (span < 12) return studs;
@@ -204,9 +204,8 @@ function studsFromHorizontalSlots(data, width, height, xMin, xMax, bandY0, bandY
     const ySafeHi = maxYE - SAFE_ZONE_FRAC * H;
     if (ySafeHi <= ySafeLo) continue;
 
-    const yBitingEdge = upper ? maxYE : minYE;
-    const yOcclusalMid = (lipY + yBitingEdge) * 0.5;
-    const yFinal = clamp(yOcclusalMid, ySafeLo, ySafeHi);
+    const yFaceMid = (minYE + maxYE) * 0.5;
+    const yFinal = clamp(yFaceMid, ySafeLo, ySafeHi);
 
     studs.push({ x: bx, y: yFinal, z: 0 });
   }
@@ -299,6 +298,9 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
 
   if (upperStuds.length < 2) upperStuds = [];
   if (lowerStuds.length < 2) lowerStuds = [];
+
+  if (upperStuds.length >= 6) upperStuds = applyRadialMolarEnrollment(upperStuds);
+  if (lowerStuds.length >= 6) lowerStuds = applyRadialMolarEnrollment(lowerStuds);
 
   upperStuds = attachZToStuds(upperStuds, landmarks, iw, ih, true);
   lowerStuds = attachZToStuds(lowerStuds, landmarks, iw, ih, false);

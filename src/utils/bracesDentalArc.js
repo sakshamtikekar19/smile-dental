@@ -1,10 +1,9 @@
 /**
- * Math-based upper dental arc from mouth corners + inner lips only (not raw tooth curves).
- * MediaPipe indices: commissures 61, 291; inner upper/lower lip 13, 14.
- * Parabolic sag uses PARABOLIC_ARCH_DEPTH_FACTOR (clinical wrap vs flat “railway”).
+ * Radial parabolic arches: y = a(x − h)² + k with vertex (h,k) at inner lip 13 (upper) / 14 (lower).
+ * Commissures 61 / 291 define span; PARABOLIC_ARCH_DEPTH_FACTOR deepens clinical smile curve vs flat chords.
  */
-/** Multiplier on baseline arc sag (deep jaw wrap). */
-export const PARABOLIC_ARCH_DEPTH_FACTOR = 1.45;
+/** Multiplier on baseline arc sag (aggressive visible “smile arch”). */
+export const PARABOLIC_ARCH_DEPTH_FACTOR = 1.65;
 
 /** Base vertical blend: inner upper lip → into open mouth (fraction of mouth height). */
 const UPPER_TEETHY_FRAC_BASE = 0.35;
@@ -22,6 +21,60 @@ const UPPER_TEETHY_FRAC = UPPER_TEETHY_FRAC_BASE + UPPER_ARCH_VERTICAL_OFFSET;
  */
 export const LOWER_ARCH_VERTICAL_OFFSET_FRAC = 0.1;
 
+function halfMouthWidth(left, right) {
+  return Math.max((right.x - left.x) * 0.5, 1e-6);
+}
+
+/**
+ * Upper: vertex at landmark 13 (h = upperLip.x); opens toward lip (max y at midline).
+ * @returns {{ teethY: number, arcHeight: number, h: number, W: number, a: number, k: number }}
+ */
+function upperParabolaParams(left, right, upperLip, lowerLip) {
+  const mouthHeight = lowerLip.y - upperLip.y;
+  const W = halfMouthWidth(left, right);
+  const h = upperLip.x;
+  const teethY = upperLip.y + UPPER_TEETHY_FRAC * mouthHeight;
+  const arcHeight = mouthHeight * 0.15 * PARABOLIC_ARCH_DEPTH_FACTOR;
+  const k = teethY + arcHeight;
+  const a = -arcHeight / (W * W);
+  return { teethY, arcHeight, h, W, a, k };
+}
+
+/**
+ * Lower: vertex at landmark 14 (h = lowerLip.x); U-arch, deepest at midline (min y).
+ */
+function lowerParabolaParams(left, right, upperLip, lowerLip) {
+  const mouthHeight = lowerLip.y - upperLip.y;
+  const W = halfMouthWidth(left, right);
+  const h = lowerLip.x;
+  const teethY = lowerLip.y - mouthHeight * 0.38;
+  const arcHeight = mouthHeight * 0.12 * PARABOLIC_ARCH_DEPTH_FACTOR;
+  const k = teethY - arcHeight;
+  const a = arcHeight / (W * W);
+  return { teethY, arcHeight, h, W, a, k };
+}
+
+/** y = a(x−h)² + k */
+export function evalUpperArchParabolaY(x, left, right, upperLip, lowerLip) {
+  const { a, h, k } = upperParabolaParams(left, right, upperLip, lowerLip);
+  return a * (x - h) * (x - h) + k;
+}
+
+export function evalUpperArchParabolaDydx(x, left, right, upperLip, lowerLip) {
+  const { a, h } = upperParabolaParams(left, right, upperLip, lowerLip);
+  return 2 * a * (x - h);
+}
+
+export function evalLowerArchParabolaY(x, left, right, upperLip, lowerLip) {
+  const { a, h, k } = lowerParabolaParams(left, right, upperLip, lowerLip);
+  return a * (x - h) * (x - h) + k;
+}
+
+export function evalLowerArchParabolaDydx(x, left, right, upperLip, lowerLip) {
+  const { a, h } = lowerParabolaParams(left, right, upperLip, lowerLip);
+  return 2 * a * (x - h);
+}
+
 /**
  * @param {{ x: number, y: number }} left
  * @param {{ x: number, y: number }} right
@@ -32,20 +85,12 @@ export const LOWER_ARCH_VERTICAL_OFFSET_FRAC = 0.1;
  */
 export function generateDentalArc(left, right, upperLip, lowerLip, count = 10) {
   const mouthWidth = right.x - left.x;
-  const mouthHeight = lowerLip.y - upperLip.y;
-  const centerX = (left.x + right.x) / 2;
-  const width = mouthWidth / 2;
-
-  const teethY = upperLip.y + UPPER_TEETHY_FRAC * mouthHeight;
-  const arcHeight = mouthHeight * 0.15 * PARABOLIC_ARCH_DEPTH_FACTOR;
-
   const points = [];
   const n = Math.max(2, Math.round(count));
   for (let i = 0; i < n; i++) {
     const t = n === 1 ? 0.5 : i / (n - 1);
     const x = left.x + t * mouthWidth;
-    const u = width > 1e-6 ? (x - centerX) / width : 0;
-    const y = teethY + arcHeight * (1 - u * u);
+    const y = evalUpperArchParabolaY(x, left, right, upperLip, lowerLip);
     points.push({ x, y });
   }
   return points;
@@ -64,21 +109,18 @@ export function getLowerArchBracketPoints(left, right, upperLip, lowerLip, count
   const mouthHeight = lowerLip.y - upperLip.y;
   if (mouthWidth < 4 || mouthHeight < 2) return null;
 
-  const centerX = (left.x + right.x) / 2;
   const width = mouthWidth / 2;
-  const teethY = lowerLip.y - mouthHeight * 0.38;
-  const arcHeight = mouthHeight * 0.12 * PARABOLIC_ARCH_DEPTH_FACTOR;
+  const { h } = lowerParabolaParams(left, right, upperLip, lowerLip);
 
   const n = Math.max(2, Math.round(count));
   const out = [];
   for (let i = 0; i < n; i++) {
     const t = n === 1 ? 0.5 : i / (n - 1);
     const x = left.x + t * mouthWidth;
-    const u = width > 1e-6 ? (x - centerX) / width : 0;
-    const y = teethY - arcHeight * (1 - u * u);
-    const dydx = width > 1e-6 ? (-2 * arcHeight * (x - centerX)) / (width * width) : 0;
+    const y = evalLowerArchParabolaY(x, left, right, upperLip, lowerLip);
+    const dydx = evalLowerArchParabolaDydx(x, left, right, upperLip, lowerLip);
     const ang = Math.atan2(dydx, 1);
-    const distFromCenter = Math.abs(x - centerX);
+    const distFromCenter = Math.abs(x - h);
     const scale = Math.max(0.55, 1 - (distFromCenter / Math.max(width, 1e-6)) * 0.25);
     out.push({ x, y, ang, scale });
   }
@@ -90,22 +132,18 @@ export function getBracketPoints(left, right, upperLip, lowerLip, count = 10) {
   const mouthHeight = lowerLip.y - upperLip.y;
   if (mouthWidth < 4 || mouthHeight < 2) return null;
 
-  const centerX = (left.x + right.x) / 2;
   const width = mouthWidth / 2;
-  const teethY = upperLip.y + UPPER_TEETHY_FRAC * mouthHeight;
-  const arcHeight = mouthHeight * 0.15 * PARABOLIC_ARCH_DEPTH_FACTOR;
+  const { h } = upperParabolaParams(left, right, upperLip, lowerLip);
 
   const n = Math.max(2, Math.round(count));
   const out = [];
   for (let i = 0; i < n; i++) {
     const t = n === 1 ? 0.5 : i / (n - 1);
     const x = left.x + t * mouthWidth;
-    const u = width > 1e-6 ? (x - centerX) / width : 0;
-    const y = teethY + arcHeight * (1 - u * u);
-
-    const dydx = width > 1e-6 ? (-2 * arcHeight * (x - centerX)) / (width * width) : 0;
+    const y = evalUpperArchParabolaY(x, left, right, upperLip, lowerLip);
+    const dydx = evalUpperArchParabolaDydx(x, left, right, upperLip, lowerLip);
     const ang = Math.atan2(dydx, 1);
-    const distFromCenter = Math.abs(x - centerX);
+    const distFromCenter = Math.abs(x - h);
     const scale = Math.max(0.55, 1 - (distFromCenter / Math.max(width, 1e-6)) * 0.25);
 
     out.push({ x, y, ang, scale });
