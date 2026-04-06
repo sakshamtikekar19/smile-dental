@@ -103,7 +103,7 @@ export function getBracesTeethClipPoints(landmarks, iw, ih) {
   }
   const cx = sx / pts.length;
   const cy = sy / pts.length;
-  const scale = 1.072;
+  const scale = 1.088;
   return pts.map((p) => ({
     x: cx + (p.x - cx) * scale,
     y: cy + (p.y - cy) * scale,

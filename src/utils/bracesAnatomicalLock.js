@@ -405,6 +405,9 @@ export async function buildAnatomicalArchLockPack(imageDataUrl, landmarks, iw, i
   if (upperStuds.length < 2) upperStuds = [];
   if (lowerStuds.length < 2) lowerStuds = [];
 
+  if (upperStuds.length >= 2) upperStuds.sort((a, b) => a.x - b.x);
+  if (lowerStuds.length >= 2) lowerStuds.sort((a, b) => a.x - b.x);
+
   if (!usedLandmarkPrimary) {
     if (upperStuds.length >= 6) upperStuds = applyRadialMolarEnrollment(upperStuds);
     if (lowerStuds.length >= 6) lowerStuds = applyRadialMolarEnrollment(lowerStuds);

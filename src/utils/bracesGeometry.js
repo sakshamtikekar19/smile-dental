@@ -220,7 +220,55 @@ function interpolateYAtXSorted(pts, x) {
   return pts[Math.floor(pts.length / 2)].y;
 }
 
-const TOOTH_BAND_WIRE_SAMPLES = 100;
+/**
+ * Intersects a vertical line x with a polyline in **arch order** (left→right along the jaw).
+ * Avoids sorting Catmull output by x, which breaks segment connectivity and causes jagged / truncated wires.
+ */
+function yFromArchPolylineAtX(ordered, x) {
+  if (!ordered?.length) return 0;
+  if (ordered.length === 1) return ordered[0].y;
+  if (x <= ordered[0].x) {
+    const a = ordered[0];
+    const b = ordered[1];
+    const dx = b.x - a.x;
+    if (Math.abs(dx) < 1e-4) return a.y;
+    const t = (x - a.x) / dx;
+    return a.y + t * (b.y - a.y);
+  }
+  const last = ordered.length - 1;
+  if (x >= ordered[last].x) {
+    const a = ordered[last - 1];
+    const b = ordered[last];
+    const dx = b.x - a.x;
+    if (Math.abs(dx) < 1e-4) return b.y;
+    const t = (x - a.x) / dx;
+    return a.y + t * (b.y - a.y);
+  }
+  for (let i = 0; i < last; i++) {
+    const a = ordered[i];
+    const b = ordered[i + 1];
+    const lo = Math.min(a.x, b.x);
+    const hi = Math.max(a.x, b.x);
+    if (x < lo || x > hi) continue;
+    const dx = b.x - a.x;
+    if (Math.abs(dx) < 1e-4) return (a.y + b.y) * 0.5;
+    const t = (x - a.x) / dx;
+    return a.y + t * (b.y - a.y);
+  }
+  return ordered[Math.floor(ordered.length / 2)].y;
+}
+
+function smoothWireYLight(pts) {
+  if (!pts || pts.length < 3) return pts;
+  const n = pts.length;
+  return pts.map((p, i) => {
+    if (i === 0 || i === n - 1) return { ...p };
+    const y = (pts[i - 1].y + p.y + pts[i + 1].y) / 3;
+    return { x: p.x, y };
+  });
+}
+
+const TOOTH_BAND_WIRE_SAMPLES = 120;
 
 /**
  * Keeps upper archwire strictly above the oral midplane and lower strictly below, so the two
@@ -258,35 +306,39 @@ export function sampleWireAlongToothBand(landmarks, iw, ih, studs, upper, mouthO
   let base = row.pts ?? [];
   if (base.length < 2) return null;
   base = medianSmoothY(removeYSpikes(base));
-  let dense = smoothOpenCatmull(base, 16).map(({ x, y }) => ({ x, y }));
-  dense.sort((a, b) => a.x - b.x);
-  const thin = [];
-  for (const p of dense) {
-    if (!thin.length || p.x > thin[thin.length - 1].x + 0.25) thin.push(p);
-  }
-  if (thin.length < 2) return null;
+  /** Keep point order along the arch — do not sort by x (breaks segment order for Catmull). */
+  const dense = smoothOpenCatmull(base, 22).map(({ x, y }) => ({ x, y }));
+  if (dense.length < 4) return null;
 
   const bx = base.map((p) => p.x);
-  const xMin = Math.min(xMinStud, ...bx);
-  const xMax = Math.max(xMaxStud, ...bx);
+  const cl = landmarkToPx(landmarks, COMMISSURE_LEFT_IDX, iw, ih);
+  const cr = landmarkToPx(landmarks, COMMISSURE_RIGHT_IDX, iw, ih);
+  let xMin = Math.min(xMinStud, ...bx);
+  let xMax = Math.max(xMaxStud, ...bx);
+  if (cl && cr) {
+    xMin = Math.min(xMin, cl.x);
+    xMax = Math.max(xMax, cr.x);
+  }
 
   const cx = (xMin + xMax) * 0.5;
   const halfW = Math.max((xMax - xMin) * 0.5, 1e-3);
-  let sagExtra = clamp(halfW * 0.055 + mo * 0.06, 8, 36);
-  if (upper) sagExtra *= 0.42;
+  let sagExtra = clamp(halfW * 0.048 + mo * 0.05, 6, 28);
+  if (upper) sagExtra *= 0.38;
 
   const out = [];
   const n = TOOTH_BAND_WIRE_SAMPLES;
   for (let i = 0; i <= n; i++) {
     const t = i / n;
     const x = xMin + t * (xMax - xMin);
-    let y = interpolateYAtXSorted(thin, x);
+    let y = yFromArchPolylineAtX(dense, x);
     const u = (x - cx) / halfW;
     const u2 = clamp(u * u, 0, 1);
     y += (upper ? 1 : -1) * sagExtra * (1 - u2);
     out.push({ x, y });
   }
-  return clampArchWireYToLipBands(out, landmarks, iw, ih, upper, mo);
+  let banded = clampArchWireYToLipBands(out, landmarks, iw, ih, upper, mo);
+  banded = smoothWireYLight(banded);
+  return banded;
 }
 
 /** Push polyline ends outward ~molar/buccal tube (along end tangents). */
