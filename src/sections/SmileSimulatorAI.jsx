@@ -20,20 +20,22 @@ function WhiteningIcon() {
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
-        <radialGradient id="whitenTooth" cx="45%" cy="32%" r="72%">
+        <radialGradient id="whitenTooth" cx="42%" cy="28%" r="78%">
           <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="68%" stopColor="#e0f7fa" />
-          <stop offset="100%" stopColor="#bae6fd" />
+          <stop offset="55%" stopColor="#f1f5f9" />
+          <stop offset="100%" stopColor="#cbd5e1" />
         </radialGradient>
-        <linearGradient id="chromeHi" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
-          <stop offset="45%" stopColor="#f8fafc" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="#94a3b8" stopOpacity="0" />
+        <linearGradient id="toothRim" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#0f172a" stopOpacity="0.85" />
+          <stop offset="100%" stopColor="#1e293b" stopOpacity="0.5" />
         </linearGradient>
       </defs>
-      <path d="M16 14c2-4 8-6 16-6s14 2 16 6c3 6-1 16-3 21-3 8-4 18-13 18S22 43 19 35c-2-5-6-15-3-21z" fill="url(#whitenTooth)" stroke="#e2e8f0" strokeWidth="2" />
-      <path d="M20 18 L38 8 L42 12 L24 22 Z" fill="url(#chromeHi)" />
-      <path d="M22 20 L34 13" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" opacity="0.9" />
+      <path d="M16 14c2-4 8-6 16-6s14 2 16 6c3 6-1 16-3 21-3 8-4 18-13 18S22 43 19 35c-2-5-6-15-3-21z" fill="url(#whitenTooth)" stroke="url(#toothRim)" strokeWidth="2.2" />
+      <path d="M22 18c4-2 16-2 20 0" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.92" />
+      <g transform="translate(32 49)">
+        <path d="M0-7 L1.8-2.2 L7-1.4 L3.2 1.6 L4.6 7 L0 4.2 L-4.6 7 L-3.2 1.6 L-7-1.4 L-1.8-2.2 Z" fill="#22d3ee" stroke="#06b6d4" strokeWidth="0.9" />
+        <circle cx="0" cy="-2" r="2.2" fill="#ecfeff" opacity="0.95" />
+      </g>
     </svg>
   );
 }
@@ -41,17 +43,24 @@ function WhiteningIcon() {
 function AlignmentIcon() {
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
-      <g opacity="0.55">
-        <rect x="9" y="18" width="12" height="26" rx="5" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1.5" />
-        <rect x="23" y="16" width="12" height="28" rx="5" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1.5" />
-        <rect x="37" y="18" width="12" height="26" rx="5" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1.5" />
-      </g>
-      <rect x="11" y="15" width="12" height="28" rx="5" fill="#f8fafc" stroke="#3b82f6" strokeWidth="2" />
-      <rect x="25" y="13" width="12" height="30" rx="5" fill="#f8fafc" stroke="#3b82f6" strokeWidth="2" />
-      <rect x="39" y="15" width="12" height="28" rx="5" fill="#f8fafc" stroke="#3b82f6" strokeWidth="2" />
-      <path d="M14 30c6-4 30-4 36 0" fill="none" stroke="#60a5fa" strokeWidth="2" strokeDasharray="3 2" />
-      <path d="M10 32h44" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-      <path d="M8 32l6-5v10zM56 32l-6-5v10z" fill="#2563eb" />
+      <defs>
+        <linearGradient id="alignTooth" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="100%" stopColor="#e2e8f0" />
+        </linearGradient>
+        <linearGradient id="silverLevel" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#64748b" />
+          <stop offset="35%" stopColor="#e2e8f0" />
+          <stop offset="50%" stopColor="#f8fafc" />
+          <stop offset="65%" stopColor="#cbd5e1" />
+          <stop offset="100%" stopColor="#475569" />
+        </linearGradient>
+      </defs>
+      <rect x="10" y="14" width="11" height="30" rx="4" fill="url(#alignTooth)" stroke="#334155" strokeWidth="1.6" />
+      <rect x="26.5" y="14" width="11" height="30" rx="4" fill="url(#alignTooth)" stroke="#334155" strokeWidth="1.6" />
+      <rect x="43" y="14" width="11" height="30" rx="4" fill="url(#alignTooth)" stroke="#334155" strokeWidth="1.6" />
+      <line x1="6" y1="29" x2="58" y2="29" stroke="url(#silverLevel)" strokeWidth="3.2" strokeLinecap="round" />
+      <line x1="6" y1="29" x2="58" y2="29" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round" opacity="0.55" />
     </svg>
   );
 }
@@ -79,13 +88,18 @@ function BracesIcon() {
 function FullSmileIcon() {
   const teeth = [12, 18, 24, 30, 36, 42, 48, 54].map((cx, i) => (
     <g key={i}>
-      <ellipse cx={cx} cy="34" rx="4.8" ry="11" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1.2" />
-      <ellipse cx={cx - 1.2} cy="29" rx="1.6" ry="2.6" fill="#ffffff" opacity="0.55" />
+      <ellipse cx={cx} cy="36" rx="4.6" ry="10" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1.15" />
+      <ellipse cx={cx - 1.1} cy="31" rx="1.5" ry="2.4" fill="#ffffff" opacity="0.5" />
     </g>
   ));
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
+        <linearGradient id="crownGold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#fde68a" />
+          <stop offset="45%" stopColor="#fbbf24" />
+          <stop offset="100%" stopColor="#b45309" />
+        </linearGradient>
         <filter id="archGlow" x="-20%" y="-20%" width="140%" height="140%">
           <feGaussianBlur stdDeviation="1.8" result="b" />
           <feMerge>
@@ -94,8 +108,12 @@ function FullSmileIcon() {
           </feMerge>
         </filter>
       </defs>
-      <path d="M6 38c10 10 42 10 52 0" fill="none" stroke="#fbbf24" strokeWidth="2" opacity="0.85" filter="url(#archGlow)" />
-      <path d="M8 36 Q32 22 56 36" fill="rgba(255,255,255,0.06)" stroke="#fde68a" strokeWidth="1" />
+      <path d="M22 10 L26 6 L30 10 L32 5 L34 10 L38 6 L42 10 L40 16 L24 16 Z" fill="url(#crownGold)" stroke="#92400e" strokeWidth="1.1" />
+      <circle cx="26" cy="12" r="1.1" fill="#fef3c7" opacity="0.9" />
+      <circle cx="32" cy="11" r="1.1" fill="#fef3c7" opacity="0.9" />
+      <circle cx="38" cy="12" r="1.1" fill="#fef3c7" opacity="0.9" />
+      <path d="M6 40c10 10 42 10 52 0" fill="none" stroke="#fbbf24" strokeWidth="2.2" opacity="0.9" filter="url(#archGlow)" />
+      <path d="M8 38 Q32 24 56 38" fill="rgba(255,255,255,0.07)" stroke="#fde68a" strokeWidth="1" />
       {teeth}
     </svg>
   );
@@ -233,6 +251,8 @@ const LIP_GUM_LANDMARK_GUARD_PX = 5;
 const ENAMEL_LUM_MIN  = 15;
 const ENAMEL_LUM_MAX  = 252;
 const ENAMEL_SAT_MAX  = 0.58;
+/** Enamel-only whitening: linear luminance must exceed this (0–1) inside teeth hull. */
+const WHITEN_LUMINANCE_GATE = 0.4;
 const API_MOUTH_MAX_EDGE        = 768;
 const NOSE_MIDLINE_IDX          = 4;
 const CHIN_MIDLINE_IDX          = 152;
@@ -583,6 +603,14 @@ const SmileSimulatorAI = () => {
     const d = img.data;
     const ivory = { r: 252, g: 249, b: 241 };
 
+    let maskPoly = null;
+    if (landmarks) {
+      const mp = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+      if (mp && mp.length >= 3) maskPoly = mp;
+    }
+    const preIvory = new Uint8ClampedArray(d.length);
+    preIvory.set(d);
+
     let sumLum = 0, nArch = 0;
     for (let i = 0; i < d.length; i += 4) {
       const r = d[i], g = d[i+1], b = d[i+2];
@@ -594,11 +622,24 @@ const SmileSimulatorAI = () => {
     const archMeanLum = nArch > 0 ? sumLum / nArch : 150;
 
     for (let i = 0; i < d.length; i += 4) {
+      const p = i >> 2;
+      const px = p % iw;
+      const py = (p / iw) | 0;
       const r = d[i], g = d[i+1], b = d[i+2];
       const lum = 0.2126*r + 0.7152*g + 0.0722*b;
-      const origLum = 0.2126*preData[i] + 0.7152*preData[i+1] + 0.0722*preData[i+2];
       const maxc = Math.max(r,g,b), minc = Math.min(r,g,b);
       const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
+      const inTeethHull = !maskPoly || pointInPoly(px, py, maskPoly);
+      const passLumGate = lum / 255 > WHITEN_LUMINANCE_GATE;
+      const highRedLipOrGum = r >= 168 && r > g + 14 && r > b + 8;
+      const pinkGum = sat > 0.42 && r > 128 && r >= g - 10 && lum < 208;
+      if (!inTeethHull || !passLumGate || highRedLipOrGum || pinkGum) {
+        d[i] = preIvory[i];
+        d[i + 1] = preIvory[i + 1];
+        d[i + 2] = preIvory[i + 2];
+        continue;
+      }
+      const origLum = 0.2126*preData[i] + 0.7152*preData[i+1] + 0.0722*preData[i+2];
       const inEnamelBand = lum >= ENAMEL_LUM_MIN && lum <= ENAMEL_LUM_MAX && sat <= ENAMEL_SAT_MAX;
       const baseW = clamp((lum - 8) / 230, 0, 1);
       let adapt = 0;
@@ -859,51 +900,13 @@ const SmileSimulatorAI = () => {
             const sry = -vx * sinT + vy * cosT;
             const sx = cx + srx;
             const sy = top + sry;
-            const smp = sampleRGBA(src, width, height, sx, sy);
+            const smp = pointInPoly(sx, sy, localPoly)
+              ? sampleRGBA(src, width, height, sx, sy)
+              : sampleRGBA(src, width, height, cx, cy);
             out[oi] = smp[0];
             out[oi + 1] = smp[1];
             out[oi + 2] = smp[2];
             out[oi + 3] = smp[3];
-          }
-        }
-
-        // Anti-blur protocol: immediate post-warp unsharp to recover enamel edge acuity.
-        const warpBlur = new Float32Array(width * height * 3);
-        for (let cy = 0; cy < height; cy++) {
-          for (let cx = 0; cx < width; cx++) {
-            if (!pointInPoly(cx, cy, localPoly)) continue;
-            const oi = (cy * width + cx) * 4;
-            const bi = (cy * width + cx) * 3;
-            warpBlur[bi] = out[oi];
-            warpBlur[bi + 1] = out[oi + 1];
-            warpBlur[bi + 2] = out[oi + 2];
-          }
-        }
-        const blur3 = (cx, cy) => {
-          let r = 0, g = 0, b = 0, n = 0;
-          for (let ky = -1; ky <= 1; ky++) {
-            for (let kx = -1; kx <= 1; kx++) {
-              const nx = clamp(cx + kx, 0, width - 1);
-              const ny = clamp(cy + ky, 0, height - 1);
-              if (!pointInPoly(nx, ny, localPoly)) continue;
-              const bi = (ny * width + nx) * 3;
-              r += warpBlur[bi];
-              g += warpBlur[bi + 1];
-              b += warpBlur[bi + 2];
-              n++;
-            }
-          }
-          return n ? [r / n, g / n, b / n] : [0, 0, 0];
-        };
-        for (let cy = 0; cy < upperCap; cy++) {
-          for (let cx = 0; cx < width; cx++) {
-            if (!pointInPoly(cx, cy, localPoly)) continue;
-            const oi = (cy * width + cx) * 4;
-            const [br, bg, bb] = blur3(cx, cy);
-            const amt = 0.18;
-            out[oi] = clamp(Math.round(out[oi] + amt * (out[oi] - br)), 0, 255);
-            out[oi + 1] = clamp(Math.round(out[oi + 1] + amt * (out[oi + 1] - bg)), 0, 255);
-            out[oi + 2] = clamp(Math.round(out[oi + 2] + amt * (out[oi + 2] - bb)), 0, 255);
           }
         }
 
@@ -1025,50 +1028,100 @@ const SmileSimulatorAI = () => {
           }
         }
 
-        // Unsharp mask on incisal band (crisp biting edges vs mouth interior).
-        const blurScratch = new Float32Array(width * height * 3);
+        // Post-warp HD unsharp: σ≈1.5px Gaussian, amount 0.8, weighted toward vertical enamel edges (|∂L/∂x|).
+        const US_SIGMA = 1.5;
+        const US_AMOUNT = 0.8;
+        const gRad = Math.max(2, Math.ceil(US_SIGMA * 2.8));
+        const gk = new Float32Array(2 * gRad + 1);
+        let gkSum = 0;
+        for (let gi = -gRad; gi <= gRad; gi++) {
+          const w = Math.exp(-(gi * gi) / (2 * US_SIGMA * US_SIGMA));
+          gk[gi + gRad] = w;
+          gkSum += w;
+        }
+        for (let gi = 0; gi < gk.length; gi++) gk[gi] /= gkSum;
+
+        const blurH = new Float32Array(width * height * 3);
+        const blurHV = new Float32Array(width * height * 3);
         for (let cy = 0; cy < height; cy++) {
           for (let cx = 0; cx < width; cx++) {
-            const bi = (cy * width + cx) * 3;
             if (!pointInPoly(cx, cy, localPoly)) continue;
-            const oi = (cy * width + cx) * 4;
-            blurScratch[bi] = out[oi];
-            blurScratch[bi + 1] = out[oi + 1];
-            blurScratch[bi + 2] = out[oi + 2];
+            let r = 0, g = 0, b = 0, sw = 0;
+            for (let gi = -gRad; gi <= gRad; gi++) {
+              const nx = clamp(cx + gi, 0, width - 1);
+              if (!pointInPoly(nx, cy, localPoly)) continue;
+              const w = gk[gi + gRad];
+              const oi2 = (cy * width + nx) * 4;
+              r += out[oi2] * w;
+              g += out[oi2 + 1] * w;
+              b += out[oi2 + 2] * w;
+              sw += w;
+            }
+            if (sw <= 0) continue;
+            const bi = (cy * width + cx) * 3;
+            blurH[bi] = r / sw;
+            blurH[bi + 1] = g / sw;
+            blurH[bi + 2] = b / sw;
           }
         }
-        const box3 = (cx, cy) => {
-          let r = 0, g = 0, b = 0, n = 0;
-          for (let ky = -1; ky <= 1; ky++) {
-            for (let kx = -1; kx <= 1; kx++) {
-              const nx = clamp(cx + kx, 0, width - 1);
-              const ny = clamp(cy + ky, 0, height - 1);
-              if (!pointInPoly(nx, ny, localPoly)) continue;
-              const bi = (ny * width + nx) * 3;
-              r += blurScratch[bi];
-              g += blurScratch[bi + 1];
-              b += blurScratch[bi + 2];
-              n++;
-            }
-          }
-          if (!n) return [0, 0, 0];
-          return [r / n, g / n, b / n];
-        };
-        const unsharpAmt = treatment === "transformation" ? 0.55 : 0.42;
-        const incisalBand = 4;
         for (let cy = 0; cy < height; cy++) {
           for (let cx = 0; cx < width; cx++) {
             if (!pointInPoly(cx, cy, localPoly)) continue;
-            const top = smoothTop[cx];
-            if (cy < top || cy > top + incisalBand + 6) continue;
-            const distIncisal = Math.abs(cy - top);
-            if (distIncisal > incisalBand) continue;
+            let r = 0, g = 0, b = 0, sw = 0;
+            for (let gi = -gRad; gi <= gRad; gi++) {
+              const ny = clamp(cy + gi, 0, height - 1);
+              if (!pointInPoly(cx, ny, localPoly)) continue;
+              const w = gk[gi + gRad];
+              const bi2 = (ny * width + cx) * 3;
+              r += blurH[bi2] * w;
+              g += blurH[bi2 + 1] * w;
+              b += blurH[bi2 + 2] * w;
+              sw += w;
+            }
+            if (sw <= 0) continue;
+            const bi = (cy * width + cx) * 3;
+            blurHV[bi] = r / sw;
+            blurHV[bi + 1] = g / sw;
+            blurHV[bi + 2] = b / sw;
+          }
+        }
+        for (let cy = 0; cy < upperCap; cy++) {
+          for (let cx = 1; cx < width - 1; cx++) {
+            if (!pointInPoly(cx, cy, localPoly)) continue;
             const oi = (cy * width + cx) * 4;
-            const [br, bg, bb] = box3(cx, cy);
-            const k = unsharpAmt * (1 - distIncisal / (incisalBand + 0.01));
-            out[oi] = clamp(Math.round(out[oi] + k * (out[oi] - br)), 0, 255);
-            out[oi + 1] = clamp(Math.round(out[oi + 1] + k * (out[oi + 1] - bg)), 0, 255);
-            out[oi + 2] = clamp(Math.round(out[oi + 2] + k * (out[oi + 2] - bb)), 0, 255);
+            const bi = (cy * width + cx) * 3;
+            const lL = enamelLum(oi - 4);
+            const lR = enamelLum(oi + 4);
+            const gx = Math.abs(lR - lL) / 255;
+            const edgeW = clamp(0.22 + gx * 3.2, 0.2, 1);
+            const br = blurHV[bi];
+            const bg = blurHV[bi + 1];
+            const bb = blurHV[bi + 2];
+            out[oi] = clamp(Math.round(out[oi] + US_AMOUNT * edgeW * (out[oi] - br)), 0, 255);
+            out[oi + 1] = clamp(Math.round(out[oi + 1] + US_AMOUNT * edgeW * (out[oi + 1] - bg)), 0, 255);
+            out[oi + 2] = clamp(Math.round(out[oi + 2] + US_AMOUNT * edgeW * (out[oi + 2] - bb)), 0, 255);
+          }
+        }
+
+        // 1px-wide interdental shadows (~20% darken) at arch local maxima (contact columns).
+        const seamXs = [];
+        for (let cx = 2; cx < width - 2; cx++) {
+          if (!valid[cx]) continue;
+          const st = smoothTop[cx];
+          if (st >= smoothTop[cx - 1] && st >= smoothTop[cx + 1] && st > smoothTop[cx - 2] + 0.75 && st > smoothTop[cx + 2] + 0.75) {
+            seamXs.push(cx);
+          }
+        }
+        const SHADOW_BLEND = 0.8;
+        for (let s = 0; s < seamXs.length; s++) {
+          const cx = seamXs[s];
+          const t0 = Math.max(0, Math.floor(smoothTop[cx]));
+          for (let cy = t0; cy < upperCap; cy++) {
+            if (!pointInPoly(cx, cy, localPoly)) continue;
+            const oi = (cy * width + cx) * 4;
+            out[oi] = clamp(Math.round(out[oi] * SHADOW_BLEND), 0, 255);
+            out[oi + 1] = clamp(Math.round(out[oi + 1] * SHADOW_BLEND), 0, 255);
+            out[oi + 2] = clamp(Math.round(out[oi + 2] * SHADOW_BLEND), 0, 255);
           }
         }
 
