@@ -20,14 +20,15 @@ function WhiteningIcon() {
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
-        <linearGradient id="whitenTooth" x1="0" y1="0" x2="1" y2="1">
+        <radialGradient id="whitenTooth" cx="45%" cy="32%" r="72%">
           <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="65%" stopColor="#e0f7fa" />
-          <stop offset="100%" stopColor="#b2ebf2" />
-        </linearGradient>
+          <stop offset="68%" stopColor="#e0f7fa" />
+          <stop offset="100%" stopColor="#bae6fd" />
+        </radialGradient>
       </defs>
       <path d="M16 14c2-4 8-6 16-6s14 2 16 6c3 6-1 16-3 21-3 8-4 18-13 18S22 43 19 35c-2-5-6-15-3-21z" fill="url(#whitenTooth)" stroke="#d9f8ff" strokeWidth="2" />
-      <path d="M24 22c7 1 12-2 18-8" stroke="#ffffff" strokeWidth="3" strokeLinecap="round" opacity="0.9" />
+      <path d="M22 23c8 1 14-2 21-9" stroke="#ffffff" strokeWidth="3" strokeLinecap="round" opacity="0.92" />
+      <path d="M49 12l1.4 3.6L54 17l-3.6 1.4L49 22l-1.4-3.6L44 17l3.6-1.4z" fill="#ecfeff" stroke="#a5f3fc" strokeWidth="1" />
     </svg>
   );
 }
@@ -35,10 +36,11 @@ function WhiteningIcon() {
 function AlignmentIcon() {
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
-      <rect x="12" y="14" width="16" height="34" rx="7" fill="#f5f7ff" stroke="#c7d2fe" strokeWidth="2" />
-      <rect x="36" y="14" width="16" height="34" rx="7" fill="#f5f7ff" stroke="#c7d2fe" strokeWidth="2" />
-      <path d="M27 32h10" stroke="#93c5fd" strokeWidth="3" strokeLinecap="round" />
-      <path d="M24 32l4-3v6zM40 32l-4-3v6z" fill="#93c5fd" />
+      <rect x="8" y="16" width="14" height="30" rx="6" fill="#f8faff" stroke="#bfdbfe" strokeWidth="2" />
+      <rect x="25" y="14" width="14" height="32" rx="6" fill="#f8faff" stroke="#bfdbfe" strokeWidth="2" />
+      <rect x="42" y="16" width="14" height="30" rx="6" fill="#f8faff" stroke="#bfdbfe" strokeWidth="2" />
+      <path d="M16 31h31" stroke="#60a5fa" strokeWidth="3.2" strokeLinecap="round" />
+      <path d="M12 31l5-4v8zM52 31l-5-4v8z" fill="#60a5fa" />
     </svg>
   );
 }
@@ -46,10 +48,19 @@ function AlignmentIcon() {
 function BracesIcon() {
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
-      <rect x="10" y="10" width="44" height="44" rx="14" fill="#e2e8f0" stroke="#cbd5e1" strokeWidth="2" />
-      <rect x="20" y="20" width="24" height="24" rx="6" fill="#f8fafc" stroke="#94a3b8" strokeWidth="2" />
-      <path d="M24 32h16M32 24v16" stroke="#475569" strokeWidth="2.6" strokeLinecap="round" />
-      <path d="M8 34c12-6 36-6 48 0" stroke="#cbd5e1" strokeWidth="2.3" strokeLinecap="round" />
+      <defs>
+        <linearGradient id="bracketChrome" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#f8fafc" />
+          <stop offset="38%" stopColor="#cbd5e1" />
+          <stop offset="70%" stopColor="#94a3b8" />
+          <stop offset="100%" stopColor="#e2e8f0" />
+        </linearGradient>
+      </defs>
+      <rect x="10" y="10" width="44" height="44" rx="14" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="2" />
+      <rect x="19" y="19" width="26" height="26" rx="6.5" fill="url(#bracketChrome)" stroke="#64748b" strokeWidth="2" />
+      <path d="M24 32h16M32 24v16" stroke="#334155" strokeWidth="2.8" strokeLinecap="round" />
+      <path d="M8 34c12-7 36-7 48 0" stroke="#cbd5e1" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M20 22h22" stroke="#ffffff" strokeOpacity="0.75" strokeWidth="1.3" />
     </svg>
   );
 }
@@ -68,9 +79,9 @@ function FullSmileIcon() {
 
 const TREATMENTS = [
   { id: "whitening",      label: "Whitening",   icon: WhiteningIcon,   desc: "Blue-white enamel sheen enhancement." },
-  { id: "alignment",      label: "Alignment",   icon: AlignmentIcon,   desc: "Digital orthodontic arch correction." },
+  { id: "alignment",      label: "Alignment",   icon: AlignmentIcon,   desc: "Gap closure and crooked-tooth rectification preview." },
   { id: "braces",         label: "Braces",      icon: BracesIcon,      desc: "Precision metallic bracket preview." },
-  { id: "transformation", label: "Full Smile",  icon: FullSmileIcon,   desc: "Symmetric premium full-arch refinement." },
+  { id: "transformation", label: "Full Smile",  icon: FullSmileIcon,   desc: "Hollywood-style mirrored arch reconstruction." },
 ];
 
 const TREATMENT_THEME = {
@@ -815,6 +826,68 @@ const SmileSimulatorAI = () => {
           }
         }
 
+        if (treatment === "transformation") {
+          // Full Smile: directional horizontal dilation to close dark interdental gaps.
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 1; cx < width - 1; cx++) {
+              if (!pointInPoly(cx, cy, localPoly)) continue;
+              const oi = (cy * width + cx) * 4;
+              const lum = 0.2126 * out[oi] + 0.7152 * out[oi + 1] + 0.0722 * out[oi + 2];
+              if (lum > 58) continue;
+              let li = -1;
+              let ri = -1;
+              for (let s = 1; s <= 9; s++) {
+                const lx = cx - s;
+                if (lx >= 0 && pointInPoly(lx, cy, localPoly)) {
+                  const lidx = (cy * width + lx) * 4;
+                  const ll = 0.2126 * out[lidx] + 0.7152 * out[lidx + 1] + 0.0722 * out[lidx + 2];
+                  if (ll > 88) {
+                    li = lidx;
+                    break;
+                  }
+                }
+              }
+              for (let s = 1; s <= 9; s++) {
+                const rx = cx + s;
+                if (rx < width && pointInPoly(rx, cy, localPoly)) {
+                  const ridx = (cy * width + rx) * 4;
+                  const rl = 0.2126 * out[ridx] + 0.7152 * out[ridx + 1] + 0.0722 * out[ridx + 2];
+                  if (rl > 88) {
+                    ri = ridx;
+                    break;
+                  }
+                }
+              }
+              if (li >= 0 || ri >= 0) {
+                const lr = li >= 0 ? out[li] : out[ri];
+                const lg = li >= 0 ? out[li + 1] : out[ri + 1];
+                const lb = li >= 0 ? out[li + 2] : out[ri + 2];
+                const rr = ri >= 0 ? out[ri] : lr;
+                const rg = ri >= 0 ? out[ri + 1] : lg;
+                const rb = ri >= 0 ? out[ri + 2] : lb;
+                out[oi] = Math.round((lr + rr) * 0.5);
+                out[oi + 1] = Math.round((lg + rg) * 0.5);
+                out[oi + 2] = Math.round((lb + rb) * 0.5);
+              }
+            }
+          }
+
+          // Inpaint missing/receded enamel columns using mirrored/neighboring texture.
+          for (let cx = 0; cx < width; cx++) {
+            if (valid[cx]) continue;
+            const mirrorX = clamp(Math.round(midX + (midX - cx)), 0, width - 1);
+            const srcX = valid[mirrorX] ? mirrorX : valid[clamp(cx - 1, 0, width - 1)] ? cx - 1 : cx + 1;
+            for (let cy = 0; cy < upperCap; cy++) {
+              if (!pointInPoly(cx, cy, localPoly) || !pointInPoly(srcX, cy, localPoly)) continue;
+              const oi = (cy * width + cx) * 4;
+              const si = (cy * width + srcX) * 4;
+              out[oi] = out[si];
+              out[oi + 1] = out[si + 1];
+              out[oi + 2] = out[si + 2];
+            }
+          }
+        }
+
         // Edge-aware smoothing + subtle ambient occlusion restore
         for (let cy = 1; cy < height - 1; cy++) {
           for (let cx = 1; cx < width - 1; cx++) {
@@ -845,6 +918,12 @@ const SmileSimulatorAI = () => {
             out[oi] = clamp(Math.round(out[oi] - shade), 0, 255);
             out[oi + 1] = clamp(Math.round(out[oi + 1] - shade), 0, 255);
             out[oi + 2] = clamp(Math.round(out[oi + 2] - shade), 0, 255);
+
+            // Restore high-frequency enamel micro-grain after warping.
+            const grain = (((cx * 17 + cy * 13) % 23) - 11) * 0.14;
+            out[oi] = clamp(Math.round(out[oi] + grain), 0, 255);
+            out[oi + 1] = clamp(Math.round(out[oi + 1] + grain), 0, 255);
+            out[oi + 2] = clamp(Math.round(out[oi + 2] + grain), 0, 255);
           }
         }
 
@@ -1140,7 +1219,7 @@ const SmileSimulatorAI = () => {
               <TreatmentDockButton
                 key={t.id}
                 treatment={t}
-                active={selectedTreatment === t.id}
+                active={(step === "processing" || step === "result") ? activeTreatment === t.id : selectedTreatment === t.id}
                 disabled={step === "processing" || step === "result"}
                 onSelect={() => setSelectedTreatment(t.id)}
               />
