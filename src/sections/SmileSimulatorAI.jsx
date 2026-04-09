@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, Camera, X, CheckCircle2, Info, Sparkles, RefreshCw, AlignCenter, ShieldPlus, Link2 } from "lucide-react";
+import { Upload, Camera, X, CheckCircle2, Info, RefreshCw } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import PremiumButton from "../components/PremiumButton";
 import AnimatedSection from "../components/AnimatedSection";
@@ -16,11 +16,61 @@ import { getTightenedWhiteningMaskPoints } from "../utils/teethWhitenMaskPath";
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
 
+function WhiteningIcon() {
+  return (
+    <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
+      <defs>
+        <linearGradient id="whitenTooth" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="65%" stopColor="#e0f7fa" />
+          <stop offset="100%" stopColor="#b2ebf2" />
+        </linearGradient>
+      </defs>
+      <path d="M16 14c2-4 8-6 16-6s14 2 16 6c3 6-1 16-3 21-3 8-4 18-13 18S22 43 19 35c-2-5-6-15-3-21z" fill="url(#whitenTooth)" stroke="#d9f8ff" strokeWidth="2" />
+      <path d="M24 22c7 1 12-2 18-8" stroke="#ffffff" strokeWidth="3" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
+
+function AlignmentIcon() {
+  return (
+    <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
+      <rect x="12" y="14" width="16" height="34" rx="7" fill="#f5f7ff" stroke="#c7d2fe" strokeWidth="2" />
+      <rect x="36" y="14" width="16" height="34" rx="7" fill="#f5f7ff" stroke="#c7d2fe" strokeWidth="2" />
+      <path d="M27 32h10" stroke="#93c5fd" strokeWidth="3" strokeLinecap="round" />
+      <path d="M24 32l4-3v6zM40 32l-4-3v6z" fill="#93c5fd" />
+    </svg>
+  );
+}
+
+function BracesIcon() {
+  return (
+    <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
+      <rect x="10" y="10" width="44" height="44" rx="14" fill="#e2e8f0" stroke="#cbd5e1" strokeWidth="2" />
+      <rect x="20" y="20" width="24" height="24" rx="6" fill="#f8fafc" stroke="#94a3b8" strokeWidth="2" />
+      <path d="M24 32h16M32 24v16" stroke="#475569" strokeWidth="2.6" strokeLinecap="round" />
+      <path d="M8 34c12-6 36-6 48 0" stroke="#cbd5e1" strokeWidth="2.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FullSmileIcon() {
+  return (
+    <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
+      <path d="M8 30c7 14 41 14 48 0" fill="none" stroke="#fde68a" strokeWidth="2.5" opacity="0.65" />
+      <rect x="11" y="26" width="42" height="18" rx="9" fill="#fff" stroke="#fef3c7" strokeWidth="2" />
+      {Array.from({ length: 7 }).map((_, i) => (
+        <line key={i} x1={16 + i * 6} y1="28" x2={16 + i * 6} y2="43" stroke="#e5e7eb" strokeWidth="1" />
+      ))}
+    </svg>
+  );
+}
+
 const TREATMENTS = [
-  { id: "whitening",      label: "Whitening",   icon: Sparkles,   desc: "Visible whitening" },
-  { id: "alignment",      label: "Alignment",   icon: AlignCenter, desc: "Subtle straightening" },
-  { id: "braces",         label: "Braces",      icon: Link2,       desc: "Whitening + bracket preview" },
-  { id: "transformation", label: "Full Smile",  icon: ShieldPlus,  desc: "Whitening + alignment" },
+  { id: "whitening",      label: "Whitening",   icon: WhiteningIcon,   desc: "Blue-white enamel sheen enhancement." },
+  { id: "alignment",      label: "Alignment",   icon: AlignmentIcon,   desc: "Digital orthodontic arch correction." },
+  { id: "braces",         label: "Braces",      icon: BracesIcon,      desc: "Precision metallic bracket preview." },
+  { id: "transformation", label: "Full Smile",  icon: FullSmileIcon,   desc: "Symmetric premium full-arch refinement." },
 ];
 
 const TREATMENT_THEME = {
@@ -81,7 +131,8 @@ function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
         resetMag();
       }}
       disabled={disabled}
-      className="relative h-16 w-16 rounded-full border border-white/10 bg-white/5 backdrop-blur-xl"
+      className="relative h-[74px] w-[74px] rounded-full border border-white/10 bg-white/5 backdrop-blur-xl"
+      style={{ borderColor: active ? theme.ring : "rgba(255,255,255,0.1)" }}
       animate={{
         x: mag.x,
         y: mag.y,
@@ -100,7 +151,9 @@ function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
       aria-label={treatment.label}
     >
       <span className={cn("absolute inset-0 rounded-full bg-gradient-to-br", theme.tint)} />
-      <Icon size={22} className="relative z-10 mx-auto text-white" />
+      <span className="relative z-10 flex h-full w-full items-center justify-center">
+        <Icon />
+      </span>
       {active && (
         <motion.span
           className="absolute -bottom-2 left-1/2 h-[3px] w-9 -translate-x-1/2 rounded-full"
@@ -122,7 +175,7 @@ function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
               {treatment.label}
             </p>
             <p style={{ fontFamily: "'Inter', sans-serif" }} className="mt-1 text-xs text-zinc-300">
-              {theme.benefit}
+              {treatment.desc || theme.benefit}
             </p>
           </motion.div>
         )}
@@ -606,7 +659,37 @@ const SmileSimulatorAI = () => {
     });
   };
 
-  const applyAlignmentWarp = async (imageSrc, bounds) => {
+  const pointInPoly = (x, y, poly) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      const hit = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-6) + xi;
+      if (hit) inside = !inside;
+    }
+    return inside;
+  };
+
+  const sampleRGBA = (src, sw, sh, x, y) => {
+    const px = clamp(x, 0, sw - 1);
+    const py = clamp(y, 0, sh - 1);
+    const x0 = Math.floor(px), y0 = Math.floor(py);
+    const x1 = Math.min(sw - 1, x0 + 1), y1 = Math.min(sh - 1, y0 + 1);
+    const tx = px - x0, ty = py - y0;
+    const i00 = (y0 * sw + x0) * 4;
+    const i10 = (y0 * sw + x1) * 4;
+    const i01 = (y1 * sw + x0) * 4;
+    const i11 = (y1 * sw + x1) * 4;
+    const out = [0, 0, 0, 0];
+    for (let k = 0; k < 4; k++) {
+      const a = src[i00 + k] * (1 - tx) + src[i10 + k] * tx;
+      const b = src[i01 + k] * (1 - tx) + src[i11 + k] * tx;
+      out[k] = a * (1 - ty) + b * ty;
+    }
+    return out;
+  };
+
+  const applyAlignmentWarp = async (imageSrc, bounds, landmarks, oval, treatment = "alignment") => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -615,12 +698,157 @@ const SmileSimulatorAI = () => {
         const ctx = canvas.getContext("2d");
         canvas.width = img.width; canvas.height = img.height;
         ctx.drawImage(img, 0, 0);
+
+        if (!landmarks || !oval) {
+          resolve(canvas.toDataURL("image/jpeg", 0.95));
+          return;
+        }
+
+        const maskPts = getTightenedWhiteningMaskPoints(landmarks, canvas.width, canvas.height);
+        if (!maskPts || maskPts.length < 3) {
+          resolve(canvas.toDataURL("image/jpeg", 0.95));
+          return;
+        }
+
         const { x, y, width, height } = bounds;
-        const temp = document.createElement("canvas");
-        const tctx = temp.getContext("2d");
-        temp.width = width; temp.height = height;
-        tctx.drawImage(img, x, y, width, height, 0, 0, width, height);
-        ctx.drawImage(temp, 0, 0, width, height, x + width * 0.02, y, width * 0.96, height);
+        const srcImg = ctx.getImageData(x, y, width, height);
+        const src = srcImg.data;
+        const outImg = ctx.getImageData(x, y, width, height);
+        const out = outImg.data;
+
+        const localPoly = maskPts.map((p) => ({ x: p.x - x, y: p.y - y }));
+        const lipU = landmarks[13], lipL = landmarks[14];
+        const midY = lipU && lipL ? ((lipU.y + lipL.y) * 0.5 * canvas.height - y) : height * 0.5;
+        const upperCap = Math.floor(clamp(midY - 2, 0, height - 1));
+
+        const topEdge = new Float32Array(width).fill(1e9);
+        const valid = new Uint8Array(width);
+        for (let cx = 0; cx < width; cx++) {
+          for (let cy = 0; cy <= upperCap; cy++) {
+            if (!pointInPoly(cx, cy, localPoly)) continue;
+            const i = (cy * width + cx) * 4;
+            const r = src[i], g = src[i + 1], b = src[i + 2];
+            const maxc = Math.max(r, g, b), minc = Math.min(r, g, b);
+            const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
+            if (lum >= ENAMEL_LUM_MIN && lum <= ENAMEL_LUM_MAX && sat <= ENAMEL_SAT_MAX) {
+              topEdge[cx] = cy;
+              valid[cx] = 1;
+              break;
+            }
+          }
+        }
+
+        // Smooth top edge
+        const smoothTop = new Float32Array(width).fill(0);
+        for (let cx = 0; cx < width; cx++) {
+          let sum = 0;
+          let n = 0;
+          for (let k = -3; k <= 3; k++) {
+            const ix = clamp(cx + k, 0, width - 1);
+            if (!valid[ix]) continue;
+            sum += topEdge[ix];
+            n++;
+          }
+          smoothTop[cx] = n ? sum / n : upperCap * 0.62;
+        }
+
+        const midX = width * 0.5;
+        const frontL = Math.floor(width * 0.34);
+        const frontR = Math.ceil(width * 0.66);
+        let targetY = 0;
+        let targetN = 0;
+        for (let cx = frontL; cx <= frontR; cx++) {
+          if (!valid[cx]) continue;
+          targetY += smoothTop[cx];
+          targetN++;
+        }
+        targetY = targetN ? targetY / targetN : upperCap * 0.6;
+
+        const archAmp = clamp((treatment === "transformation" ? 0.1 : 0.06) * width, 4, 20);
+        const dyCol = new Float32Array(width).fill(0);
+        const dxCol = new Float32Array(width).fill(0);
+
+        // Symmetry lock by side span balancing
+        let leftSpan = 0, leftN = 0, rightSpan = 0, rightN = 0;
+        for (let cx = 0; cx < width; cx++) {
+          if (!valid[cx]) continue;
+          const d = Math.abs(cx - midX);
+          if (cx < midX) {
+            leftSpan += d;
+            leftN++;
+          } else {
+            rightSpan += d;
+            rightN++;
+          }
+        }
+        const leftAvg = leftN ? leftSpan / leftN : 0;
+        const rightAvg = rightN ? rightSpan / rightN : 0;
+        const spanDelta = rightAvg - leftAvg;
+
+        for (let cx = 0; cx < width; cx++) {
+          const u = (cx - midX) / Math.max(width * 0.5, 1);
+          const idealArchY = targetY + archAmp * u * u;
+          const top = smoothTop[cx];
+          dyCol[cx] = (idealArchY - top) * 0.85;
+          const slope = (smoothTop[clamp(cx + 1, 0, width - 1)] - smoothTop[clamp(cx - 1, 0, width - 1)]) * 0.5;
+          // Rotate twisted crowns toward vertical by opposite lateral shift
+          dxCol[cx] = clamp(-slope * 0.22, -2.4, 2.4);
+          if (spanDelta > 1.2 && cx < midX) dxCol[cx] += clamp(spanDelta * 0.08, 0, 2.3);
+          if (spanDelta < -1.2 && cx > midX) dxCol[cx] -= clamp(Math.abs(spanDelta) * 0.08, 0, 2.3);
+        }
+
+        for (let cy = 0; cy < height; cy++) {
+          for (let cx = 0; cx < width; cx++) {
+            const oi = (cy * width + cx) * 4;
+            if (!pointInPoly(cx, cy, localPoly)) continue;
+            const top = smoothTop[cx];
+            const depth = clamp((cy - top) / Math.max(upperCap - top + 1, 1), 0, 1);
+            const warpW = 1 - depth;
+            const sx = cx - dxCol[cx] * (0.25 + 0.75 * warpW);
+            const sy = cy - dyCol[cx] * (0.2 + 0.8 * warpW);
+            const smp = sampleRGBA(src, width, height, sx, sy);
+            out[oi] = smp[0];
+            out[oi + 1] = smp[1];
+            out[oi + 2] = smp[2];
+            out[oi + 3] = smp[3];
+          }
+        }
+
+        // Edge-aware smoothing + subtle ambient occlusion restore
+        for (let cy = 1; cy < height - 1; cy++) {
+          for (let cx = 1; cx < width - 1; cx++) {
+            if (!pointInPoly(cx, cy, localPoly)) continue;
+            const oi = (cy * width + cx) * 4;
+            let rs = 0, gs = 0, bs = 0, ws = 0;
+            const cr = out[oi], cg = out[oi + 1], cb = out[oi + 2];
+            for (let ky = -1; ky <= 1; ky++) {
+              for (let kx = -1; kx <= 1; kx++) {
+                const ni = ((cy + ky) * width + (cx + kx)) * 4;
+                const nr = out[ni], ng = out[ni + 1], nb = out[ni + 2];
+                const cd = Math.abs(nr - cr) + Math.abs(ng - cg) + Math.abs(nb - cb);
+                const wColor = Math.exp(-cd / 80);
+                const wSpace = kx === 0 && ky === 0 ? 1.8 : 1;
+                const w = wColor * wSpace;
+                rs += nr * w;
+                gs += ng * w;
+                bs += nb * w;
+                ws += w;
+              }
+            }
+            out[oi] = Math.round(rs / Math.max(ws, 1e-6));
+            out[oi + 1] = Math.round(gs / Math.max(ws, 1e-6));
+            out[oi + 2] = Math.round(bs / Math.max(ws, 1e-6));
+
+            // subtle inter-tooth shadow
+            const shade = Math.max(0, 18 - (out[oi] + out[oi + 1] + out[oi + 2]) / 3) * 0.06;
+            out[oi] = clamp(Math.round(out[oi] - shade), 0, 255);
+            out[oi + 1] = clamp(Math.round(out[oi + 1] - shade), 0, 255);
+            out[oi + 2] = clamp(Math.round(out[oi + 2] - shade), 0, 255);
+          }
+        }
+
+        ctx.putImageData(outImg, x, y);
         resolve(canvas.toDataURL("image/jpeg", 0.95));
       };
       img.onerror = () => reject(new Error("Could not load image for alignment"));
@@ -835,7 +1063,7 @@ const SmileSimulatorAI = () => {
       }
       // Alignment pass
       if (["alignment", "transformation"].includes(selectedTreatment)) {
-        canvasEnhanced = await applyAlignmentWarp(canvasEnhanced, bounds);
+        canvasEnhanced = await applyAlignmentWarp(canvasEnhanced, bounds, landmarks, oval, selectedTreatment);
       }
 
       const mouthCrop = await cropMouthRegion(canvasEnhanced, bounds);
@@ -907,7 +1135,7 @@ const SmileSimulatorAI = () => {
 
         {/* Floating luxury treatment dock */}
         <AnimatedSection className="mx-auto mb-12 flex justify-center">
-          <div className="inline-flex items-center gap-3 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/62 px-4 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+          <div className="inline-flex items-center gap-4 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/62 px-5 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl">
             {TREATMENTS.map((t) => (
               <TreatmentDockButton
                 key={t.id}
