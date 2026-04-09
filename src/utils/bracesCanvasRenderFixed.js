@@ -65,7 +65,8 @@ export function drawBracket(ctx, x, y, ang, wMult, hMult, depthOpacity, baseW, b
   ctx.shadowColor = 'rgba(0,0,0,0.4)';
   ctx.shadowBlur = 2.5;
   ctx.shadowOffsetX = 0.5;
-  ctx.shadowOffsetY = 1.8;
+  // Explicit bracket depth occlusion for non-sticker look.
+  ctx.shadowOffsetY = 1.5;
 
   // Main body gradient (light top → dark bottom)
   const grad = ctx.createLinearGradient(-w/2, -h/2, w/2, h/2);

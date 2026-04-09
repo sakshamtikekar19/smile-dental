@@ -867,10 +867,67 @@ const SmileSimulatorAI = () => {
           }
         }
 
+        // Anti-blur protocol: immediate post-warp unsharp to recover enamel edge acuity.
+        const warpBlur = new Float32Array(width * height * 3);
+        for (let cy = 0; cy < height; cy++) {
+          for (let cx = 0; cx < width; cx++) {
+            if (!pointInPoly(cx, cy, localPoly)) continue;
+            const oi = (cy * width + cx) * 4;
+            const bi = (cy * width + cx) * 3;
+            warpBlur[bi] = out[oi];
+            warpBlur[bi + 1] = out[oi + 1];
+            warpBlur[bi + 2] = out[oi + 2];
+          }
+        }
+        const blur3 = (cx, cy) => {
+          let r = 0, g = 0, b = 0, n = 0;
+          for (let ky = -1; ky <= 1; ky++) {
+            for (let kx = -1; kx <= 1; kx++) {
+              const nx = clamp(cx + kx, 0, width - 1);
+              const ny = clamp(cy + ky, 0, height - 1);
+              if (!pointInPoly(nx, ny, localPoly)) continue;
+              const bi = (ny * width + nx) * 3;
+              r += warpBlur[bi];
+              g += warpBlur[bi + 1];
+              b += warpBlur[bi + 2];
+              n++;
+            }
+          }
+          return n ? [r / n, g / n, b / n] : [0, 0, 0];
+        };
+        for (let cy = 0; cy < upperCap; cy++) {
+          for (let cx = 0; cx < width; cx++) {
+            if (!pointInPoly(cx, cy, localPoly)) continue;
+            const oi = (cy * width + cx) * 4;
+            const [br, bg, bb] = blur3(cx, cy);
+            const amt = 0.18;
+            out[oi] = clamp(Math.round(out[oi] + amt * (out[oi] - br)), 0, 255);
+            out[oi + 1] = clamp(Math.round(out[oi + 1] + amt * (out[oi + 1] - bg)), 0, 255);
+            out[oi + 2] = clamp(Math.round(out[oi + 2] + amt * (out[oi + 2] - bb)), 0, 255);
+          }
+        }
+
         const enamelLum = (idx) =>
           0.2126 * out[idx] + 0.7152 * out[idx + 1] + 0.0722 * out[idx + 2];
 
         if (treatment === "transformation") {
+          // Digital veneer mirror: if one side is gap-dark and the mirrored side is healthy enamel, clone mirror texture.
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 0; cx < width; cx++) {
+              if (!pointInPoly(cx, cy, localPoly)) continue;
+              const oi = (cy * width + cx) * 4;
+              const lum = enamelLum(oi);
+              if (lum > 64) continue;
+              const mirrorX = clamp(Math.round(midX + (midX - cx)), 0, width - 1);
+              if (!pointInPoly(mirrorX, cy, localPoly)) continue;
+              const mi = (cy * width + mirrorX) * 4;
+              if (enamelLum(mi) < 88) continue;
+              out[oi] = out[mi];
+              out[oi + 1] = out[mi + 1];
+              out[oi + 2] = out[mi + 2];
+            }
+          }
+
           // Smart gap inpaint: distance-weighted clone from adjacent enamel (no stretch-blur).
           for (let cy = 0; cy < upperCap; cy++) {
             for (let cx = 1; cx < width - 1; cx++) {
