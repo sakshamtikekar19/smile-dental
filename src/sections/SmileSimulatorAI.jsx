@@ -20,22 +20,25 @@ function WhiteningIcon() {
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
-        <radialGradient id="whitenTooth" cx="42%" cy="28%" r="78%">
+        <linearGradient id="whitenIncisor" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#ffffff" />
           <stop offset="55%" stopColor="#f1f5f9" />
           <stop offset="100%" stopColor="#cbd5e1" />
-        </radialGradient>
-        <linearGradient id="toothRim" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#0f172a" stopOpacity="0.85" />
-          <stop offset="100%" stopColor="#1e293b" stopOpacity="0.5" />
+        </linearGradient>
+        <linearGradient id="blueSpecular" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#38bdf8" />
+          <stop offset="40%" stopColor="#0ea5e9" />
+          <stop offset="100%" stopColor="#0369a1" />
         </linearGradient>
       </defs>
-      <path d="M16 14c2-4 8-6 16-6s14 2 16 6c3 6-1 16-3 21-3 8-4 18-13 18S22 43 19 35c-2-5-6-15-3-21z" fill="url(#whitenTooth)" stroke="url(#toothRim)" strokeWidth="2.2" />
-      <path d="M22 18c4-2 16-2 20 0" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.92" />
-      <g transform="translate(32 49)">
-        <path d="M0-7 L1.8-2.2 L7-1.4 L3.2 1.6 L4.6 7 L0 4.2 L-4.6 7 L-3.2 1.6 L-7-1.4 L-1.8-2.2 Z" fill="#22d3ee" stroke="#06b6d4" strokeWidth="0.9" />
-        <circle cx="0" cy="-2" r="2.2" fill="#ecfeff" opacity="0.95" />
-      </g>
+      <path
+        d="M28 8c6 0 10 4 11 10 1 8 0 18-2 24-2 6-6 14-11 14s-9-8-11-14c-2-6-3-16-2-24 1-6 5-10 11-10z"
+        fill="url(#whitenIncisor)"
+        stroke="#334155"
+        strokeWidth="2"
+      />
+      <path d="M33 9 L40 11 L38 18 L31 15 Z" fill="url(#blueSpecular)" opacity="0.95" />
+      <path d="M34 10.5 L39 12" stroke="#e0f2fe" strokeWidth="1.2" strokeLinecap="round" opacity="0.9" />
     </svg>
   );
 }
@@ -86,35 +89,35 @@ function BracesIcon() {
 }
 
 function FullSmileIcon() {
-  const teeth = [12, 18, 24, 30, 36, 42, 48, 54].map((cx, i) => (
+  const cx = [12, 18, 24, 30, 36, 42, 48, 54];
+  const teeth = cx.map((c, i) => (
     <g key={i}>
-      <ellipse cx={cx} cy="36" rx="4.6" ry="10" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="1.15" />
-      <ellipse cx={cx - 1.1} cy="31" rx="1.5" ry="2.4" fill="#ffffff" opacity="0.5" />
+      <ellipse cx={c} cy="38" rx="4.5" ry="10.5" fill="#fafafa" stroke="#d4d4d8" strokeWidth="1.1" />
+      <ellipse cx={c - 1} cy="32" rx="1.4" ry="2.3" fill="#ffffff" opacity="0.55" />
     </g>
   ));
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
-        <linearGradient id="crownGold" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#fde68a" />
-          <stop offset="45%" stopColor="#fbbf24" />
-          <stop offset="100%" stopColor="#b45309" />
+        <linearGradient id="fullSmileShimmer" x1="0%" y1="50%" x2="100%" y2="50%">
+          <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.9" />
+          <stop offset="35%" stopColor="#fef9c3" stopOpacity="1" />
+          <stop offset="50%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="65%" stopColor="#fef9c3" stopOpacity="1" />
+          <stop offset="100%" stopColor="#eab308" stopOpacity="0.85" />
         </linearGradient>
-        <filter id="archGlow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="1.8" result="b" />
+        <filter id="archGlowFs" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="1.4" result="b" />
           <feMerge>
             <feMergeNode in="b" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
       </defs>
-      <path d="M22 10 L26 6 L30 10 L32 5 L34 10 L38 6 L42 10 L40 16 L24 16 Z" fill="url(#crownGold)" stroke="#92400e" strokeWidth="1.1" />
-      <circle cx="26" cy="12" r="1.1" fill="#fef3c7" opacity="0.9" />
-      <circle cx="32" cy="11" r="1.1" fill="#fef3c7" opacity="0.9" />
-      <circle cx="38" cy="12" r="1.1" fill="#fef3c7" opacity="0.9" />
-      <path d="M6 40c10 10 42 10 52 0" fill="none" stroke="#fbbf24" strokeWidth="2.2" opacity="0.9" filter="url(#archGlow)" />
-      <path d="M8 38 Q32 24 56 38" fill="rgba(255,255,255,0.07)" stroke="#fde68a" strokeWidth="1" />
+      <path d="M7 42c11 9 39 9 50 0" fill="none" stroke="#e4e4e7" strokeWidth="1.5" />
+      <path d="M8 40 Q32 26 56 40" fill="rgba(250,250,250,0.5)" stroke="#d4d4d8" strokeWidth="1" />
       {teeth}
+      <line x1="10" y1="38" x2="54" y2="38" stroke="url(#fullSmileShimmer)" strokeWidth="2.8" strokeLinecap="round" filter="url(#archGlowFs)" />
     </svg>
   );
 }
@@ -255,6 +258,8 @@ const ENAMEL_SAT_MAX  = 0.58;
 const WHITEN_LUMINANCE_GATE = 0.4;
 /** Extra shrink of teeth hull for whitening clip + composite (lips/gums stay untouched). */
 const WHITEN_HULL_EXTRA_INSET_PX = 4;
+/** Additional inset for Full Smile: infill/warp only inside this stricter enamel core (anti lip/gum bleed). */
+const ALIGN_STRICT_ENAMEL_INSET_PX = 6;
 /** Min distance (px) from lip / mouth rim landmarks — pixels closer never get whitening adjustments. */
 const WHITEN_LIP_CLEARANCE_MIN_PX = 10;
 const WHITEN_LIP_CLEARANCE_SCALE = 0.018;
@@ -965,15 +970,50 @@ const SmileSimulatorAI = () => {
           0.2126 * out[idx] + 0.7152 * out[idx + 1] + 0.0722 * out[idx + 2];
 
         if (treatment === "transformation") {
-          // Digital veneer mirror: if one side is gap-dark and the mirrored side is healthy enamel, clone mirror texture.
-          for (let cy = 0; cy < upperCap; cy++) {
+          const strictPts = getTightenedWhiteningMaskPoints(
+            landmarks,
+            canvas.width,
+            canvas.height,
+            WHITEN_HULL_EXTRA_INSET_PX + ALIGN_STRICT_ENAMEL_INSET_PX
+          );
+          const localStrictPoly =
+            strictPts && strictPts.length >= 3
+              ? strictPts.map((p) => ({ x: p.x - x, y: p.y - y }))
+              : localPoly;
+          const lipGuardRAlign = Math.max(11, Math.min(canvas.width, canvas.height) * 0.017);
+          const lipGuardR2Align = lipGuardRAlign * lipGuardRAlign;
+          const nearLipOrGumMargin = (lcx, lcy) => {
+            const fx = lcx + x;
+            const fy = lcy + y;
+            for (let li = 0; li < LIP_COLOR_GUARD_INDICES.length; li++) {
+              const p = landmarks[LIP_COLOR_GUARD_INDICES[li]];
+              if (!p || typeof p.x !== "number") continue;
+              const dx = fx - p.x * canvas.width;
+              const dy = fy - p.y * canvas.height;
+              if (dx * dx + dy * dy < lipGuardR2Align) return true;
+            }
+            return false;
+          };
+          const canEnamelCore = (lcx, lcy) =>
+            pointInPoly(lcx, lcy, localStrictPoly) && !nearLipOrGumMargin(lcx, lcy);
+
+          for (let cy = 0; cy <= upperCap; cy++) {
             for (let cx = 0; cx < width; cx++) {
               if (!pointInPoly(cx, cy, localPoly)) continue;
+              const oi = (cy * width + cx) * 4;
+              if (!canEnamelCore(cx, cy)) copyPixel(out, oi, src, oi);
+            }
+          }
+
+          // Digital veneer mirror (strict enamel core only).
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 0; cx < width; cx++) {
+              if (!canEnamelCore(cx, cy)) continue;
               const oi = (cy * width + cx) * 4;
               const lum = enamelLum(oi);
               if (lum > 64) continue;
               const mirrorX = clamp(Math.round(midX + (midX - cx)), 0, width - 1);
-              if (!pointInPoly(mirrorX, cy, localPoly)) continue;
+              if (!canEnamelCore(mirrorX, cy)) continue;
               const mi = (cy * width + mirrorX) * 4;
               if (enamelLum(mi) < 102) continue;
               out[oi] = out[mi];
@@ -982,10 +1022,10 @@ const SmileSimulatorAI = () => {
             }
           }
 
-          // Smart gap inpaint: distance-weighted clone from adjacent enamel (no stretch-blur).
+          // Smart gap inpaint (core only).
           for (let cy = 0; cy < upperCap; cy++) {
             for (let cx = 1; cx < width - 1; cx++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
+              if (!canEnamelCore(cx, cy)) continue;
               const oi = (cy * width + cx) * 4;
               if (enamelLum(oi) > 62) continue;
               let dL = 0;
@@ -1031,63 +1071,87 @@ const SmileSimulatorAI = () => {
             }
           }
 
-          // Gap-fill & enamel-match: radial clone + neighbor-center color gradient blend.
-          const GAP_LUM_THRESHOLD = 0.2 * 255;
-          const ENAMEL_LUM_THRESHOLD = 0.6 * 255;
-          const expandPx = clamp(Math.round(width * 0.12), 2, 22);
+          // Bilateral enamel bridge: dark interdental voids (L < 0.25) filled from adjacent tooth faces + lum lift.
+          const GAP_LUM_MAX = 0.25 * 255;
+          const FACE_LUM_MIN = 0.48 * 255;
+          const bridgeReach = clamp(Math.round(width * 0.14), 3, 28);
+          let sumBright = 0;
+          let nBright = 0;
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 0; cx < width; cx++) {
+              if (!canEnamelCore(cx, cy)) continue;
+              const oi2 = (cy * width + cx) * 4;
+              const L = enamelLum(oi2);
+              if (L >= FACE_LUM_MIN) {
+                sumBright += L;
+                nBright++;
+              }
+            }
+          }
+          const targetWhiteningLum = nBright > 0 ? sumBright / nBright : 195;
+          const liftRgbToLum = (r0, g0, b0) => {
+            const L0 = 0.2126 * r0 + 0.7152 * g0 + 0.0722 * b0;
+            if (L0 >= targetWhiteningLum - 3) return [r0, g0, b0];
+            const f = clamp(targetWhiteningLum / Math.max(L0, 8), 1, 1.42);
+            return [
+              clamp(Math.round(r0 * f), 0, 255),
+              clamp(Math.round(g0 * f), 0, 255),
+              clamp(Math.round(b0 * f), 0, 255),
+            ];
+          };
+
           for (let cy = 0; cy < upperCap; cy++) {
             for (let cx = 1; cx < width - 1; cx++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
+              if (!canEnamelCore(cx, cy)) continue;
               const oi = (cy * width + cx) * 4;
-              if (enamelLum(oi) >= GAP_LUM_THRESHOLD) continue;
+              if (enamelLum(oi) >= GAP_LUM_MAX) continue;
 
               let leftX = -1;
               let rightX = -1;
-              for (let s = 1; s <= expandPx; s++) {
+              for (let s = 1; s <= bridgeReach; s++) {
                 const lx = cx - s;
-                if (lx < 0 || !pointInPoly(lx, cy, localPoly)) break;
+                if (lx < 0 || !canEnamelCore(lx, cy)) break;
                 const li = (cy * width + lx) * 4;
-                if (enamelLum(li) >= ENAMEL_LUM_THRESHOLD) {
+                if (enamelLum(li) >= FACE_LUM_MIN) {
                   leftX = lx;
                   break;
                 }
               }
-              for (let s = 1; s <= expandPx; s++) {
+              for (let s = 1; s <= bridgeReach; s++) {
                 const rx = cx + s;
-                if (rx >= width || !pointInPoly(rx, cy, localPoly)) break;
+                if (rx >= width || !canEnamelCore(rx, cy)) break;
                 const ri = (cy * width + rx) * 4;
-                if (enamelLum(ri) >= ENAMEL_LUM_THRESHOLD) {
+                if (enamelLum(ri) >= FACE_LUM_MIN) {
                   rightX = rx;
                   break;
                 }
               }
               if (leftX < 0 && rightX < 0) continue;
 
-              // Radial-style nearest enamel clone (horizontal distance proxy).
-              let srcX = leftX;
-              if (leftX < 0) srcX = rightX;
-              else if (rightX >= 0 && Math.abs(rightX - cx) < Math.abs(cx - leftX)) srcX = rightX;
-              const si = (cy * width + srcX) * 4;
-              out[oi] = out[si];
-              out[oi + 1] = out[si + 1];
-              out[oi + 2] = out[si + 2];
-
-              // Seamless color blending from neighboring tooth centers.
-              if (leftX >= 0 && rightX >= 0 && rightX - leftX > 2) {
+              let nr;
+              let ng;
+              let nb;
+              if (leftX >= 0 && rightX >= 0 && rightX - leftX > 1) {
                 const cLi = (cy * width + leftX) * 4;
                 const cRi = (cy * width + rightX) * 4;
                 const t = clamp((cx - leftX) / Math.max(rightX - leftX, 1), 0, 1);
-                const blendR = out[cLi] * (1 - t) + out[cRi] * t;
-                const blendG = out[cLi + 1] * (1 - t) + out[cRi + 1] * t;
-                const blendB = out[cLi + 2] * (1 - t) + out[cRi + 2] * t;
-                out[oi] = clamp(Math.round(out[oi] * 0.45 + blendR * 0.55), 0, 255);
-                out[oi + 1] = clamp(Math.round(out[oi + 1] * 0.45 + blendG * 0.55), 0, 255);
-                out[oi + 2] = clamp(Math.round(out[oi + 2] * 0.45 + blendB * 0.55), 0, 255);
+                nr = out[cLi] * (1 - t) + out[cRi] * t;
+                ng = out[cLi + 1] * (1 - t) + out[cRi + 1] * t;
+                nb = out[cLi + 2] * (1 - t) + out[cRi + 2] * t;
+              } else {
+                const sx = leftX >= 0 ? leftX : rightX;
+                const si = (cy * width + sx) * 4;
+                nr = out[si];
+                ng = out[si + 1];
+                nb = out[si + 2];
               }
+              const [lr, lg, lb] = liftRgbToLum(nr, ng, nb);
+              out[oi] = lr;
+              out[oi + 1] = lg;
+              out[oi + 2] = lb;
             }
           }
 
-          // Columns with no valid incisal edge: restore from original (avoid smearing warped/mirror garbage laterally).
           for (let cx = 0; cx < width; cx++) {
             if (valid[cx]) continue;
             for (let cy = 0; cy < upperCap; cy++) {
@@ -1097,25 +1161,7 @@ const SmileSimulatorAI = () => {
             }
           }
 
-          // Ambient occlusion in narrow dark seams (post–gap closure).
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 1; cx < width - 1; cx++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
-              const oi = (cy * width + cx) * 4;
-              const l = enamelLum(oi);
-              if (l > 72) continue;
-              const lL = enamelLum(((cy * width + cx - 1) * 4));
-              const lR = enamelLum(((cy * width + cx + 1) * 4));
-              if (lL > 95 && lR > 95) {
-                const ao = 5;
-                out[oi] = clamp(Math.round(out[oi] - ao), 0, 255);
-                out[oi + 1] = clamp(Math.round(out[oi + 1] - ao), 0, 255);
-                out[oi + 2] = clamp(Math.round(out[oi + 2] - ao), 0, 255);
-              }
-            }
-          }
-
-          // Natural separation: micro 1px seam shadows at contact points (15% opacity equivalent).
+          // Interdental definition: 1px vertical seam at ~18% shadow (contact columns).
           const seamXs = [];
           for (let cx = 2; cx < width - 2; cx++) {
             if (!valid[cx]) continue;
@@ -1124,16 +1170,16 @@ const SmileSimulatorAI = () => {
               seamXs.push(cx);
             }
           }
-          const SHADOW_BLEND = 0.85;
-          for (let s = 0; s < seamXs.length; s++) {
-            const sx = seamXs[s];
+          const SEAM_SHADOW_BLEND = 1 - 0.18;
+          for (let si = 0; si < seamXs.length; si++) {
+            const sx = seamXs[si];
             const t0 = Math.max(0, Math.floor(smoothTop[sx]));
             for (let cy = t0; cy < upperCap; cy++) {
-              if (!pointInPoly(sx, cy, localPoly)) continue;
+              if (!canEnamelCore(sx, cy)) continue;
               const oi = (cy * width + sx) * 4;
-              out[oi] = clamp(Math.round(out[oi] * SHADOW_BLEND), 0, 255);
-              out[oi + 1] = clamp(Math.round(out[oi + 1] * SHADOW_BLEND), 0, 255);
-              out[oi + 2] = clamp(Math.round(out[oi + 2] * SHADOW_BLEND), 0, 255);
+              out[oi] = clamp(Math.round(out[oi] * SEAM_SHADOW_BLEND), 0, 255);
+              out[oi + 1] = clamp(Math.round(out[oi + 1] * SEAM_SHADOW_BLEND), 0, 255);
+              out[oi + 2] = clamp(Math.round(out[oi + 2] * SEAM_SHADOW_BLEND), 0, 255);
             }
           }
         }
@@ -1303,6 +1349,40 @@ const SmileSimulatorAI = () => {
               out[oi] = clamp(Math.round(out[oi] + FINAL_AMOUNT * (out[oi] - fHV[bi])), 0, 255);
               out[oi + 1] = clamp(Math.round(out[oi + 1] + FINAL_AMOUNT * (out[oi + 1] - fHV[bi + 1])), 0, 255);
               out[oi + 2] = clamp(Math.round(out[oi + 2] + FINAL_AMOUNT * (out[oi + 2] - fHV[bi + 2])), 0, 255);
+            }
+          }
+
+          // 3x3 unsharp on incisal band (crisp biting edges).
+          const snap = new Uint8ClampedArray(out.length);
+          snap.set(out);
+          const INCISAL_BAND = 6;
+          const INC_BOX_AMT = 0.52;
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 0; cx < width; cx++) {
+              if (!pointInPoly(cx, cy, localPoly)) continue;
+              const top = smoothTop[cx];
+              if (cy < top || cy > top + INCISAL_BAND) continue;
+              let br = 0, bg = 0, bb = 0, bn = 0;
+              for (let ky = -1; ky <= 1; ky++) {
+                for (let kx = -1; kx <= 1; kx++) {
+                  const nx = clamp(cx + kx, 0, width - 1);
+                  const ny = clamp(cy + ky, 0, upperCap - 1);
+                  if (!pointInPoly(nx, ny, localPoly)) continue;
+                  const ii = (ny * width + nx) * 4;
+                  br += snap[ii];
+                  bg += snap[ii + 1];
+                  bb += snap[ii + 2];
+                  bn++;
+                }
+              }
+              if (bn <= 0) continue;
+              br /= bn;
+              bg /= bn;
+              bb /= bn;
+              const oi = (cy * width + cx) * 4;
+              out[oi] = clamp(Math.round(out[oi] + INC_BOX_AMT * (out[oi] - br)), 0, 255);
+              out[oi + 1] = clamp(Math.round(out[oi + 1] + INC_BOX_AMT * (out[oi + 1] - bg)), 0, 255);
+              out[oi + 2] = clamp(Math.round(out[oi + 2] + INC_BOX_AMT * (out[oi + 2] - bb)), 0, 255);
             }
           }
         }
