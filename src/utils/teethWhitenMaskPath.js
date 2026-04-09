@@ -17,8 +17,9 @@ function clamp(v, lo, hi) {
 
 /**
  * Gum clearance + inner inset; keeps paint/braces off lips vs bare enamel.
+ * @param {number} [extraRadialInsetPx=0] — additional shrink toward centroid (whitening-only; keeps composite off lips/gums).
  */
-export function getTightenedWhiteningMaskPoints(landmarks, iw, ih) {
+export function getTightenedWhiteningMaskPoints(landmarks, iw, ih, extraRadialInsetPx = 0) {
   const p13 = landmarks[13];
   const p14 = landmarks[14];
   if (!p13 || !p14) return null;
@@ -86,6 +87,17 @@ export function getTightenedWhiteningMaskPoints(landmarks, iw, ih) {
       }
     });
   });
+  if (extraRadialInsetPx > 0) {
+    const pcx = out.reduce((s, p) => s + p.x, 0) / out.length;
+    const pcy = out.reduce((s, p) => s + p.y, 0) / out.length;
+    out.forEach((p) => {
+      const dx = p.x - pcx;
+      const dy = p.y - pcy;
+      const len = Math.hypot(dx, dy) || 1;
+      p.x -= (dx / len) * extraRadialInsetPx;
+      p.y -= (dy / len) * extraRadialInsetPx;
+    });
+  }
   return out;
 }
 

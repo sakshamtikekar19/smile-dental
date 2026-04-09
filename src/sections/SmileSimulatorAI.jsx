@@ -253,6 +253,17 @@ const ENAMEL_LUM_MAX  = 252;
 const ENAMEL_SAT_MAX  = 0.58;
 /** Enamel-only whitening: linear luminance must exceed this (0–1) inside teeth hull. */
 const WHITEN_LUMINANCE_GATE = 0.4;
+/** Extra shrink of teeth hull for whitening clip + composite (lips/gums stay untouched). */
+const WHITEN_HULL_EXTRA_INSET_PX = 4;
+/** Min distance (px) from lip / mouth rim landmarks — pixels closer never get whitening adjustments. */
+const WHITEN_LIP_CLEARANCE_MIN_PX = 10;
+const WHITEN_LIP_CLEARANCE_SCALE = 0.018;
+const LIP_COLOR_GUARD_INDICES = [
+  ...new Set([
+    ...MOUTH_PERIMETER_INDICES,
+    12, 15, 16, 17, 78, 308, 312, 314, 315, 316, 317, 318, 324, 402, 415, 310,
+  ]),
+];
 const API_MOUTH_MAX_EDGE        = 768;
 const NOSE_MIDLINE_IDX          = 4;
 const CHIN_MIDLINE_IDX          = 152;
@@ -534,7 +545,7 @@ const SmileSimulatorAI = () => {
 
   // ── Whitening ────────────────────────────────────────────────────────
   const generateTeethMask = (landmarks, ctx, iw, ih) => {
-    const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+    const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih, WHITEN_HULL_EXTRA_INSET_PX);
     if (!pts || pts.length < 3) return false;
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
@@ -544,27 +555,14 @@ const SmileSimulatorAI = () => {
     return true;
   };
 
-  const applyMouthPopFilter = (ctx, bounds) => {
-    if (!bounds) return;
-    const { width: cw, height: ch } = ctx.canvas;
-    let { x, y, width, height } = bounds;
-    if (!Number.isFinite(x) || !Number.isFinite(y) || width < 2 || height < 2) return;
-    x = Math.max(0, Math.floor(x)); y = Math.max(0, Math.floor(y));
-    width  = Math.min(Math.floor(width),  cw - x);
-    height = Math.min(Math.floor(height), ch - y);
-    if (width < 2 || height < 2) return;
-    try {
-      const tmp = document.createElement("canvas");
-      tmp.width = width; tmp.height = height;
-      const tctx = tmp.getContext("2d");
-      tctx.filter = "contrast(1.05) saturate(1.1)";
-      tctx.drawImage(ctx.canvas, x, y, width, height, 0, 0, width, height);
-      tctx.filter = "none";
-      ctx.drawImage(tmp, 0, 0, width, height, x, y, width, height);
-    } catch {}
-  };
-
   const applyLuminosityWhiteningPass = (ctx, iw, ih, strength = 0.4, landmarks = null) => {
+    const pristine = document.createElement("canvas");
+    pristine.width = iw;
+    pristine.height = ih;
+    const prCtx = pristine.getContext("2d", { willReadFrequently: true });
+    prCtx.drawImage(ctx.canvas, 0, 0);
+    const pristineData = prCtx.getImageData(0, 0, iw, ih).data;
+
     ctx.filter = "contrast(1.1) brightness(1.03)";
     ctx.drawImage(ctx.canvas, 0, 0, iw, ih, 0, 0, iw, ih);
     ctx.filter = "none";
@@ -601,15 +599,36 @@ const SmileSimulatorAI = () => {
     lctx.drawImage(ctx.canvas, 0, 0);
     const img = lctx.getImageData(0, 0, iw, ih);
     const d = img.data;
-    const ivory = { r: 252, g: 249, b: 241 };
+    const ivory = { r: 255, g: 254, b: 252 };
 
     let maskPoly = null;
     if (landmarks) {
-      const mp = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+      const mp = getTightenedWhiteningMaskPoints(landmarks, iw, ih, WHITEN_HULL_EXTRA_INSET_PX);
       if (mp && mp.length >= 3) maskPoly = mp;
     }
     const preIvory = new Uint8ClampedArray(d.length);
     preIvory.set(d);
+
+    const lipGuardR = Math.max(
+      WHITEN_LIP_CLEARANCE_MIN_PX,
+      Math.min(iw, ih) * WHITEN_LIP_CLEARANCE_SCALE
+    );
+    const lipGuardR2 = lipGuardR * lipGuardR;
+    const minSqToLipLandmarks = (px, py) => {
+      if (!landmarks) return Infinity;
+      let m = Infinity;
+      for (let k = 0; k < LIP_COLOR_GUARD_INDICES.length; k++) {
+        const p = landmarks[LIP_COLOR_GUARD_INDICES[k]];
+        if (!p || typeof p.x !== "number") continue;
+        const lx = p.x * iw;
+        const ly = p.y * ih;
+        const dx = px - lx;
+        const dy = py - ly;
+        const t = dx * dx + dy * dy;
+        if (t < m) m = t;
+      }
+      return m;
+    };
 
     let sumLum = 0, nArch = 0;
     for (let i = 0; i < d.length; i += 4) {
@@ -631,12 +650,21 @@ const SmileSimulatorAI = () => {
       const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
       const inTeethHull = !maskPoly || pointInPoly(px, py, maskPoly);
       const passLumGate = lum / 255 > WHITEN_LUMINANCE_GATE;
-      const highRedLipOrGum = r >= 168 && r > g + 14 && r > b + 8;
-      const pinkGum = sat > 0.42 && r > 128 && r >= g - 10 && lum < 208;
-      if (!inTeethHull || !passLumGate || highRedLipOrGum || pinkGum) {
-        d[i] = preIvory[i];
-        d[i + 1] = preIvory[i + 1];
-        d[i + 2] = preIvory[i + 2];
+      const highRedLipOrGum = r >= 165 && r > g + 12 && r > b + 6;
+      const pinkGum = sat > 0.38 && r > 118 && r >= g - 12 && lum < 215;
+      const coralGumBand = lum < 128 && sat < 0.52 && r > 88 && r >= g - 6 && b < r + 8;
+      const tooCloseToLipRim = minSqToLipLandmarks(px, py) < lipGuardR2;
+      if (
+        !inTeethHull ||
+        !passLumGate ||
+        highRedLipOrGum ||
+        pinkGum ||
+        coralGumBand ||
+        tooCloseToLipRim
+      ) {
+        d[i] = pristineData[i];
+        d[i + 1] = pristineData[i + 1];
+        d[i + 2] = pristineData[i + 2];
         continue;
       }
       const origLum = 0.2126*preData[i] + 0.7152*preData[i+1] + 0.0722*preData[i+2];
@@ -655,7 +683,7 @@ const SmileSimulatorAI = () => {
     lctx.putImageData(img, 0, 0);
 
     if (landmarks) {
-      const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih);
+      const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih, WHITEN_HULL_EXTRA_INSET_PX);
       if (pts && pts.length >= 3) {
         lctx.globalCompositeOperation = "destination-in";
         lctx.beginPath();
@@ -669,34 +697,16 @@ const SmileSimulatorAI = () => {
     }
 
     ctx.save();
-    ctx.globalCompositeOperation = "soft-light";
+    ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = strength;
-    ctx.filter = `blur(${MASK_CLIP_FEATHER_PX}px)`;
-    ctx.drawImage(layer, 0, 0);
     ctx.filter = "none";
+    ctx.drawImage(layer, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
     ctx.restore();
   };
 
-  const applyEnamelGlossAndGumOcclusion = (ctx, iw, ih, landmarks, oval) => {
-    let yTop, yBandEnd;
-    if (landmarks) {
-      const ys = TEETH_WHITEN_MASK_INDICES.map(i => landmarks[i]?.y).filter(v => typeof v === "number");
-      if (ys.length >= 2) {
-        const minY = Math.min(...ys.map(ny => ny * ih));
-        const maxY = Math.max(...ys.map(ny => ny * ih));
-        yTop = minY; yBandEnd = minY + (maxY - minY) * 0.1;
-      }
-    }
-    if (yTop === undefined && oval) { const span = oval.ry * 2; yTop = oval.cy - oval.ry; yBandEnd = yTop + span * 0.1; }
-    if (yTop !== undefined && yBandEnd > yTop) {
-      ctx.save();
-      const g = ctx.createLinearGradient(0, yTop, 0, yBandEnd);
-      g.addColorStop(0, "rgba(0,0,0,0.2)"); g.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = g; ctx.fillRect(0, yTop, iw, yBandEnd - yTop);
-      ctx.restore();
-    }
+  const applyEnamelGlossAndGumOcclusion = (ctx, iw, ih, landmarks) => {
     if (!landmarks) return;
     const specIdx = ENAMEL_SPECULAR_INDICES.filter(i => landmarks[i]);
     if (!specIdx.length) return;
@@ -724,10 +734,9 @@ const SmileSimulatorAI = () => {
         ctx.save();
         let clipped = landmarks ? generateTeethMask(landmarks, ctx, w, h) : false;
         if (!clipped) { ctx.beginPath(); ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2); ctx.clip(); }
-        applyLuminosityWhiteningPass(ctx, w, h, 0.4, landmarks);
-        applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks, oval);
+        applyLuminosityWhiteningPass(ctx, w, h, 0.38, landmarks);
+        applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks);
         ctx.restore();
-        if (bounds) applyMouthPopFilter(ctx, bounds);
         resolve(canvas.toDataURL("image/jpeg", 0.95));
       };
       img.onerror = () => reject(new Error("Could not load image for whitening"));
@@ -815,18 +824,19 @@ const SmileSimulatorAI = () => {
           }
         }
 
-        // Smooth top edge
+        // Smooth top edge (median) for stable per-tooth alignment
         const smoothTop = new Float32Array(width).fill(0);
         for (let cx = 0; cx < width; cx++) {
-          let sum = 0;
-          let n = 0;
+          const vals = [];
           for (let k = -3; k <= 3; k++) {
             const ix = clamp(cx + k, 0, width - 1);
             if (!valid[ix]) continue;
-            sum += topEdge[ix];
-            n++;
+            vals.push(topEdge[ix]);
           }
-          smoothTop[cx] = n ? sum / n : upperCap * 0.62;
+          if (vals.length) {
+            vals.sort((a, b) => a - b);
+            smoothTop[cx] = vals[Math.floor(vals.length / 2)];
+          } else smoothTop[cx] = upperCap * 0.62;
         }
 
         const midX = width * 0.5;
@@ -841,7 +851,7 @@ const SmileSimulatorAI = () => {
         }
         targetY = targetN ? targetY / targetN : upperCap * 0.6;
 
-        const archAmp = clamp((treatment === "transformation" ? 0.1 : 0.06) * width, 4, 20);
+        const archAmp = clamp((treatment === "transformation" ? 0.09 : 0.045) * width, 3, 18);
         const dyCol = new Float32Array(width).fill(0);
         const dxCol = new Float32Array(width).fill(0);
 
@@ -872,6 +882,29 @@ const SmileSimulatorAI = () => {
           dxCol[cx] = clamp(-slope * 0.22, -2.4, 2.4);
           if (spanDelta > 1.2 && cx < midX) dxCol[cx] += clamp(spanDelta * 0.08, 0, 2.3);
           if (spanDelta < -1.2 && cx > midX) dxCol[cx] -= clamp(Math.abs(spanDelta) * 0.08, 0, 2.3);
+        }
+
+        const smoothFloat1D = (arr, rad) => {
+          const o = new Float32Array(arr.length);
+          for (let i = 0; i < arr.length; i++) {
+            let s = 0;
+            let n = 0;
+            for (let k = -rad; k <= rad; k++) {
+              const j = clamp(i + k, 0, arr.length - 1);
+              s += arr[j];
+              n++;
+            }
+            o[i] = s / n;
+          }
+          return o;
+        };
+        const dySm = smoothFloat1D(dyCol, 3);
+        const dxSm = smoothFloat1D(dxCol, 3);
+        for (let cx = 0; cx < width; cx++) {
+          dyCol[cx] = dyCol[cx] * 0.42 + dySm[cx] * 0.58;
+          dxCol[cx] = dxCol[cx] * 0.42 + dxSm[cx] * 0.58;
+          dyCol[cx] = clamp(dyCol[cx], -8.5, 8.5);
+          dxCol[cx] = clamp(dxCol[cx], -2.5, 2.5);
         }
 
         const slopeAt = (cxCol) => {
