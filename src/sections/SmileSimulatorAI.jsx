@@ -804,7 +804,15 @@ const SmileSimulatorAI = () => {
         const localPoly = maskPts.map((p) => ({ x: p.x - x, y: p.y - y }));
         const lipU = landmarks[13], lipL = landmarks[14];
         const midY = lipU && lipL ? ((lipU.y + lipL.y) * 0.5 * canvas.height - y) : height * 0.5;
+        /** Only warp / inpaint / sharpen above this row — below is lip/lower arch (must stay original pixels). */
         const upperCap = Math.floor(clamp(midY - 2, 0, height - 1));
+
+        const copyPixel = (dst, di, srcBuf, si) => {
+          dst[di] = srcBuf[si];
+          dst[di + 1] = srcBuf[si + 1];
+          dst[di + 2] = srcBuf[si + 2];
+          dst[di + 3] = srcBuf[si + 3];
+        };
 
         const topEdge = new Float32Array(width).fill(1e9);
         const valid = new Uint8Array(width);
@@ -851,7 +859,7 @@ const SmileSimulatorAI = () => {
         }
         targetY = targetN ? targetY / targetN : upperCap * 0.6;
 
-        const archAmp = clamp((treatment === "transformation" ? 0.09 : 0.045) * width, 3, 18);
+        const archAmp = clamp((treatment === "transformation" ? 0.09 : 0.03) * width, 2, 14);
         const dyCol = new Float32Array(width).fill(0);
         const dxCol = new Float32Array(width).fill(0);
 
@@ -879,9 +887,9 @@ const SmileSimulatorAI = () => {
           dyCol[cx] = (idealArchY - top) * 0.85;
           const slope = (smoothTop[clamp(cx + 1, 0, width - 1)] - smoothTop[clamp(cx - 1, 0, width - 1)]) * 0.5;
           // Rotate twisted crowns toward vertical by opposite lateral shift
-          dxCol[cx] = clamp(-slope * 0.22, -2.4, 2.4);
-          if (spanDelta > 1.2 && cx < midX) dxCol[cx] += clamp(spanDelta * 0.08, 0, 2.3);
-          if (spanDelta < -1.2 && cx > midX) dxCol[cx] -= clamp(Math.abs(spanDelta) * 0.08, 0, 2.3);
+          dxCol[cx] = clamp(-slope * 0.14, -1.2, 1.2);
+          if (spanDelta > 1.2 && cx < midX) dxCol[cx] += clamp(spanDelta * 0.03, 0, 0.9);
+          if (spanDelta < -1.2 && cx > midX) dxCol[cx] -= clamp(Math.abs(spanDelta) * 0.03, 0, 0.9);
         }
 
         const smoothFloat1D = (arr, rad) => {
@@ -901,10 +909,10 @@ const SmileSimulatorAI = () => {
         const dySm = smoothFloat1D(dyCol, 3);
         const dxSm = smoothFloat1D(dxCol, 3);
         for (let cx = 0; cx < width; cx++) {
-          dyCol[cx] = dyCol[cx] * 0.42 + dySm[cx] * 0.58;
-          dxCol[cx] = dxCol[cx] * 0.42 + dxSm[cx] * 0.58;
-          dyCol[cx] = clamp(dyCol[cx], -8.5, 8.5);
-          dxCol[cx] = clamp(dxCol[cx], -2.5, 2.5);
+          dyCol[cx] = dyCol[cx] * 0.35 + dySm[cx] * 0.65;
+          dxCol[cx] = dxCol[cx] * 0.3 + dxSm[cx] * 0.7;
+          dyCol[cx] = clamp(dyCol[cx], -6.5, 6.5);
+          dxCol[cx] = clamp(dxCol[cx], -1.1, 1.1);
         }
 
         const slopeAt = (cxCol) => {
@@ -918,13 +926,19 @@ const SmileSimulatorAI = () => {
           for (let cx = 0; cx < width; cx++) {
             const oi = (cy * width + cx) * 4;
             if (!pointInPoly(cx, cy, localPoly)) continue;
+            if (cy > upperCap) {
+              copyPixel(out, oi, src, oi);
+              continue;
+            }
             const top = smoothTop[cx];
             const depth = clamp((cy - top) / Math.max(upperCap - top + 1, 1), 0, 1);
             const warpW = 1 - depth;
-            const tdx = dxCol[cx] * (0.25 + 0.75 * warpW);
-            const tdy = dyCol[cx] * (0.2 + 0.8 * warpW);
+            const lateralScale = treatment === "alignment" ? 0.3 : 1;
+            const tdx = dxCol[cx] * lateralScale * (0.2 + 0.8 * warpW);
+            const tdy = dyCol[cx] * (0.28 + 0.72 * warpW);
             const slope = slopeAt(cx);
-            const theta = -Math.atan(slope) * (1 - depth) * 0.32;
+            const thetaBase = treatment === "alignment" ? 0.16 : 0.32;
+            const theta = -Math.atan(slope) * (1 - depth) * thetaBase;
             const vx = -tdx;
             const vy = cy - top - tdy;
             const cosT = Math.cos(theta);
@@ -957,7 +971,7 @@ const SmileSimulatorAI = () => {
               const mirrorX = clamp(Math.round(midX + (midX - cx)), 0, width - 1);
               if (!pointInPoly(mirrorX, cy, localPoly)) continue;
               const mi = (cy * width + mirrorX) * 4;
-              if (enamelLum(mi) < 88) continue;
+              if (enamelLum(mi) < 102) continue;
               out[oi] = out[mi];
               out[oi + 1] = out[mi + 1];
               out[oi + 2] = out[mi + 2];
@@ -1013,17 +1027,69 @@ const SmileSimulatorAI = () => {
             }
           }
 
-          for (let cx = 0; cx < width; cx++) {
-            if (valid[cx]) continue;
-            const mirrorX = clamp(Math.round(midX + (midX - cx)), 0, width - 1);
-            const srcX = valid[mirrorX] ? mirrorX : valid[clamp(cx - 1, 0, width - 1)] ? cx - 1 : cx + 1;
-            for (let cy = 0; cy < upperCap; cy++) {
-              if (!pointInPoly(cx, cy, localPoly) || !pointInPoly(srcX, cy, localPoly)) continue;
+          // Gap-fill & enamel-match: radial clone + neighbor-center color gradient blend.
+          const GAP_LUM_THRESHOLD = 0.2 * 255;
+          const ENAMEL_LUM_THRESHOLD = 0.6 * 255;
+          const expandPx = clamp(Math.round(width * 0.12), 2, 22);
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 1; cx < width - 1; cx++) {
+              if (!pointInPoly(cx, cy, localPoly)) continue;
               const oi = (cy * width + cx) * 4;
+              if (enamelLum(oi) >= GAP_LUM_THRESHOLD) continue;
+
+              let leftX = -1;
+              let rightX = -1;
+              for (let s = 1; s <= expandPx; s++) {
+                const lx = cx - s;
+                if (lx < 0 || !pointInPoly(lx, cy, localPoly)) break;
+                const li = (cy * width + lx) * 4;
+                if (enamelLum(li) >= ENAMEL_LUM_THRESHOLD) {
+                  leftX = lx;
+                  break;
+                }
+              }
+              for (let s = 1; s <= expandPx; s++) {
+                const rx = cx + s;
+                if (rx >= width || !pointInPoly(rx, cy, localPoly)) break;
+                const ri = (cy * width + rx) * 4;
+                if (enamelLum(ri) >= ENAMEL_LUM_THRESHOLD) {
+                  rightX = rx;
+                  break;
+                }
+              }
+              if (leftX < 0 && rightX < 0) continue;
+
+              // Radial-style nearest enamel clone (horizontal distance proxy).
+              let srcX = leftX;
+              if (leftX < 0) srcX = rightX;
+              else if (rightX >= 0 && Math.abs(rightX - cx) < Math.abs(cx - leftX)) srcX = rightX;
               const si = (cy * width + srcX) * 4;
               out[oi] = out[si];
               out[oi + 1] = out[si + 1];
               out[oi + 2] = out[si + 2];
+
+              // Seamless color blending from neighboring tooth centers.
+              if (leftX >= 0 && rightX >= 0 && rightX - leftX > 2) {
+                const cLi = (cy * width + leftX) * 4;
+                const cRi = (cy * width + rightX) * 4;
+                const t = clamp((cx - leftX) / Math.max(rightX - leftX, 1), 0, 1);
+                const blendR = out[cLi] * (1 - t) + out[cRi] * t;
+                const blendG = out[cLi + 1] * (1 - t) + out[cRi + 1] * t;
+                const blendB = out[cLi + 2] * (1 - t) + out[cRi + 2] * t;
+                out[oi] = clamp(Math.round(out[oi] * 0.45 + blendR * 0.55), 0, 255);
+                out[oi + 1] = clamp(Math.round(out[oi + 1] * 0.45 + blendG * 0.55), 0, 255);
+                out[oi + 2] = clamp(Math.round(out[oi + 2] * 0.45 + blendB * 0.55), 0, 255);
+              }
+            }
+          }
+
+          // Columns with no valid incisal edge: restore from original (avoid smearing warped/mirror garbage laterally).
+          for (let cx = 0; cx < width; cx++) {
+            if (valid[cx]) continue;
+            for (let cy = 0; cy < upperCap; cy++) {
+              if (!pointInPoly(cx, cy, localPoly)) continue;
+              const oi = (cy * width + cx) * 4;
+              copyPixel(out, oi, src, oi);
             }
           }
 
@@ -1037,33 +1103,40 @@ const SmileSimulatorAI = () => {
               const lL = enamelLum(((cy * width + cx - 1) * 4));
               const lR = enamelLum(((cy * width + cx + 1) * 4));
               if (lL > 95 && lR > 95) {
-                const ao = 10;
+                const ao = 5;
                 out[oi] = clamp(Math.round(out[oi] - ao), 0, 255);
                 out[oi + 1] = clamp(Math.round(out[oi + 1] - ao), 0, 255);
                 out[oi + 2] = clamp(Math.round(out[oi + 2] - ao), 0, 255);
               }
             }
           }
-        }
 
-        // Preserve texture: no heavy bilateral blur. Light interdental shading only.
-        for (let cy = 1; cy < height - 1; cy++) {
-          for (let cx = 1; cx < width - 1; cx++) {
-            if (!pointInPoly(cx, cy, localPoly)) continue;
-            const oi = (cy * width + cx) * 4;
-            const l = enamelLum(oi);
-            if (l < 40) {
-              const shade = Math.max(0, 22 - l) * 0.045;
-              out[oi] = clamp(Math.round(out[oi] - shade), 0, 255);
-              out[oi + 1] = clamp(Math.round(out[oi + 1] - shade), 0, 255);
-              out[oi + 2] = clamp(Math.round(out[oi + 2] - shade), 0, 255);
+          // Natural separation: micro 1px seam shadows at contact points (15% opacity equivalent).
+          const seamXs = [];
+          for (let cx = 2; cx < width - 2; cx++) {
+            if (!valid[cx]) continue;
+            const st = smoothTop[cx];
+            if (st >= smoothTop[cx - 1] && st >= smoothTop[cx + 1] && st > smoothTop[cx - 2] + 0.75 && st > smoothTop[cx + 2] + 0.75) {
+              seamXs.push(cx);
+            }
+          }
+          const SHADOW_BLEND = 0.85;
+          for (let s = 0; s < seamXs.length; s++) {
+            const sx = seamXs[s];
+            const t0 = Math.max(0, Math.floor(smoothTop[sx]));
+            for (let cy = t0; cy < upperCap; cy++) {
+              if (!pointInPoly(sx, cy, localPoly)) continue;
+              const oi = (cy * width + sx) * 4;
+              out[oi] = clamp(Math.round(out[oi] * SHADOW_BLEND), 0, 255);
+              out[oi + 1] = clamp(Math.round(out[oi + 1] * SHADOW_BLEND), 0, 255);
+              out[oi + 2] = clamp(Math.round(out[oi + 2] * SHADOW_BLEND), 0, 255);
             }
           }
         }
 
-        // Post-warp HD unsharp: σ≈1.5px Gaussian, amount 0.8, weighted toward vertical enamel edges (|∂L/∂x|).
+        // Post-warp HD unsharp: σ≈1.5px Gaussian, weighted toward vertical enamel edges (|∂L/∂x|).
         const US_SIGMA = 1.5;
-        const US_AMOUNT = 0.8;
+        const US_AMOUNT = treatment === "transformation" ? 0.62 : 0.72;
         const gRad = Math.max(2, Math.ceil(US_SIGMA * 2.8));
         const gk = new Float32Array(2 * gRad + 1);
         let gkSum = 0;
@@ -1076,9 +1149,11 @@ const SmileSimulatorAI = () => {
 
         const blurH = new Float32Array(width * height * 3);
         const blurHV = new Float32Array(width * height * 3);
-        for (let cy = 0; cy < height; cy++) {
+        for (let cy = 0; cy <= upperCap; cy++) {
           for (let cx = 0; cx < width; cx++) {
             if (!pointInPoly(cx, cy, localPoly)) continue;
+            const oiSelf = (cy * width + cx) * 4;
+            const bi = (cy * width + cx) * 3;
             let r = 0, g = 0, b = 0, sw = 0;
             for (let gi = -gRad; gi <= gRad; gi++) {
               const nx = clamp(cx + gi, 0, width - 1);
@@ -1090,19 +1165,25 @@ const SmileSimulatorAI = () => {
               b += out[oi2 + 2] * w;
               sw += w;
             }
-            if (sw <= 0) continue;
-            const bi = (cy * width + cx) * 3;
-            blurH[bi] = r / sw;
-            blurH[bi + 1] = g / sw;
-            blurH[bi + 2] = b / sw;
+            if (sw <= 0) {
+              blurH[bi] = out[oiSelf];
+              blurH[bi + 1] = out[oiSelf + 1];
+              blurH[bi + 2] = out[oiSelf + 2];
+            } else {
+              blurH[bi] = r / sw;
+              blurH[bi + 1] = g / sw;
+              blurH[bi + 2] = b / sw;
+            }
           }
         }
-        for (let cy = 0; cy < height; cy++) {
+        for (let cy = 0; cy <= upperCap; cy++) {
           for (let cx = 0; cx < width; cx++) {
             if (!pointInPoly(cx, cy, localPoly)) continue;
+            const oiSelf = (cy * width + cx) * 4;
+            const bi = (cy * width + cx) * 3;
             let r = 0, g = 0, b = 0, sw = 0;
             for (let gi = -gRad; gi <= gRad; gi++) {
-              const ny = clamp(cy + gi, 0, height - 1);
+              const ny = clamp(cy + gi, 0, upperCap);
               if (!pointInPoly(cx, ny, localPoly)) continue;
               const w = gk[gi + gRad];
               const bi2 = (ny * width + cx) * 3;
@@ -1111,11 +1192,15 @@ const SmileSimulatorAI = () => {
               b += blurH[bi2 + 2] * w;
               sw += w;
             }
-            if (sw <= 0) continue;
-            const bi = (cy * width + cx) * 3;
-            blurHV[bi] = r / sw;
-            blurHV[bi + 1] = g / sw;
-            blurHV[bi + 2] = b / sw;
+            if (sw <= 0) {
+              blurHV[bi] = out[oiSelf];
+              blurHV[bi + 1] = out[oiSelf + 1];
+              blurHV[bi + 2] = out[oiSelf + 2];
+            } else {
+              blurHV[bi] = r / sw;
+              blurHV[bi + 1] = g / sw;
+              blurHV[bi + 2] = b / sw;
+            }
           }
         }
         for (let cy = 0; cy < upperCap; cy++) {
@@ -1136,25 +1221,94 @@ const SmileSimulatorAI = () => {
           }
         }
 
-        // 1px-wide interdental shadows (~20% darken) at arch local maxima (contact columns).
-        const seamXs = [];
-        for (let cx = 2; cx < width - 2; cx++) {
-          if (!valid[cx]) continue;
-          const st = smoothTop[cx];
-          if (st >= smoothTop[cx - 1] && st >= smoothTop[cx + 1] && st > smoothTop[cx - 2] + 0.75 && st > smoothTop[cx + 2] + 0.75) {
-            seamXs.push(cx);
+        if (treatment === "transformation") {
+          // Final HD sharpen for full arch after inpainting.
+          const FINAL_SIGMA = 1.2;
+          const FINAL_AMOUNT = 0.55;
+          const fRad = Math.max(2, Math.ceil(FINAL_SIGMA * 2.8));
+          const fk = new Float32Array(2 * fRad + 1);
+          let fkSum = 0;
+          for (let i = -fRad; i <= fRad; i++) {
+            const w = Math.exp(-(i * i) / (2 * FINAL_SIGMA * FINAL_SIGMA));
+            fk[i + fRad] = w;
+            fkSum += w;
+          }
+          for (let i = 0; i < fk.length; i++) fk[i] /= fkSum;
+
+          const fH = new Float32Array(width * height * 3);
+          const fHV = new Float32Array(width * height * 3);
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 0; cx < width; cx++) {
+              if (!pointInPoly(cx, cy, localPoly)) continue;
+              const oiSelf = (cy * width + cx) * 4;
+              const bi = (cy * width + cx) * 3;
+              let r = 0, g = 0, b = 0, sw = 0;
+              for (let i = -fRad; i <= fRad; i++) {
+                const nx = clamp(cx + i, 0, width - 1);
+                if (!pointInPoly(nx, cy, localPoly)) continue;
+                const w = fk[i + fRad];
+                const oi2 = (cy * width + nx) * 4;
+                r += out[oi2] * w;
+                g += out[oi2 + 1] * w;
+                b += out[oi2 + 2] * w;
+                sw += w;
+              }
+              if (sw <= 0) {
+                fH[bi] = out[oiSelf];
+                fH[bi + 1] = out[oiSelf + 1];
+                fH[bi + 2] = out[oiSelf + 2];
+              } else {
+                fH[bi] = r / sw;
+                fH[bi + 1] = g / sw;
+                fH[bi + 2] = b / sw;
+              }
+            }
+          }
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 0; cx < width; cx++) {
+              if (!pointInPoly(cx, cy, localPoly)) continue;
+              const oiSelf = (cy * width + cx) * 4;
+              const bi = (cy * width + cx) * 3;
+              let r = 0, g = 0, b = 0, sw = 0;
+              for (let i = -fRad; i <= fRad; i++) {
+                const ny = clamp(cy + i, 0, upperCap);
+                if (!pointInPoly(cx, ny, localPoly)) continue;
+                const w = fk[i + fRad];
+                const bi2 = (ny * width + cx) * 3;
+                r += fH[bi2] * w;
+                g += fH[bi2 + 1] * w;
+                b += fH[bi2 + 2] * w;
+                sw += w;
+              }
+              if (sw <= 0) {
+                fHV[bi] = out[oiSelf];
+                fHV[bi + 1] = out[oiSelf + 1];
+                fHV[bi + 2] = out[oiSelf + 2];
+              } else {
+                fHV[bi] = r / sw;
+                fHV[bi + 1] = g / sw;
+                fHV[bi + 2] = b / sw;
+              }
+            }
+          }
+          for (let cy = 0; cy < upperCap; cy++) {
+            for (let cx = 0; cx < width; cx++) {
+              if (!pointInPoly(cx, cy, localPoly)) continue;
+              const oi = (cy * width + cx) * 4;
+              const bi = (cy * width + cx) * 3;
+              out[oi] = clamp(Math.round(out[oi] + FINAL_AMOUNT * (out[oi] - fHV[bi])), 0, 255);
+              out[oi + 1] = clamp(Math.round(out[oi + 1] + FINAL_AMOUNT * (out[oi + 1] - fHV[bi + 1])), 0, 255);
+              out[oi + 2] = clamp(Math.round(out[oi + 2] + FINAL_AMOUNT * (out[oi + 2] - fHV[bi + 2])), 0, 255);
+            }
           }
         }
-        const SHADOW_BLEND = 0.8;
-        for (let s = 0; s < seamXs.length; s++) {
-          const cx = seamXs[s];
-          const t0 = Math.max(0, Math.floor(smoothTop[cx]));
-          for (let cy = t0; cy < upperCap; cy++) {
-            if (!pointInPoly(cx, cy, localPoly)) continue;
+
+        // Hard composite: anything outside teeth hull or below lip line stays identical to source (fixes jagged halos / lip tint).
+        for (let cy = 0; cy < height; cy++) {
+          for (let cx = 0; cx < width; cx++) {
+            if (cy <= upperCap && pointInPoly(cx, cy, localPoly)) continue;
             const oi = (cy * width + cx) * 4;
-            out[oi] = clamp(Math.round(out[oi] * SHADOW_BLEND), 0, 255);
-            out[oi + 1] = clamp(Math.round(out[oi + 1] * SHADOW_BLEND), 0, 255);
-            out[oi + 2] = clamp(Math.round(out[oi + 2] * SHADOW_BLEND), 0, 255);
+            copyPixel(out, oi, src, oi);
           }
         }
 
