@@ -106,8 +106,8 @@ app.post('/api/smile', async (req, res) => {
 
     // sepal/sdxl-inpainting (aca001c8…): documented inputs are prompt, negative_prompt, image, mask,
     // num_inference_steps, guidance_scale, prompt_strength, seed — not content_weight/strength/mask_blur/width.
-    // Fewer steps = faster runs (~linear in step count); 12 is a practical default for mouth inpainting.
-    const stepsRaw = parseInt(process.env.REPLICATE_INFERENCE_STEPS || '15', 10);
+    // Fewer steps = faster runs (~linear in step count). Default favors speed; raise REPLICATE_INFERENCE_STEPS for quality.
+    const stepsRaw = parseInt(process.env.REPLICATE_INFERENCE_STEPS || '10', 10);
     const num_inference_steps = Number.isFinite(stepsRaw) ? Math.min(30, Math.max(8, stepsRaw)) : 12;
 
     const modelInput = {
@@ -125,7 +125,7 @@ app.post('/api/smile', async (req, res) => {
       input: modelInput,
     });
 
-    const pollMs = Math.min(2000, Math.max(250, parseInt(process.env.REPLICATE_POLL_MS || '400', 10) || 400));
+    const pollMs = Math.min(2000, Math.max(200, parseInt(process.env.REPLICATE_POLL_MS || '320', 10) || 320));
     const maxPolls = Math.min(400, Math.max(40, parseInt(process.env.REPLICATE_MAX_POLLS || '200', 10) || 200));
     let result = await replicate.predictions.get(prediction.id);
     let polls = 0;

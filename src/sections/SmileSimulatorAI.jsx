@@ -264,7 +264,8 @@ const LIP_COLOR_GUARD_INDICES = [
     12, 15, 16, 17, 78, 308, 312, 314, 315, 316, 317, 318, 324, 402, 415, 310,
   ]),
 ];
-const API_MOUTH_MAX_EDGE        = 768;
+/** Max longest edge for Replicate inpainting input (smaller = faster API, ~512 is a good speed/quality balance). */
+const API_MOUTH_MAX_EDGE        = 512;
 const NOSE_MIDLINE_IDX          = 4;
 const CHIN_MIDLINE_IDX          = 152;
 const COMMISSURE_LEFT_IDX       = 61;
@@ -275,7 +276,8 @@ const MINIMAL_MOUTH_HULL_INDICES = [78, 308, 13, 14, 61, 291, 17];
 const MOUTH_GUIDE_OVAL_NORM     = { cx: 0.5, cy: 0.56, rx: 0.24, ry: 0.144 };
 const FACE_LANDMARKER_INIT_TIMEOUT_MS = 22_000;
 const FACE_MESH_INIT_TIMEOUT_MS      = 22_000;
-const AI_SMILE_FETCH_TIMEOUT_MS      = 130_000;
+/** Background AI polish only (preview shows first); keep bounded so UI does not hang forever. */
+const AI_SMILE_FETCH_TIMEOUT_MS      = 75_000;
 
 let faceMeshInstance;
 let faceMeshLoadFailed = false;
@@ -343,6 +345,8 @@ const SmileSimulatorAI = () => {
   const videoRef    = useRef(null);
   const canvasRef   = useRef(null);
   const streamRef   = useRef(null);
+  /** Invalidates in-flight background AI polish when user starts a new run. */
+  const pipelineGenerationRef = useRef(0);
 
   // ── Utilities ──────────────────────────────────────────────────────
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -1506,7 +1510,7 @@ const SmileSimulatorAI = () => {
     reader.onload = async (ev) => {
       try {
         const normalized = await normalizeImage(ev.target.result, 1024);
-        await processWithAI(normalized);
+        await processWithAI(normalized, { alreadyNormalized: true });
       } catch (err) {
         setError(err?.message || "Could not process this image.");
         setStep("upload");
@@ -1517,13 +1521,16 @@ const SmileSimulatorAI = () => {
   };
 
   // ── Main AI pipeline ─────────────────────────────────────────────────
-  const processWithAI = async (baseImage) => {
+  const processWithAI = async (baseImage, options = {}) => {
+    const { alreadyNormalized = false } = options;
+    const generation = ++pipelineGenerationRef.current;
+
     setStep("processing");
     setError(null);
     setActiveTreatment(selectedTreatment);
 
     try {
-      const normalized = await normalizeImage(baseImage, 1024);
+      const normalized = alreadyNormalized ? baseImage : await normalizeImage(baseImage, 1024);
       const mouth = await detectMouth(normalized);
 
       if (!mouth.bounds || !mouth.oval) {
@@ -1546,38 +1553,44 @@ const SmileSimulatorAI = () => {
       }
 
       const mouthCrop = await cropMouthRegion(canvasEnhanced, bounds);
-      let aiPolishedCrop = null;
 
-      // AI Replicate pass (skip braces — vector overlay handles it)
+      const previewRect = squareCropRect(fullFrame.width, fullFrame.height, oval);
+      const beforeSquare = await cropImageToDataUrl(normalized, previewRect);
+
+      const finalizeAndShow = async (mouthDataUrl) => {
+        let merged = await mergeFinalImage(normalized, mouthDataUrl, bounds, oval, landmarks);
+        if (selectedTreatment === "braces") {
+          merged = await applyBracesOverlay(merged, fullFrame.width, fullFrame.height);
+        }
+        const afterSquare = await cropImageToDataUrl(merged, previewRect);
+        setBeforeImage(beforeSquare);
+        setAfterImage(afterSquare);
+        setStep("result");
+      };
+
+      await finalizeAndShow(mouthCrop);
+      if (generation !== pipelineGenerationRef.current) return;
+
       const useReplicatePolish = selectedTreatment !== "braces";
       if (useReplicatePolish && AI_SMILE_API) {
         const replicateTreatment = selectedTreatment === "transformation" ? "transformation" : selectedTreatment;
         const midlineXNorm = getFacialMidlineXNorm(landmarks);
-        let ovalInCrop = { cx: oval.cx - bounds.x, cy: oval.cy - bounds.y, rx: oval.rx, ry: oval.ry };
-        const mask = await createTeethMaskForCrop(mouthCrop, bounds.width, bounds.height, ovalInCrop);
-        try {
-          const { mouth: apiMouth, mask: apiMask } = await scaleMouthAndMaskForApi(mouthCrop, mask, API_MOUTH_MAX_EDGE);
-          aiPolishedCrop = await enhanceWithAI(apiMouth, apiMask, replicateTreatment, midlineXNorm);
-        } catch {
-          aiPolishedCrop = null;
-        }
+        const ovalInCrop = { cx: oval.cx - bounds.x, cy: oval.cy - bounds.y, rx: oval.rx, ry: oval.ry };
+
+        (async () => {
+          try {
+            const mask = await createTeethMaskForCrop(mouthCrop, bounds.width, bounds.height, ovalInCrop);
+            const { mouth: apiMouth, mask: apiMask } = await scaleMouthAndMaskForApi(mouthCrop, mask, API_MOUTH_MAX_EDGE);
+            const aiPolishedCrop = await enhanceWithAI(apiMouth, apiMask, replicateTreatment, midlineXNorm);
+            if (!aiPolishedCrop || generation !== pipelineGenerationRef.current) return;
+            const merged = await mergeFinalImage(normalized, aiPolishedCrop, bounds, oval, landmarks);
+            const afterSquare = await cropImageToDataUrl(merged, previewRect);
+            setAfterImage(afterSquare);
+          } catch {
+            /* keep client preview */
+          }
+        })();
       }
-
-      // Merge AI result back into full frame
-      let merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval, landmarks);
-
-      // Braces vector overlay (FIXED: uses clean pipeline)
-      if (selectedTreatment === "braces") {
-        merged = await applyBracesOverlay(merged, fullFrame.width, fullFrame.height);
-      }
-
-      const previewRect  = squareCropRect(fullFrame.width, fullFrame.height, oval);
-      const beforeSquare = await cropImageToDataUrl(normalized, previewRect);
-      const afterSquare  = await cropImageToDataUrl(merged, previewRect);
-
-      setBeforeImage(beforeSquare);
-      setAfterImage(afterSquare);
-      setStep("result");
     } catch (err) {
       setError(err?.message || "Simulation failed.");
       setStep("upload");
@@ -1585,6 +1598,7 @@ const SmileSimulatorAI = () => {
   };
 
   const reset = () => {
+    pipelineGenerationRef.current += 1;
     stopCamera();
     setStep("upload");
     setBeforeImage(null);
