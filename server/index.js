@@ -79,7 +79,15 @@ app.post('/api/smile', async (req, res) => {
       negative_prompt =
         'human face, lips, skin, mouth interior, portrait, teeth, gums, tongue, cartoon, illustration, blurry, distorted, extra wires';
       prompt_strength = 0.52;
-    } else if (activeTreatment === 'transformation' || activeTreatment === 'braces') {
+    } else if (activeTreatment === 'transformation') {
+      prompt =
+        'Full-arch smile refinement: natural straight alignment, level occlusal plane, closed interdental contacts with no black gaps or voids, seamless enamel continuity, realistic translucency, crisp incisal edges, photorealistic 8k dental portrait, medical photography.';
+      if (typeof midlineX === 'number' && Number.isFinite(midlineX)) {
+        prompt += ' Central incisors aligned to facial midline.';
+      }
+      negative_prompt = `${baseNegative}, ${alignmentNegativeExtra}, black holes between teeth, dark vertical gaps, duplicated teeth, ghosting, double exposure, stretched smeared enamel, plastic block teeth, jagged white artifacts, blue or gray digital corruption`;
+      prompt_strength = 0.39;
+    } else if (activeTreatment === 'braces') {
       prompt =
         'Subtle professional orthodontic alignment, original human tooth positions preserved, straightened natural edges, high-definition dental photography.';
       negative_prompt = baseNegative;
@@ -99,7 +107,7 @@ app.post('/api/smile', async (req, res) => {
     // sepal/sdxl-inpainting (aca001c8…): documented inputs are prompt, negative_prompt, image, mask,
     // num_inference_steps, guidance_scale, prompt_strength, seed — not content_weight/strength/mask_blur/width.
     // Fewer steps = faster runs (~linear in step count); 12 is a practical default for mouth inpainting.
-    const stepsRaw = parseInt(process.env.REPLICATE_INFERENCE_STEPS || '12', 10);
+    const stepsRaw = parseInt(process.env.REPLICATE_INFERENCE_STEPS || '15', 10);
     const num_inference_steps = Number.isFinite(stepsRaw) ? Math.min(30, Math.max(8, stepsRaw)) : 12;
 
     const modelInput = {

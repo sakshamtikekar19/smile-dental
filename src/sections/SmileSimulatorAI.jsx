@@ -1420,7 +1420,10 @@ const SmileSimulatorAI = () => {
     return t * t * (3 - 2 * t);
   };
 
-  const mergeFinalImage = async (originalSrc, mouthEnhancedSrc, bounds, oval) => {
+  /** Outside core enamel hull, keep mostly original pixels so AI polish does not recolor lips/gums. */
+  const MERGE_OUTSIDE_ENAMEL_WEIGHT = 0.14;
+
+  const mergeFinalImage = async (originalSrc, mouthEnhancedSrc, bounds, oval, landmarks = null) => {
     const [original, mouth] = await Promise.all([loadImage(originalSrc), loadImage(mouthEnhancedSrc)]);
     const canvas = document.createElement("canvas");
     canvas.width = original.width; canvas.height = original.height;
@@ -1428,13 +1431,25 @@ const SmileSimulatorAI = () => {
     ctx.drawImage(original, 0, 0);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const out = imageData.data;
+    let enamelCore = null;
+    if (landmarks) {
+      const pts = getTightenedWhiteningMaskPoints(landmarks, canvas.width, canvas.height, WHITEN_HULL_EXTRA_INSET_PX);
+      if (pts && pts.length >= 3) enamelCore = pts;
+    }
     const tmp = document.createElement("canvas");
     tmp.width = bounds.width; tmp.height = bounds.height;
     tmp.getContext("2d").drawImage(mouth, 0, 0, mouth.width, mouth.height, 0, 0, bounds.width, bounds.height);
     const mouthPixels = tmp.getContext("2d").getImageData(0, 0, bounds.width, bounds.height).data;
     for (let py = bounds.y; py < bounds.y + bounds.height; py++) {
       for (let px = bounds.x; px < bounds.x + bounds.width; px++) {
-        const w = ellipseFeatherWeight(px, py, oval, OVAL_FEATHER_PX);
+        const w0 = ellipseFeatherWeight(px, py, oval, OVAL_FEATHER_PX);
+        if (w0 <= 0) continue;
+        const wEnamel = !enamelCore
+          ? 1
+          : pointInPoly(px, py, enamelCore)
+            ? 1
+            : MERGE_OUTSIDE_ENAMEL_WEIGHT;
+        const w = w0 * wEnamel;
         if (w <= 0) continue;
         const oi = (py * canvas.width + px) * 4;
         const mi = ((py - bounds.y) * bounds.width + (px - bounds.x)) * 4;
@@ -1549,7 +1564,7 @@ const SmileSimulatorAI = () => {
       }
 
       // Merge AI result back into full frame
-      let merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval);
+      let merged = await mergeFinalImage(normalized, aiPolishedCrop || mouthCrop, bounds, oval, landmarks);
 
       // Braces vector overlay (FIXED: uses clean pipeline)
       if (selectedTreatment === "braces") {
