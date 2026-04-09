@@ -23,6 +23,114 @@ const TREATMENTS = [
   { id: "transformation", label: "Full Smile",  icon: ShieldPlus,  desc: "Whitening + alignment" },
 ];
 
+const TREATMENT_THEME = {
+  whitening: {
+    glow: "0 0 28px rgba(34,211,238,0.55)",
+    ring: "rgba(34,211,238,0.9)",
+    tint: "from-cyan-300/20 to-cyan-500/25",
+    benefit: "Clinically tuned ivory brightening for enamel-safe simulation.",
+  },
+  alignment: {
+    glow: "0 0 28px rgba(129,140,248,0.52)",
+    ring: "rgba(129,140,248,0.9)",
+    tint: "from-indigo-300/20 to-indigo-500/25",
+    benefit: "Predictive tooth-axis balancing for symmetry-forward smile design.",
+  },
+  braces: {
+    glow: "0 0 28px rgba(203,213,225,0.58)",
+    ring: "rgba(226,232,240,0.92)",
+    tint: "from-slate-200/20 to-slate-400/25",
+    benefit: "Precision metallic alignment simulation from molar to molar.",
+  },
+  transformation: {
+    glow: "0 0 28px rgba(250,204,21,0.5)",
+    ring: "rgba(250,204,21,0.9)",
+    tint: "from-amber-300/20 to-yellow-500/25",
+    benefit: "Comprehensive whitening plus alignment in one premium preview.",
+  },
+};
+
+function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
+  const [hovered, setHovered] = useState(false);
+  const [mag, setMag] = useState({ x: 0, y: 0 });
+  const Icon = treatment.icon;
+  const theme = TREATMENT_THEME[treatment.id] ?? TREATMENT_THEME.whitening;
+
+  const handleMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dx = e.clientX - (rect.left + rect.width / 2);
+    const dy = e.clientY - (rect.top + rect.height / 2);
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 40) {
+      setMag({ x: (dx / 40) * 8, y: (dy / 40) * 8 });
+    } else {
+      setMag({ x: 0, y: 0 });
+    }
+  };
+
+  const resetMag = () => setMag({ x: 0, y: 0 });
+
+  return (
+    <motion.button
+      type="button"
+      onClick={onSelect}
+      onMouseMove={handleMouseMove}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        resetMag();
+      }}
+      disabled={disabled}
+      className="relative h-16 w-16 rounded-full border border-white/10 bg-white/5 backdrop-blur-xl"
+      animate={{
+        x: mag.x,
+        y: mag.y,
+        scale: active ? [1, 1.05, 1] : 1,
+        boxShadow: active ? theme.glow : "0 0 0 rgba(0,0,0,0)",
+      }}
+      whileHover={{
+        scale: 1.15,
+        boxShadow: theme.glow,
+      }}
+      transition={{
+        scale: { duration: 1.8, repeat: active ? Infinity : 0, ease: "easeInOut" },
+        x: { type: "spring", stiffness: 220, damping: 14 },
+        y: { type: "spring", stiffness: 220, damping: 14 },
+      }}
+      aria-label={treatment.label}
+    >
+      <span className={cn("absolute inset-0 rounded-full bg-gradient-to-br", theme.tint)} />
+      <Icon size={22} className="relative z-10 mx-auto text-white" />
+      {active && (
+        <motion.span
+          className="absolute -bottom-2 left-1/2 h-[3px] w-9 -translate-x-1/2 rounded-full"
+          style={{ backgroundColor: theme.ring, boxShadow: theme.glow }}
+          animate={{ opacity: [0.55, 1, 0.55] }}
+          transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+        />
+      )}
+      <AnimatePresence>
+        {hovered && !disabled && (
+          <motion.div
+            initial={{ y: 10, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 8, opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            className="pointer-events-none absolute -top-24 left-1/2 z-20 w-64 -translate-x-1/2 rounded-2xl border border-white/15 bg-black/45 p-3 text-left shadow-2xl backdrop-blur-xl"
+          >
+            <p style={{ fontFamily: "'Playfair Display', serif" }} className="text-sm text-zinc-100">
+              {treatment.label}
+            </p>
+            <p style={{ fontFamily: "'Inter', sans-serif" }} className="mt-1 text-xs text-zinc-300">
+              {theme.benefit}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.button>
+  );
+}
+
 const MOUTH_PERIMETER_INDICES   = [61, 291, 17, 13, 14, 78, 308, 181];
 const MOUTH_FALLBACK_INDICES    = [61, 291, 13, 14, 78, 308];
 const EYE_SANITY_INDICES        = [33, 133, 362, 263];
@@ -791,40 +899,24 @@ const SmileSimulatorAI = () => {
     <section id="simulation" className="py-24 bg-[#F9F9F7] scroll-mt-28">
       <div className="container mx-auto px-6">
         <AnimatedSection className="text-center mb-16">
-          <h2 className="text-4xl md:text-5xl font-serif text-zinc-900 mb-6">AI Smile Simulation</h2>
+          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl text-zinc-900 mb-6">AI Smile Simulation</h2>
           <p className="text-zinc-500 max-w-2xl mx-auto text-lg leading-relaxed">
             Upload a photo or take one live — AI whitening, alignment, and precise bracket placement in seconds.
           </p>
         </AnimatedSection>
 
-        {/* Treatment selector */}
-        <AnimatedSection className="max-w-4xl mx-auto mb-12">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {TREATMENTS.map(t => {
-              const Icon = t.icon;
-              const active = selectedTreatment === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setSelectedTreatment(t.id)}
-                  disabled={step === "processing" || step === "result"}
-                  className={cn(
-                    "rounded-2xl border p-5 text-left transition-all duration-300 bg-white",
-                    active ? "border-brand-gold shadow-md ring-1 ring-brand-gold/20 scale-[1.02]" : "border-zinc-200 hover:border-zinc-300 hover:shadow-sm",
-                    (step === "processing" || step === "result") && "opacity-60 cursor-not-allowed"
-                  )}
-                >
-                  <div className="flex items-center gap-4 mb-3">
-                    <span className={cn("p-3 rounded-xl", active ? "bg-brand-blue" : "bg-zinc-100")}>
-                      <Icon size={20} className={active ? "text-zinc-800" : "text-zinc-500"} />
-                    </span>
-                    <span className="text-base font-semibold text-zinc-800">{t.label}</span>
-                  </div>
-                  <p className="text-xs text-zinc-500 leading-relaxed">{t.desc}</p>
-                </button>
-              );
-            })}
+        {/* Floating luxury treatment dock */}
+        <AnimatedSection className="mx-auto mb-12 flex justify-center">
+          <div className="inline-flex items-center gap-3 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/62 px-4 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+            {TREATMENTS.map((t) => (
+              <TreatmentDockButton
+                key={t.id}
+                treatment={t}
+                active={selectedTreatment === t.id}
+                disabled={step === "processing" || step === "result"}
+                onSelect={() => setSelectedTreatment(t.id)}
+              />
+            ))}
           </div>
         </AnimatedSection>
 
@@ -868,7 +960,15 @@ const SmileSimulatorAI = () => {
                 className="relative aspect-video overflow-hidden rounded-3xl bg-black shadow-2xl">
                 <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="h-[7.2rem] w-[18rem] max-w-[92%] rounded-[999px] border-2 border-brand-gold/80 bg-white/10" />
+                  <div className="relative flex items-center justify-center">
+                    <span
+                      style={{ fontFamily: "'Inter', sans-serif" }}
+                      className="absolute -top-10 rounded-full border border-white/25 bg-black/45 px-4 py-1 text-[11px] font-semibold tracking-[0.12em] text-white/95"
+                    >
+                      CENTER TEETH WITHIN THE FRAME
+                    </span>
+                    <div className="h-[7.2rem] w-[18rem] max-w-[92%] rounded-[999px] border-2 border-dashed border-white/80 bg-white/5" />
+                  </div>
                 </div>
                 <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-4 p-6">
                   <button type="button" onClick={reset} className="flex h-14 w-14 items-center justify-center rounded-full bg-white/15 text-white"><X size={22} /></button>
