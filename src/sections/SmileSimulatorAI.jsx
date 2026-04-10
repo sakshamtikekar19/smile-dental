@@ -320,6 +320,7 @@ const SmileSimulatorAI = () => {
   const [afterImage, setAfterImage] = useState(null);
   const [error, setError] = useState(null);
   const [cameraError, setCameraError] = useState(null);
+  const [processingLog, setProcessingLog] = useState("");
 
   const fileInputRef = useRef(null);
   const videoRef    = useRef(null);
@@ -347,18 +348,48 @@ const SmileSimulatorAI = () => {
       img.src = src;
     });
   };
+  const loadBitmap = async (src, maxWidth = 720) => {
+    try {
+      const response = await fetch(src);
+      const blob = await response.blob();
+      
+      if (window.createImageBitmap) {
+        // Get dimensions without full RGB decode (still some cost, but better than full decode)
+        const meta = await loadImage(src);
+        const { width: w, height: h } = meta;
+        const scale = Math.min(1, maxWidth / Math.max(w, h, 1));
+        const nw = Math.round(w * scale), nh = Math.round(h * scale);
+        
+        try {
+          const bitmap = await window.createImageBitmap(blob, {
+            resizeWidth: nw,
+            resizeHeight: nh,
+            resizeQuality: "low"
+          });
+          return bitmap;
+        } catch (e) {
+          return await loadImage(src);
+        }
+      }
+      return await loadImage(src);
+    } catch {
+      return await loadImage(src);
+    }
+  };
+
   const normalizeImage = async (imageSrc, maxWidth = 720) => {
-    const img = await loadImage(imageSrc);
-    // Safe-Mode: 720px max dimension reduces pixel load by 50%
-    const scale = Math.min(1, maxWidth / Math.max(img.width, img.height, 1));
-    const width = Math.round(img.width * scale);
-    const height = Math.round(img.height * scale);
+    setProcessingLog("Decoding hardware pixels...");
+    const img = await loadBitmap(imageSrc, maxWidth);
+    const width = img.width, height = img.height;
+    
+    // Clear log and render
     const canvas = document.createElement("canvas");
     canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext("2d");
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "medium"; // Safe-Mode: lower GPU overhead
-    ctx.drawImage(img, 0, 0, width, height);
+    ctx.drawImage(img, 0, 0);
+    
+    // Help GC - important if img is a bitmap
+    if (img.close) img.close();
     
     return new Promise(resolve => {
       canvas.toBlob(blob => {
@@ -492,8 +523,8 @@ const SmileSimulatorAI = () => {
   };
 
   const detectMouth = async (imageSrc) => {
+    setProcessingLog("Locating anatomical landmarks...");
     const img = await loadImage(imageSrc);
-    if (typeof img.decode === "function") { try { await img.decode(); } catch {} }
     const iw = img.width, ih = img.height;
     const canvas = document.createElement("canvas");
     canvas.width = iw; canvas.height = ih;
@@ -1192,6 +1223,7 @@ const SmileSimulatorAI = () => {
     setStep("processing");
     setError(null);
     setActiveTreatment(selectedTreatment);
+    setProcessingLog("Analyzing facial features...");
 
     try {
       const normalized = alreadyNormalized ? baseImage : await normalizeImage(baseImage, 720);
@@ -1199,6 +1231,7 @@ const SmileSimulatorAI = () => {
       // Phase 3: Immediate revocation of high-res original after normalization
       if (!alreadyNormalized) safeRevoke(baseImage);
 
+      setProcessingLog("Detecting mouth region...");
       const mouth = await detectMouth(normalized);
 
       if (!mouth.bounds || !mouth.oval) {
@@ -1209,29 +1242,32 @@ const SmileSimulatorAI = () => {
       }
 
       const { bounds, oval, landmarks } = mouth;
+      setProcessingLog("Applying clinical whitening...");
       const fullFrame = await loadImage(normalized);
       let currentStepUrl = normalized;
 
       // Whitening pass
       if (["whitening", "transformation", "braces"].includes(selectedTreatment)) {
-        const next = await applyTeethWhitening(currentStepUrl, oval, landmarks, bounds);
+        const next = await applyTeethWhitening(currentStepUrl, oval, landmarks, bounds, generation);
         if (currentStepUrl !== normalized) safeRevoke(currentStepUrl);
         currentStepUrl = next;
       }
       
       // Alignment pass
       if (["alignment", "transformation"].includes(selectedTreatment)) {
-        const next = await applyAlignmentWarp(currentStepUrl, bounds, landmarks, oval, selectedTreatment);
+        setProcessingLog("Realigning tooth geometry...");
+        const next = await applyAlignmentWarp(currentStepUrl, bounds, landmarks, oval, selectedTreatment, generation);
         if (currentStepUrl !== normalized) safeRevoke(currentStepUrl);
         currentStepUrl = next;
       }
 
+      setProcessingLog("Finalizing simulation...");
       const mouthCrop = await cropMouthRegion(currentStepUrl, bounds);
       const previewRect = squareCropRect(fullFrame.width, fullFrame.height, oval);
       const beforeSquare = await cropImageToDataUrl(normalized, previewRect);
 
       const finalizeAndShow = async (mouthUrl) => {
-        const mergedUrl = await mergeFinalImage(normalized, mouthUrl, bounds, oval, landmarks);
+        const mergedUrl = await mergeFinalImage(normalized, mouthUrl, bounds, oval, landmarks, generation);
         let finalUrl = mergedUrl;
         if (selectedTreatment === "braces") {
           finalUrl = await applyBracesOverlay(mergedUrl, fullFrame.width, fullFrame.height);
@@ -1399,7 +1435,9 @@ const SmileSimulatorAI = () => {
                 <div className="w-full bg-zinc-100 h-1.5 rounded-full mt-8 overflow-hidden">
                   <div className="bg-brand-gold h-full animate-[loading_20s_ease-in-out_infinite]" style={{ width: "30%" }} />
                 </div>
-                <p className="text-[10px] text-zinc-300 mt-4 uppercase tracking-[0.2em]">Hardware Accelerated Processing</p>
+                <div className="mt-6">
+                  <p className="text-[10px] text-brand-gold font-bold uppercase tracking-[0.2em] animate-pulse">{processingLog || "Preparing..."}</p>
+                </div>
               </motion.div>
             )}
 
