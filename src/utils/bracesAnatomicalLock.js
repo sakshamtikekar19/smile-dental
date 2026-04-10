@@ -32,7 +32,7 @@ const MASK_HULL_PAD_X_PX = 18;
  * Bitmap enamel snap can pull many studs to the same column and break full-arch spacing.
  * Landmark tooth rows stay one bracket per station; forced quadratic wire still follows studs smoothly.
  */
-const USE_ENAMEL_REFINE = false;
+const USE_ENAMEL_REFINE = true;
 
 /** ~px per tooth when guessing slot count from span (fallback only). */
 const FALLBACK_TOOTH_PX_EST = 26;

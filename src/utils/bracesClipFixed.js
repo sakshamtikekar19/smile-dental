@@ -4,7 +4,11 @@
  * Also provides a reliable teeth mask for the whitening pass.
  */
 
-const MOUTH_HULL_IDX = [61, 185, 40, 39, 37, 267, 269, 270, 409, 291, 308, 415, 310, 311, 312, 82, 81, 80, 191, 78];
+// Outer lip points forming a generous hull encompassing the entire mouth opening
+const MOUTH_HULL_IDX = [
+  61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, // Upper outer lip (Left to Right)
+  375, 321, 405, 314, 17, 84, 181, 91, 146 // Lower outer lip (Right to Left)
+];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 

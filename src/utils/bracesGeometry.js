@@ -333,19 +333,9 @@ const TOOTH_BAND_WIRE_SAMPLES = 120;
  * polylines never read as one “V” crossing the bite.
  */
 export function clampArchWireYToLipBands(pts, landmarks, iw, ih, upper, mouthOpen) {
-  if (!pts?.length || !landmarks?.length) return pts;
-  const lipU = landmarkToPx(landmarks, INNER_LIP_UPPER_IDX, iw, ih);
-  const lipL = landmarkToPx(landmarks, INNER_LIP_LOWER_IDX, iw, ih);
-  if (!lipU || !lipL) return pts;
-  const yMid = (lipU.y + lipL.y) * 0.5;
-  const mo = typeof mouthOpen === "number" ? mouthOpen : Math.abs(lipL.y - lipU.y);
-  const gap = Math.max(mo * 0.028, 2.5);
-  const yMaxUpper = yMid - gap;
-  const yMinLower = yMid + gap;
-  return pts.map((p) => ({
-    ...p,
-    y: upper ? Math.min(p.y, yMaxUpper) : Math.max(p.y, yMinLower),
-  }));
+  // Bypassed clamping: the original clamp forced the wire to flatten completely if
+  // a tooth was positioned past the midline, resulting in bizarre flat V-shaped kinks.
+  return pts;
 }
 
 /**

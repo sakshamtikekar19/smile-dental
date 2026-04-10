@@ -20,25 +20,24 @@ function WhiteningIcon() {
   return (
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
-        <linearGradient id="whitenIncisor" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id="medicalWhite" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#ffffff" />
-          <stop offset="55%" stopColor="#f1f5f9" />
-          <stop offset="100%" stopColor="#cbd5e1" />
-        </linearGradient>
-        <linearGradient id="blueSpecular" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#38bdf8" />
-          <stop offset="40%" stopColor="#0ea5e9" />
-          <stop offset="100%" stopColor="#0369a1" />
+          <stop offset="50%" stopColor="#e0f2fe" />
+          <stop offset="100%" stopColor="#bae6fd" />
         </linearGradient>
       </defs>
+      {/* Sparkles / Medical Cross */}
+      <path d="M48 10v10M43 15h10" stroke="#0ea5e9" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M12 18v6M9 21h6" stroke="#0ea5e9" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
+      {/* Precise Tooth */}
       <path
         d="M28 8c6 0 10 4 11 10 1 8 0 18-2 24-2 6-6 14-11 14s-9-8-11-14c-2-6-3-16-2-24 1-6 5-10 11-10z"
-        fill="url(#whitenIncisor)"
-        stroke="#334155"
-        strokeWidth="2"
+        fill="url(#medicalWhite)"
+        stroke="#0284c7"
+        strokeWidth="2.5"
       />
-      <path d="M33 9 L40 11 L38 18 L31 15 Z" fill="url(#blueSpecular)" opacity="0.95" />
-      <path d="M34 10.5 L39 12" stroke="#e0f2fe" strokeWidth="1.2" strokeLinecap="round" opacity="0.9" />
+      {/* Sleek reflection */}
+      <path d="M22 14c2-2 6-2 10 0" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
     </svg>
   );
 }
@@ -255,9 +254,9 @@ const ENAMEL_LUM_MIN  = 15;
 const ENAMEL_LUM_MAX  = 252;
 const ENAMEL_SAT_MAX  = 0.58;
 /** Enamel-only whitening: linear luminance must exceed this (0–1) inside teeth hull. */
-const WHITEN_LUMINANCE_GATE = 0.4;
+const WHITEN_LUMINANCE_GATE = 0.15; // lowered aggressively so shadowed back teeth get whitened
 /** Extra shrink of teeth hull for whitening clip + composite (lips/gums stay untouched). */
-const WHITEN_HULL_EXTRA_INSET_PX = 4;
+const WHITEN_HULL_EXTRA_INSET_PX = 3;
 /** Additional inset for Full Smile: infill/warp only inside this stricter enamel core (anti lip/gum bleed). */
 const ALIGN_STRICT_ENAMEL_INSET_PX = 6;
 /** Min distance (px) from lip / mouth rim landmarks — pixels closer never get whitening adjustments. */
@@ -564,171 +563,112 @@ const SmileSimulatorAI = () => {
     return true;
   };
 
-  const applyLuminosityWhiteningPass = (ctx, iw, ih, strength = 0.4, landmarks = null) => {
-    const pristine = document.createElement("canvas");
-    pristine.width = iw;
-    pristine.height = ih;
-    const prCtx = pristine.getContext("2d", { willReadFrequently: true });
-    prCtx.drawImage(ctx.canvas, 0, 0);
-    const pristineData = prCtx.getImageData(0, 0, iw, ih).data;
+  // Mandate 1: Restore Soft-Light composite blending
+  const applyLuminosityWhiteningPass = (ctx, iw, ih, strength = 0.38, landmarks = null) => {
+    const pristineData = ctx.getImageData(0, 0, iw, ih).data;
 
-    ctx.filter = "contrast(1.1) brightness(1.03)";
-    ctx.drawImage(ctx.canvas, 0, 0, iw, ih, 0, 0, iw, ih);
-    ctx.filter = "none";
-
-    const preColor = document.createElement("canvas");
-    preColor.width = iw; preColor.height = ih;
-    const preCtx = preColor.getContext("2d", { willReadFrequently: true });
-    preCtx.drawImage(ctx.canvas, 0, 0);
-    const preData = preCtx.getImageData(0, 0, iw, ih).data;
-
-    const chromaLayer = document.createElement("canvas");
-    chromaLayer.width = iw; chromaLayer.height = ih;
-    const zctx = chromaLayer.getContext("2d", { willReadFrequently: true });
-    zctx.drawImage(ctx.canvas, 0, 0);
-    const zimg = zctx.getImageData(0, 0, iw, ih);
-    const zd = zimg.data;
-    for (let i = 0; i < zd.length; i += 4) {
-      const r = zd[i], g = zd[i+1], b = zd[i+2];
-      const lum = 0.2126*r + 0.7152*g + 0.0722*b;
-      zd[i]   = Math.round(lum + (r - lum) * 0.52);
-      zd[i+1] = Math.round(lum + (g - lum) * 0.52);
-      zd[i+2] = Math.round(lum + (b - lum) * 0.52);
-    }
-    zctx.putImageData(zimg, 0, 0);
-    ctx.save();
-    ctx.globalCompositeOperation = "color";
-    ctx.drawImage(chromaLayer, 0, 0);
-    ctx.globalCompositeOperation = "source-over";
-    ctx.restore();
-
-    const layer = document.createElement("canvas");
-    layer.width = iw; layer.height = ih;
-    const lctx = layer.getContext("2d", { willReadFrequently: true });
-    lctx.drawImage(ctx.canvas, 0, 0);
-    const img = lctx.getImageData(0, 0, iw, ih);
-    const d = img.data;
-    const ivory = { r: 255, g: 254, b: 252 };
-
+    // Create a layer for the white overlay
+    const overlayCanvas = document.createElement("canvas");
+    overlayCanvas.width = iw; overlayCanvas.height = ih;
+    const oCtx = overlayCanvas.getContext("2d", { willReadFrequently: true });
+    
+    // Build a pixel-accurate mask based on luminance and red-gate
+    const overlayImg = oCtx.createImageData(iw, ih);
+    const d = overlayImg.data;
+    
     let maskPoly = null;
     if (landmarks) {
-      const mp = getTightenedWhiteningMaskPoints(landmarks, iw, ih, WHITEN_HULL_EXTRA_INSET_PX);
+      const mp = getTightenedWhiteningMaskPoints(landmarks, iw, ih, 0);
       if (mp && mp.length >= 3) maskPoly = mp;
     }
-    const preIvory = new Uint8ClampedArray(d.length);
-    preIvory.set(d);
-
-    const lipGuardR = Math.max(
-      WHITEN_LIP_CLEARANCE_MIN_PX,
-      Math.min(iw, ih) * WHITEN_LIP_CLEARANCE_SCALE
-    );
-    const lipGuardR2 = lipGuardR * lipGuardR;
-    const minSqToLipLandmarks = (px, py) => {
-      if (!landmarks) return Infinity;
-      let m = Infinity;
-      for (let k = 0; k < LIP_COLOR_GUARD_INDICES.length; k++) {
-        const p = landmarks[LIP_COLOR_GUARD_INDICES[k]];
-        if (!p || typeof p.x !== "number") continue;
-        const lx = p.x * iw;
-        const ly = p.y * ih;
-        const dx = px - lx;
-        const dy = py - ly;
-        const t = dx * dx + dy * dy;
-        if (t < m) m = t;
-      }
-      return m;
-    };
-
-    let sumLum = 0, nArch = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i], g = d[i+1], b = d[i+2];
-      const lum = 0.2126*r + 0.7152*g + 0.0722*b;
-      const maxc = Math.max(r,g,b), minc = Math.min(r,g,b);
-      const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
-      if (lum >= ENAMEL_LUM_MIN && lum <= ENAMEL_LUM_MAX && sat <= ENAMEL_SAT_MAX) { sumLum += lum; nArch++; }
+    
+    // Bounding box for optimization
+    let minX = 0, maxX = iw, minY = 0, maxY = ih;
+    if (maskPoly && maskPoly.length > 0) {
+      minX = Math.max(0, Math.floor(Math.min(...maskPoly.map(p => p.x))) - 15);
+      maxX = Math.min(iw, Math.ceil(Math.max(...maskPoly.map(p => p.x))) + 15);
+      minY = Math.max(0, Math.floor(Math.min(...maskPoly.map(p => p.y))) - 15);
+      maxY = Math.min(ih, Math.ceil(Math.max(...maskPoly.map(p => p.y))) + 15);
     }
-    const archMeanLum = nArch > 0 ? sumLum / nArch : 150;
 
-    for (let i = 0; i < d.length; i += 4) {
-      const p = i >> 2;
-      const px = p % iw;
-      const py = (p / iw) | 0;
-      const r = d[i], g = d[i+1], b = d[i+2];
-      const lum = 0.2126*r + 0.7152*g + 0.0722*b;
-      const maxc = Math.max(r,g,b), minc = Math.min(r,g,b);
-      const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
-      const inTeethHull = !maskPoly || pointInPoly(px, py, maskPoly);
-      const passLumGate = lum / 255 > WHITEN_LUMINANCE_GATE;
-      const highRedLipOrGum = r >= 165 && r > g + 12 && r > b + 6;
-      const pinkGum = sat > 0.38 && r > 118 && r >= g - 12 && lum < 215;
-      const coralGumBand = lum < 128 && sat < 0.52 && r > 88 && r >= g - 6 && b < r + 8;
-      const tooCloseToLipRim = minSqToLipLandmarks(px, py) < lipGuardR2;
-      if (
-        !inTeethHull ||
-        !passLumGate ||
-        highRedLipOrGum ||
-        pinkGum ||
-        coralGumBand ||
-        tooCloseToLipRim
-      ) {
-        d[i] = pristineData[i];
-        d[i + 1] = pristineData[i + 1];
-        d[i + 2] = pristineData[i + 2];
-        continue;
-      }
-      const origLum = 0.2126*preData[i] + 0.7152*preData[i+1] + 0.0722*preData[i+2];
-      const inEnamelBand = lum >= ENAMEL_LUM_MIN && lum <= ENAMEL_LUM_MAX && sat <= ENAMEL_SAT_MAX;
-      const baseW = clamp((lum - 8) / 230, 0, 1);
-      let adapt = 0;
-      if (inEnamelBand) adapt = lum < 60 ? 2.0 : 1 + clamp((archMeanLum - lum) / (archMeanLum * 0.42 + 8), 0, 1.6);
-      let w = clamp(baseW * adapt, 0, 1.28);
-      if (origLum < INTERDENTAL_SHADOW_LUM_MAX) { const t = origLum / Math.max(INTERDENTAL_SHADOW_LUM_MAX, 1); w *= 0.05 + 0.22 * t * t; }
-      const translucency = 0.22 + 0.78 * (origLum / 255);
-      w *= translucency;
-      d[i]   = Math.round(r + (ivory.r - r) * w);
-      d[i+1] = Math.round(g + (ivory.g - g) * w);
-      d[i+2] = Math.round(b + (ivory.b - b) * w);
-    }
-    lctx.putImageData(img, 0, 0);
+    for (let py = minY; py < maxY; py++) {
+      for (let px = minX; px < maxX; px++) {
+        const i = (py * iw + px) * 4;
+        if (maskPoly && !pointInPoly(px, py, maskPoly)) continue;
 
-    if (landmarks) {
-      const pts = getTightenedWhiteningMaskPoints(landmarks, iw, ih, WHITEN_HULL_EXTRA_INSET_PX);
-      if (pts && pts.length >= 3) {
-        lctx.globalCompositeOperation = "destination-in";
-        lctx.beginPath();
-        lctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) lctx.lineTo(pts[i].x, pts[i].y);
-        lctx.closePath();
-        lctx.fillStyle = "#fff";
-        lctx.fill();
-        lctx.globalCompositeOperation = "source-over";
+        const r = pristineData[i], g = pristineData[i+1], b = pristineData[i+2];
+        
+        // --- Mandate 1: Red-Channel Suppression Gate (Tighter) ---
+        // Protect gums/lips more aggressively
+        const redExcess = r / Math.max(g, 1);
+        const redExcessB = r / Math.max(b, 1);
+        if (r > 105 && (redExcess > 1.18 || redExcessB > 1.22)) continue;
+
+        // --- Mandate 1: Wider Luminance Target (Catch Molars) ---
+        const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        if (lum < 0.04) continue; // Only skip the absolute darkest voids
+
+        // Apply a clinically-tuned ivory-white sheen
+        // We use full white here; the soft-light composite operation will handle the natural texture preservation
+        d[i]   = 255;
+        d[i+1] = 255;
+        d[i+2] = 250; // Very slightly warm white
+        // Higher alpha at lower luminance to boost molars without blowing out highlights
+        const lumFactor = Math.pow(1 - lum, 0.5);
+        d[i+3] = Math.min(255, Math.round(strength * 255 * (0.85 + 0.4 * lumFactor)));
       }
     }
 
+    oCtx.putImageData(overlayImg, 0, 0);
+
+    // --- Mandate 1: 5px Gaussian Blur on Clip Mask ---
+    if (maskPoly) {
+      oCtx.globalCompositeOperation = "destination-in";
+      oCtx.filter = "blur(5px)";
+      oCtx.beginPath();
+      oCtx.moveTo(maskPoly[0].x, maskPoly[0].y);
+      for (let i = 1; i < maskPoly.length; i++) oCtx.lineTo(maskPoly[i].x, maskPoly[i].y);
+      oCtx.closePath();
+      oCtx.fill();
+      oCtx.filter = "none";
+    }
+
+    // Apply composite back to main layer using soft-light
     ctx.save();
-    ctx.globalCompositeOperation = "source-over";
-    ctx.globalAlpha = strength;
-    ctx.filter = "none";
-    ctx.drawImage(layer, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = "source-over";
+    ctx.globalCompositeOperation = "soft-light";
+    ctx.drawImage(overlayCanvas, 0, 0);
     ctx.restore();
   };
 
   const applyEnamelGlossAndGumOcclusion = (ctx, iw, ih, landmarks) => {
     if (!landmarks) return;
-    const specIdx = ENAMEL_SPECULAR_INDICES.filter(i => landmarks[i]);
-    if (!specIdx.length) return;
+    const topPts = [13, 312, 311, 310, 415, 308].map(i => landmarks[i]).filter(Boolean);
+    if (topPts.length === 0) return;
+    const avgY = topPts.reduce((s, p) => s + p.y * ih, 0) / topPts.length;
+    
+    const mp = getTightenedWhiteningMaskPoints(landmarks, iw, ih, 0);
+
     ctx.save();
-    ctx.globalCompositeOperation = "overlay";
-    specIdx.slice(0, 3).forEach(i => {
-      const px = landmarks[i].x * iw, py = landmarks[i].y * ih, rad = 5;
-      const rg = ctx.createRadialGradient(px, py, 0, px, py, rad);
-      rg.addColorStop(0, "rgba(255,255,255,0.7)"); rg.addColorStop(0.55, "rgba(255,255,255,0.15)"); rg.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(px, py, rad, 0, Math.PI * 2); ctx.fill();
-    });
+    if (mp && mp.length >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(mp[0].x, mp[0].y);
+      for (let i = 1; i < mp.length; i++) ctx.lineTo(mp[i].x, mp[i].y);
+      ctx.closePath();
+      ctx.clip();
+    }
+    
+    ctx.globalCompositeOperation = "multiply";
+    const grad = ctx.createLinearGradient(0, avgY - 5, 0, avgY + 20);
+    // Increase slight darkness to restore physical 3D curvature
+    grad.addColorStop(0, "rgba(0,0,0,0.30)"); 
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, iw, ih);
     ctx.restore();
   };
+
+
 
   const applyTeethWhitening = async (imageSrc, oval, landmarks, bounds) => {
     return new Promise((resolve, reject) => {
@@ -741,8 +681,7 @@ const SmileSimulatorAI = () => {
         canvas.width = w; canvas.height = h;
         ctx.drawImage(img, 0, 0);
         ctx.save();
-        let clipped = landmarks ? generateTeethMask(landmarks, ctx, w, h) : false;
-        if (!clipped) { ctx.beginPath(); ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2); ctx.clip(); }
+        if (!landmarks) { ctx.beginPath(); ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2); ctx.clip(); }
         applyLuminosityWhiteningPass(ctx, w, h, 0.38, landmarks);
         applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks);
         ctx.restore();
@@ -959,433 +898,27 @@ const SmileSimulatorAI = () => {
             const smp = pointInPoly(sx, sy, localPoly)
               ? sampleRGBA(src, width, height, sx, sy)
               : sampleRGBA(src, width, height, cx, cy);
-            out[oi] = smp[0];
-            out[oi + 1] = smp[1];
-            out[oi + 2] = smp[2];
-            out[oi + 3] = smp[3];
-          }
-        }
-
-        const enamelLum = (idx) =>
-          0.2126 * out[idx] + 0.7152 * out[idx + 1] + 0.0722 * out[idx + 2];
-
-        if (treatment === "transformation") {
-          const strictPts = getTightenedWhiteningMaskPoints(
-            landmarks,
-            canvas.width,
-            canvas.height,
-            WHITEN_HULL_EXTRA_INSET_PX + ALIGN_STRICT_ENAMEL_INSET_PX
-          );
-          const localStrictPoly =
-            strictPts && strictPts.length >= 3
-              ? strictPts.map((p) => ({ x: p.x - x, y: p.y - y }))
-              : localPoly;
-          const lipGuardRAlign = Math.max(11, Math.min(canvas.width, canvas.height) * 0.017);
-          const lipGuardR2Align = lipGuardRAlign * lipGuardRAlign;
-          const nearLipOrGumMargin = (lcx, lcy) => {
-            const fx = lcx + x;
-            const fy = lcy + y;
-            for (let li = 0; li < LIP_COLOR_GUARD_INDICES.length; li++) {
-              const p = landmarks[LIP_COLOR_GUARD_INDICES[li]];
-              if (!p || typeof p.x !== "number") continue;
-              const dx = fx - p.x * canvas.width;
-              const dy = fy - p.y * canvas.height;
-              if (dx * dx + dy * dy < lipGuardR2Align) return true;
-            }
-            return false;
-          };
-          const canEnamelCore = (lcx, lcy) =>
-            pointInPoly(lcx, lcy, localStrictPoly) && !nearLipOrGumMargin(lcx, lcy);
-
-          for (let cy = 0; cy <= upperCap; cy++) {
-            for (let cx = 0; cx < width; cx++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
-              const oi = (cy * width + cx) * 4;
-              if (!canEnamelCore(cx, cy)) copyPixel(out, oi, src, oi);
-            }
-          }
-
-          // Digital veneer mirror (strict enamel core only).
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 0; cx < width; cx++) {
-              if (!canEnamelCore(cx, cy)) continue;
-              const oi = (cy * width + cx) * 4;
-              const lum = enamelLum(oi);
-              if (lum > 64) continue;
-              const mirrorX = clamp(Math.round(midX + (midX - cx)), 0, width - 1);
-              if (!canEnamelCore(mirrorX, cy)) continue;
-              const mi = (cy * width + mirrorX) * 4;
-              if (enamelLum(mi) < 102) continue;
-              out[oi] = out[mi];
-              out[oi + 1] = out[mi + 1];
-              out[oi + 2] = out[mi + 2];
-            }
-          }
-
-          // Smart gap inpaint (core only).
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 1; cx < width - 1; cx++) {
-              if (!canEnamelCore(cx, cy)) continue;
-              const oi = (cy * width + cx) * 4;
-              if (enamelLum(oi) > 62) continue;
-              let dL = 0;
-              let dR = 0;
-              let li = -1;
-              let ri = -1;
-              for (let s = 1; s <= 14; s++) {
-                const lx = cx - s;
-                if (lx < 0 || !pointInPoly(lx, cy, localPoly)) break;
-                const lidx = (cy * width + lx) * 4;
-                if (enamelLum(lidx) > 86) {
-                  li = lidx;
-                  dL = s;
-                  break;
-                }
-              }
-              for (let s = 1; s <= 14; s++) {
-                const rx = cx + s;
-                if (rx >= width || !pointInPoly(rx, cy, localPoly)) break;
-                const ridx = (cy * width + rx) * 4;
-                if (enamelLum(ridx) > 86) {
-                  ri = ridx;
-                  dR = s;
-                  break;
-                }
-              }
-              if (li >= 0 && ri >= 0) {
-                const wL = 1 / (dL + 0.5);
-                const wR = 1 / (dR + 0.5);
-                const wSum = wL + wR;
-                out[oi] = Math.round((out[li] * wL + out[ri] * wR) / wSum);
-                out[oi + 1] = Math.round((out[li + 1] * wL + out[ri + 1] * wR) / wSum);
-                out[oi + 2] = Math.round((out[li + 2] * wL + out[ri + 2] * wR) / wSum);
-              } else if (li >= 0) {
-                out[oi] = out[li];
-                out[oi + 1] = out[li + 1];
-                out[oi + 2] = out[li + 2];
-              } else if (ri >= 0) {
-                out[oi] = out[ri];
-                out[oi + 1] = out[ri + 1];
-                out[oi + 2] = out[ri + 2];
-              }
-            }
-          }
-
-          // Bilateral enamel bridge: dark interdental voids (L < 0.25) filled from adjacent tooth faces + lum lift.
-          const GAP_LUM_MAX = 0.25 * 255;
-          const FACE_LUM_MIN = 0.48 * 255;
-          const bridgeReach = clamp(Math.round(width * 0.14), 3, 28);
-          let sumBright = 0;
-          let nBright = 0;
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 0; cx < width; cx++) {
-              if (!canEnamelCore(cx, cy)) continue;
-              const oi2 = (cy * width + cx) * 4;
-              const L = enamelLum(oi2);
-              if (L >= FACE_LUM_MIN) {
-                sumBright += L;
-                nBright++;
-              }
-            }
-          }
-          const targetWhiteningLum = nBright > 0 ? sumBright / nBright : 195;
-          const liftRgbToLum = (r0, g0, b0) => {
-            const L0 = 0.2126 * r0 + 0.7152 * g0 + 0.0722 * b0;
-            if (L0 >= targetWhiteningLum - 3) return [r0, g0, b0];
-            const f = clamp(targetWhiteningLum / Math.max(L0, 8), 1, 1.42);
-            return [
-              clamp(Math.round(r0 * f), 0, 255),
-              clamp(Math.round(g0 * f), 0, 255),
-              clamp(Math.round(b0 * f), 0, 255),
-            ];
-          };
-
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 1; cx < width - 1; cx++) {
-              if (!canEnamelCore(cx, cy)) continue;
-              const oi = (cy * width + cx) * 4;
-              if (enamelLum(oi) >= GAP_LUM_MAX) continue;
-
-              let leftX = -1;
-              let rightX = -1;
-              for (let s = 1; s <= bridgeReach; s++) {
-                const lx = cx - s;
-                if (lx < 0 || !canEnamelCore(lx, cy)) break;
-                const li = (cy * width + lx) * 4;
-                if (enamelLum(li) >= FACE_LUM_MIN) {
-                  leftX = lx;
-                  break;
-                }
-              }
-              for (let s = 1; s <= bridgeReach; s++) {
-                const rx = cx + s;
-                if (rx >= width || !canEnamelCore(rx, cy)) break;
-                const ri = (cy * width + rx) * 4;
-                if (enamelLum(ri) >= FACE_LUM_MIN) {
-                  rightX = rx;
-                  break;
-                }
-              }
-              if (leftX < 0 && rightX < 0) continue;
-
-              let nr;
-              let ng;
-              let nb;
-              if (leftX >= 0 && rightX >= 0 && rightX - leftX > 1) {
-                const cLi = (cy * width + leftX) * 4;
-                const cRi = (cy * width + rightX) * 4;
-                const t = clamp((cx - leftX) / Math.max(rightX - leftX, 1), 0, 1);
-                nr = out[cLi] * (1 - t) + out[cRi] * t;
-                ng = out[cLi + 1] * (1 - t) + out[cRi + 1] * t;
-                nb = out[cLi + 2] * (1 - t) + out[cRi + 2] * t;
-              } else {
-                const sx = leftX >= 0 ? leftX : rightX;
-                const si = (cy * width + sx) * 4;
-                nr = out[si];
-                ng = out[si + 1];
-                nb = out[si + 2];
-              }
-              const [lr, lg, lb] = liftRgbToLum(nr, ng, nb);
-              out[oi] = lr;
-              out[oi + 1] = lg;
-              out[oi + 2] = lb;
-            }
-          }
-
-          for (let cx = 0; cx < width; cx++) {
-            if (valid[cx]) continue;
-            for (let cy = 0; cy < upperCap; cy++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
-              const oi = (cy * width + cx) * 4;
-              copyPixel(out, oi, src, oi);
-            }
-          }
-
-          // Interdental definition: 1px vertical seam at ~18% shadow (contact columns).
-          const seamXs = [];
-          for (let cx = 2; cx < width - 2; cx++) {
-            if (!valid[cx]) continue;
-            const st = smoothTop[cx];
-            if (st >= smoothTop[cx - 1] && st >= smoothTop[cx + 1] && st > smoothTop[cx - 2] + 0.75 && st > smoothTop[cx + 2] + 0.75) {
-              seamXs.push(cx);
-            }
-          }
-          const SEAM_SHADOW_BLEND = 1 - 0.18;
-          for (let si = 0; si < seamXs.length; si++) {
-            const sx = seamXs[si];
-            const t0 = Math.max(0, Math.floor(smoothTop[sx]));
-            for (let cy = t0; cy < upperCap; cy++) {
-              if (!canEnamelCore(sx, cy)) continue;
-              const oi = (cy * width + sx) * 4;
-              out[oi] = clamp(Math.round(out[oi] * SEAM_SHADOW_BLEND), 0, 255);
-              out[oi + 1] = clamp(Math.round(out[oi + 1] * SEAM_SHADOW_BLEND), 0, 255);
-              out[oi + 2] = clamp(Math.round(out[oi + 2] * SEAM_SHADOW_BLEND), 0, 255);
-            }
-          }
-        }
-
-        // Post-warp HD unsharp: σ≈1.5px Gaussian, weighted toward vertical enamel edges (|∂L/∂x|).
-        const US_SIGMA = 1.5;
-        const US_AMOUNT = treatment === "transformation" ? 0.62 : 0.72;
-        const gRad = Math.max(2, Math.ceil(US_SIGMA * 2.8));
-        const gk = new Float32Array(2 * gRad + 1);
-        let gkSum = 0;
-        for (let gi = -gRad; gi <= gRad; gi++) {
-          const w = Math.exp(-(gi * gi) / (2 * US_SIGMA * US_SIGMA));
-          gk[gi + gRad] = w;
-          gkSum += w;
-        }
-        for (let gi = 0; gi < gk.length; gi++) gk[gi] /= gkSum;
-
-        const blurH = new Float32Array(width * height * 3);
-        const blurHV = new Float32Array(width * height * 3);
-        for (let cy = 0; cy <= upperCap; cy++) {
-          for (let cx = 0; cx < width; cx++) {
-            if (!pointInPoly(cx, cy, localPoly)) continue;
-            const oiSelf = (cy * width + cx) * 4;
-            const bi = (cy * width + cx) * 3;
-            let r = 0, g = 0, b = 0, sw = 0;
-            for (let gi = -gRad; gi <= gRad; gi++) {
-              const nx = clamp(cx + gi, 0, width - 1);
-              if (!pointInPoly(nx, cy, localPoly)) continue;
-              const w = gk[gi + gRad];
-              const oi2 = (cy * width + nx) * 4;
-              r += out[oi2] * w;
-              g += out[oi2 + 1] * w;
-              b += out[oi2 + 2] * w;
-              sw += w;
-            }
-            if (sw <= 0) {
-              blurH[bi] = out[oiSelf];
-              blurH[bi + 1] = out[oiSelf + 1];
-              blurH[bi + 2] = out[oiSelf + 2];
+            
+            const sr = smp[0], sg = smp[1], sb = smp[2];
+            const isGum = sr > 140 && (sr / Math.max(sg, 1) > 1.25) && (sr / Math.max(sb, 1) > 1.25);
+            
+            if (isGum) {
+              const orig = sampleRGBA(src, width, height, cx, cy);
+              out[oi] = orig[0];
+              out[oi + 1] = orig[1];
+              out[oi + 2] = orig[2];
+              out[oi + 3] = orig[3];
             } else {
-              blurH[bi] = r / sw;
-              blurH[bi + 1] = g / sw;
-              blurH[bi + 2] = b / sw;
+              out[oi] = smp[0];
+              out[oi + 1] = smp[1];
+              out[oi + 2] = smp[2];
+              out[oi + 3] = smp[3];
             }
-          }
-        }
-        for (let cy = 0; cy <= upperCap; cy++) {
-          for (let cx = 0; cx < width; cx++) {
-            if (!pointInPoly(cx, cy, localPoly)) continue;
-            const oiSelf = (cy * width + cx) * 4;
-            const bi = (cy * width + cx) * 3;
-            let r = 0, g = 0, b = 0, sw = 0;
-            for (let gi = -gRad; gi <= gRad; gi++) {
-              const ny = clamp(cy + gi, 0, upperCap);
-              if (!pointInPoly(cx, ny, localPoly)) continue;
-              const w = gk[gi + gRad];
-              const bi2 = (ny * width + cx) * 3;
-              r += blurH[bi2] * w;
-              g += blurH[bi2 + 1] * w;
-              b += blurH[bi2 + 2] * w;
-              sw += w;
-            }
-            if (sw <= 0) {
-              blurHV[bi] = out[oiSelf];
-              blurHV[bi + 1] = out[oiSelf + 1];
-              blurHV[bi + 2] = out[oiSelf + 2];
-            } else {
-              blurHV[bi] = r / sw;
-              blurHV[bi + 1] = g / sw;
-              blurHV[bi + 2] = b / sw;
-            }
-          }
-        }
-        for (let cy = 0; cy < upperCap; cy++) {
-          for (let cx = 1; cx < width - 1; cx++) {
-            if (!pointInPoly(cx, cy, localPoly)) continue;
-            const oi = (cy * width + cx) * 4;
-            const bi = (cy * width + cx) * 3;
-            const lL = enamelLum(oi - 4);
-            const lR = enamelLum(oi + 4);
-            const gx = Math.abs(lR - lL) / 255;
-            const edgeW = clamp(0.22 + gx * 3.2, 0.2, 1);
-            const br = blurHV[bi];
-            const bg = blurHV[bi + 1];
-            const bb = blurHV[bi + 2];
-            out[oi] = clamp(Math.round(out[oi] + US_AMOUNT * edgeW * (out[oi] - br)), 0, 255);
-            out[oi + 1] = clamp(Math.round(out[oi + 1] + US_AMOUNT * edgeW * (out[oi + 1] - bg)), 0, 255);
-            out[oi + 2] = clamp(Math.round(out[oi + 2] + US_AMOUNT * edgeW * (out[oi + 2] - bb)), 0, 255);
           }
         }
 
-        if (treatment === "transformation") {
-          // Final HD sharpen for full arch after inpainting.
-          const FINAL_SIGMA = 1.2;
-          const FINAL_AMOUNT = 0.55;
-          const fRad = Math.max(2, Math.ceil(FINAL_SIGMA * 2.8));
-          const fk = new Float32Array(2 * fRad + 1);
-          let fkSum = 0;
-          for (let i = -fRad; i <= fRad; i++) {
-            const w = Math.exp(-(i * i) / (2 * FINAL_SIGMA * FINAL_SIGMA));
-            fk[i + fRad] = w;
-            fkSum += w;
-          }
-          for (let i = 0; i < fk.length; i++) fk[i] /= fkSum;
+        // Pure physical geometry retained. No artificial pixel cloning or laplacian convolutions.
 
-          const fH = new Float32Array(width * height * 3);
-          const fHV = new Float32Array(width * height * 3);
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 0; cx < width; cx++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
-              const oiSelf = (cy * width + cx) * 4;
-              const bi = (cy * width + cx) * 3;
-              let r = 0, g = 0, b = 0, sw = 0;
-              for (let i = -fRad; i <= fRad; i++) {
-                const nx = clamp(cx + i, 0, width - 1);
-                if (!pointInPoly(nx, cy, localPoly)) continue;
-                const w = fk[i + fRad];
-                const oi2 = (cy * width + nx) * 4;
-                r += out[oi2] * w;
-                g += out[oi2 + 1] * w;
-                b += out[oi2 + 2] * w;
-                sw += w;
-              }
-              if (sw <= 0) {
-                fH[bi] = out[oiSelf];
-                fH[bi + 1] = out[oiSelf + 1];
-                fH[bi + 2] = out[oiSelf + 2];
-              } else {
-                fH[bi] = r / sw;
-                fH[bi + 1] = g / sw;
-                fH[bi + 2] = b / sw;
-              }
-            }
-          }
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 0; cx < width; cx++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
-              const oiSelf = (cy * width + cx) * 4;
-              const bi = (cy * width + cx) * 3;
-              let r = 0, g = 0, b = 0, sw = 0;
-              for (let i = -fRad; i <= fRad; i++) {
-                const ny = clamp(cy + i, 0, upperCap);
-                if (!pointInPoly(cx, ny, localPoly)) continue;
-                const w = fk[i + fRad];
-                const bi2 = (ny * width + cx) * 3;
-                r += fH[bi2] * w;
-                g += fH[bi2 + 1] * w;
-                b += fH[bi2 + 2] * w;
-                sw += w;
-              }
-              if (sw <= 0) {
-                fHV[bi] = out[oiSelf];
-                fHV[bi + 1] = out[oiSelf + 1];
-                fHV[bi + 2] = out[oiSelf + 2];
-              } else {
-                fHV[bi] = r / sw;
-                fHV[bi + 1] = g / sw;
-                fHV[bi + 2] = b / sw;
-              }
-            }
-          }
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 0; cx < width; cx++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
-              const oi = (cy * width + cx) * 4;
-              const bi = (cy * width + cx) * 3;
-              out[oi] = clamp(Math.round(out[oi] + FINAL_AMOUNT * (out[oi] - fHV[bi])), 0, 255);
-              out[oi + 1] = clamp(Math.round(out[oi + 1] + FINAL_AMOUNT * (out[oi + 1] - fHV[bi + 1])), 0, 255);
-              out[oi + 2] = clamp(Math.round(out[oi + 2] + FINAL_AMOUNT * (out[oi + 2] - fHV[bi + 2])), 0, 255);
-            }
-          }
-
-          // 3x3 unsharp on incisal band (crisp biting edges).
-          const snap = new Uint8ClampedArray(out.length);
-          snap.set(out);
-          const INCISAL_BAND = 6;
-          const INC_BOX_AMT = 0.52;
-          for (let cy = 0; cy < upperCap; cy++) {
-            for (let cx = 0; cx < width; cx++) {
-              if (!pointInPoly(cx, cy, localPoly)) continue;
-              const top = smoothTop[cx];
-              if (cy < top || cy > top + INCISAL_BAND) continue;
-              let br = 0, bg = 0, bb = 0, bn = 0;
-              for (let ky = -1; ky <= 1; ky++) {
-                for (let kx = -1; kx <= 1; kx++) {
-                  const nx = clamp(cx + kx, 0, width - 1);
-                  const ny = clamp(cy + ky, 0, upperCap - 1);
-                  if (!pointInPoly(nx, ny, localPoly)) continue;
-                  const ii = (ny * width + nx) * 4;
-                  br += snap[ii];
-                  bg += snap[ii + 1];
-                  bb += snap[ii + 2];
-                  bn++;
-                }
-              }
-              if (bn <= 0) continue;
-              br /= bn;
-              bg /= bn;
-              bb /= bn;
-              const oi = (cy * width + cx) * 4;
-              out[oi] = clamp(Math.round(out[oi] + INC_BOX_AMT * (out[oi] - br)), 0, 255);
-              out[oi + 1] = clamp(Math.round(out[oi + 1] + INC_BOX_AMT * (out[oi + 1] - bg)), 0, 255);
-              out[oi + 2] = clamp(Math.round(out[oi + 2] + INC_BOX_AMT * (out[oi + 2] - bb)), 0, 255);
-            }
-          }
-        }
 
         // Hard composite: anything outside teeth hull or below lip line stays identical to source (fixes jagged halos / lip tint).
         for (let cy = 0; cy < height; cy++) {
@@ -1505,7 +1038,7 @@ const SmileSimulatorAI = () => {
   };
 
   /** Outside core enamel hull, keep mostly original pixels so AI polish does not recolor lips/gums. */
-  const MERGE_OUTSIDE_ENAMEL_WEIGHT = 0.14;
+  const MERGE_OUTSIDE_ENAMEL_WEIGHT = 0; // Prevent AI artifacts from leaking onto skin/lips
 
   const mergeFinalImage = async (originalSrc, mouthEnhancedSrc, bounds, oval, landmarks = null) => {
     const [original, mouth] = await Promise.all([loadImage(originalSrc), loadImage(mouthEnhancedSrc)]);
@@ -1599,6 +1132,7 @@ const SmileSimulatorAI = () => {
     reader.onerror = () => { setError("Could not read this file."); setStep("upload"); };
     reader.readAsDataURL(file);
   };
+
 
   // ── Main AI pipeline ─────────────────────────────────────────────────
   const processWithAI = async (baseImage, options = {}) => {
@@ -1707,8 +1241,8 @@ const SmileSimulatorAI = () => {
         </AnimatedSection>
 
         {/* Floating luxury treatment dock */}
-        <AnimatedSection className="mx-auto mb-12 flex justify-center">
-          <div className="inline-flex items-center gap-4 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/62 px-5 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+        <AnimatedSection className="fixed bottom-10 left-1/2 -translate-x-1/2 z-50 flex justify-center w-full max-w-lg">
+          <div className="inline-flex items-center justify-center gap-4 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/70 px-5 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl">
             {TREATMENTS.map((t) => (
               <TreatmentDockButton
                 key={t.id}
@@ -1766,7 +1300,7 @@ const SmileSimulatorAI = () => {
                       style={{ fontFamily: "'Inter', sans-serif" }}
                       className="absolute -top-10 rounded-full border border-white/25 bg-black/45 px-4 py-1 text-[11px] font-semibold tracking-[0.12em] text-white/95"
                     >
-                      CENTER TEETH WITHIN THE FRAME
+                      ALIGN TEETH IN CENTER
                     </span>
                     <div className="h-[7.2rem] w-[18rem] max-w-[92%] rounded-[999px] border-2 border-dashed border-white/80 bg-white/5" />
                   </div>

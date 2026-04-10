@@ -7,6 +7,7 @@
  */
 
 import { buildBracesPack, BRACKET_SIDE_PX } from './bracesGeometryFixed';
+import { buildAnatomicalArchLockPack } from './bracesAnatomicalLock';
 import { drawWire, drawBrackets } from './bracesCanvasRenderFixed';
 import { clipToTeethEnamel, eraseAboveUpperLip } from './bracesClipFixed';
 
@@ -87,7 +88,7 @@ function drawContactShadows(ctx, anchors, baseW) {
     ctx.save();
     ctx.globalAlpha *= clamp(depthOpacity * 0.35, 0.1, 0.35);
     ctx.translate(x, y + 1.5);
-    ctx.rotate((ang ?? 0) + Math.PI / 2);
+    ctx.rotate(ang ?? 0);
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, sz * 0.7);
     g.addColorStop(0, 'rgba(0,0,0,0.6)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -134,12 +135,18 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
     return mergedImageSrc;
   }
 
-  // Build braces geometry
-  const pack = buildBracesPack(landmarks, iw, ih, null);
+  // Extract raw pixel data to empower the geometric solver to snap mathematically placed brackets to physical teeth gaps
+  const imgData = ctx.getImageData(0, 0, iw, ih);
+  let pack = buildBracesPack(landmarks, iw, ih, null, imgData.data);
+  
   if (!pack || pack.upperAnchors.length < 2) {
-    console.warn('Braces overlay: could not build arch geometry');
+    console.warn('Braces overlay: Geometric pack failed, fallback failed');
     return mergedImageSrc;
   }
+
+  // Supply dimensions typically passed dynamically
+  pack.baseW = BRACKET_SIDE_PX;
+  pack.baseH = BRACKET_SIDE_PX;
 
   await rAF();
   await delay(30);
@@ -147,29 +154,28 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
   const { upperAnchors, lowerAnchors, upperStuds, lowerStuds,
           wireSamplesUpper, wireSamplesLower, mouthOpen, baseW, baseH } = pack;
 
-  // --- Draw overlay on separate canvas then composite ---
+  // --- Mandate 4: Hard Wire Containment (Clipping) ---
+  // We use an overlay canvas to draw the braces and then composite it back 
+  // using 'source-atop' against a mask of the teeth enamel.
   const overlay = document.createElement('canvas');
   overlay.width = iw;
   overlay.height = ih;
   const octx = overlay.getContext('2d');
   if (!octx) throw new Error('Could not get overlay context');
 
-  // Clip to enamel region (generous hull for braces)
+  // 1. First, define the 'destination' which is the teeth enamel area
+  // We draw this solid on the overlay canvas
   octx.save();
-  const clipped = clipToTeethEnamel(octx, landmarks, iw, ih, 10);
-  if (!clipped) {
-    // Fallback: clip to mouth oval from landmarks
-    const L61 = landmarks[61], L291 = landmarks[291], L13 = landmarks[13], L14 = landmarks[14];
-    if (L61 && L291 && L13 && L14) {
-      const cx = ((L61.x + L291.x) / 2) * iw;
-      const cy = ((L13.y + L14.y) / 2) * ih;
-      const rx = Math.abs(L291.x - L61.x) / 2 * iw * 1.15;
-      const ry = Math.abs(L14.y - L13.y) / 2 * ih * 1.4 + mouthOpen * 0.3;
-      octx.beginPath();
-      octx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-      octx.clip();
-    }
+  const maskSuccess = clipToTeethEnamel(octx, landmarks, iw, ih, 4); // Tight fit
+  if (maskSuccess) {
+    octx.fillStyle = '#fff';
+    octx.fillRect(0, 0, iw, ih);
   }
+  octx.restore();
+
+  // 2. Set composition to 'source-atop'
+  // Everything drawn now will ONLY appear where the enamel mask (the white pixels) exists
+  octx.globalCompositeOperation = 'source-atop';
 
   // 1. Contact shadows (bottom-most)
   drawContactShadows(octx, upperAnchors, baseW);
@@ -177,26 +183,25 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
 
   // 2. Archwires
   octx.globalAlpha = 0.92;
-  drawWire(octx, wireSamplesUpper, 1.1);
-  if (wireSamplesLower.length >= 2) drawWire(octx, wireSamplesLower, 1.0);
+  drawWire(octx, wireSamplesUpper, 0.7); // Made wire very thin
+  if (wireSamplesLower.length >= 2) drawWire(octx, wireSamplesLower, 0.6); // Made wire very thin
   octx.globalAlpha = 1;
 
   // 3. Brackets
   drawBrackets(octx, upperAnchors, baseW, baseH, 0);
   if (lowerAnchors.length) drawBrackets(octx, lowerAnchors, baseW, baseH, Math.PI);
 
-  octx.restore();
+  // --- End Mandate 4 composition ---
 
   // 4. Erase above upper lip (soft anti-bleed)
   eraseAboveUpperLip(octx, landmarks, iw, ih, mouthOpen);
 
-  // --- Composite overlay onto base ---
+  // --- Composite overlay onto base image ---
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.25)';
   ctx.shadowBlur = 2;
   ctx.shadowOffsetY = 1;
   ctx.drawImage(overlay, 0, 0);
-  ctx.shadowBlur = 0;
   ctx.restore();
 
   return canvas.toDataURL('image/jpeg', 0.95);
