@@ -331,15 +331,22 @@ const SmileSimulatorAI = () => {
   // ── Utilities ──────────────────────────────────────────────────────
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-  const loadImage = (src) =>
-    new Promise((resolve, reject) => {
+  const loadImage = (src) => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.onload  = () => resolve(img);
-      img.onerror = reject;
+      img.onload = () => {
+        resolve(img);
+        // Hint browser to free URL reference if it was a blob
+        if (typeof src === "string" && src.startsWith("blob:")) {
+          // We don't revoke here because other functions might need the image object
+          // but we can at least help GC with the string.
+        }
+      };
+      img.onerror = () => reject(new Error("Image Load Failed"));
       img.src = src;
     });
-
+  };
   const normalizeImage = async (imageSrc, maxWidth = 720) => {
     const img = await loadImage(imageSrc);
     // Safe-Mode: 720px max dimension reduces pixel load by 50%
@@ -1154,26 +1161,26 @@ const SmileSimulatorAI = () => {
     const canvas = canvasRef.current;
     canvas.width = outW; canvas.height = outH;
     canvas.getContext("2d").drawImage(video, 0, 0, outW, outH);
-    const captured = canvas.toDataURL("image/jpeg", 0.88);
     stopCamera();
-    processWithAI(captured).catch(err => { setError(err?.message || "Could not process this photo."); setStep("upload"); });
+    canvas.toBlob(blob => {
+      const captured = URL.createObjectURL(blob);
+      processWithAI(captured).catch(err => { 
+        setError(err?.message || "Could not process this photo."); 
+        setStep("upload"); 
+      });
+    }, "image/jpeg", 0.9);
   };
 
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      try {
-        const normalized = await normalizeImage(ev.target.result, 720);
-        await processWithAI(normalized, { alreadyNormalized: true });
-      } catch (err) {
-        setError(err?.message || "Could not process this image.");
-        setStep("upload");
-      }
-    };
-    reader.onerror = () => { setError("Could not read this file."); setStep("upload"); };
-    reader.readAsDataURL(file);
+    // Lockdown Phase 3: Zero-Copy ingestion via ObjectURL (No FileReader strings)
+    const fileUrl = URL.createObjectURL(file);
+    processWithAI(fileUrl).catch(err => {
+      setError(err?.message || "Could not process this image.");
+      setStep("upload");
+      safeRevoke(fileUrl);
+    });
   };
 
 
@@ -1188,6 +1195,10 @@ const SmileSimulatorAI = () => {
 
     try {
       const normalized = alreadyNormalized ? baseImage : await normalizeImage(baseImage, 720);
+      
+      // Phase 3: Immediate revocation of high-res original after normalization
+      if (!alreadyNormalized) safeRevoke(baseImage);
+
       const mouth = await detectMouth(normalized);
 
       if (!mouth.bounds || !mouth.oval) {
@@ -1385,7 +1396,10 @@ const SmileSimulatorAI = () => {
                 className="bg-white p-20 rounded-3xl border border-zinc-100 shadow-xl text-center">
                 <div className="w-16 h-16 border-4 border-zinc-100 border-t-brand-gold rounded-full animate-spin mx-auto mb-8" />
                 <p className="text-lg font-serif text-zinc-800">Designing your future smile…</p>
-                <p className="text-sm text-zinc-400 mt-2">This may take up to 20 seconds</p>
+                <div className="w-full bg-zinc-100 h-1.5 rounded-full mt-8 overflow-hidden">
+                  <div className="bg-brand-gold h-full animate-[loading_20s_ease-in-out_infinite]" style={{ width: "30%" }} />
+                </div>
+                <p className="text-[10px] text-zinc-300 mt-4 uppercase tracking-[0.2em]">Hardware Accelerated Processing</p>
               </motion.div>
             )}
 
