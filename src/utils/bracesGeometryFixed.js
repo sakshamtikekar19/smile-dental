@@ -1,4 +1,26 @@
 /**
+ * Fixed braces geometry: robust dual-arch placement using MediaPipe landmarks.
+ */
+
+const INNER_LIP_UPPER = 13;
+const INNER_LIP_LOWER = 14;
+
+// Upper arch tooth-face landmarks (left→right)
+const UPPER_ARCH_IDX = [308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78];
+// Lower arch tooth-face landmarks (left→right)  
+const LOWER_ARCH_IDX = [324, 318, 402, 317, 14, 87, 178, 88, 95];
+
+export const BRACKET_SIDE_PX = 7.5;
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function lm(landmarks, idx, iw, ih) {
+  const p = landmarks?.[idx];
+  if (!p || typeof p.x !== 'number') return null;
+  return { x: p.x * iw, y: p.y * ih, z: p.z ?? 0 };
+}
+
+/**
  * Build a parabolic path y = a(x - h)^2 + k passing through the midpoint apex 
  * and endpoints defined by the bracket row.
  */
