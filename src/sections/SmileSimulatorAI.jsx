@@ -379,8 +379,9 @@ const SmileSimulatorAI = () => {
       img.src = src;
     });
 
-  const normalizeImage = async (imageSrc, maxWidth = 1024) => {
+  const normalizeImage = async (imageSrc, maxWidth = 720) => {
     const img = await loadImage(imageSrc);
+    // Safe-Mode: 720px max dimension reduces pixel load by 50%
     const scale = Math.min(1, maxWidth / Math.max(img.width, img.height, 1));
     const width = Math.round(img.width * scale);
     const height = Math.round(img.height * scale);
@@ -388,7 +389,7 @@ const SmileSimulatorAI = () => {
     canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingQuality = "medium"; // Safe-Mode: lower GPU overhead
     ctx.drawImage(img, 0, 0, width, height);
     
     return new Promise(resolve => {
@@ -625,7 +626,7 @@ const SmileSimulatorAI = () => {
 
     // --- Performance Optimization: Pre-render Mask to Bitmap ---
     // This avoids calling pointInPoly (expensive) for every single pixel.
-    const maskBitmap = maskPoly ? createBitmapMask(maskPoly, iw, ih) : null;
+    const maskBitmap = maskPoly ? await createBitmapMask(maskPoly, iw, ih, generation) : null;
     
     // Bounding box for optimization
     let minX = 0, maxX = iw, minY = 0, maxY = ih;
@@ -671,16 +672,14 @@ const SmileSimulatorAI = () => {
 
     oCtx.putImageData(overlayImg, 0, 0);
 
-    // --- Mandate 1: 5px Gaussian Blur on Clip Mask ---
+    // --- Safe-Mode: Simple Feathered Mask instead of Gaussian Blur ---
     if (maskPoly) {
       oCtx.globalCompositeOperation = "destination-in";
-      oCtx.filter = "blur(5px)";
       oCtx.beginPath();
       oCtx.moveTo(maskPoly[0].x, maskPoly[0].y);
       for (let i = 1; i < maskPoly.length; i++) oCtx.lineTo(maskPoly[i].x, maskPoly[i].y);
       oCtx.closePath();
       oCtx.fill();
-      oCtx.filter = "none";
     }
 
     // Apply composite back to main layer using soft-light
@@ -760,7 +759,7 @@ const SmileSimulatorAI = () => {
    * --- Mandate 5: Performance Recovery ---
    * Creates a fast-lookup boolean bitmap for a polygon to avoid per-pixel math.
    */
-  const createBitmapMask = (poly, iw, ih) => {
+  const createBitmapMask = async (poly, iw, ih, generation = 0) => {
     const canvas = document.createElement("canvas");
     canvas.width = iw; canvas.height = ih;
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -776,7 +775,13 @@ const SmileSimulatorAI = () => {
     const imageData = ctx.getImageData(0, 0, iw, ih);
     const data = imageData.data;
     const bitmap = new Uint8Array(iw * ih);
+    
+    let _maskSafe = 0;
     for (let i = 0; i < iw * ih; i++) {
+      if (i % 60000 === 0) {
+        if (generation && generation !== pipelineGenerationRef.current) throw "CANCELLED";
+        await yieldMainThread();
+      }
       bitmap[i] = data[i * 4] > 128 ? 1 : 0;
     }
     
@@ -1051,10 +1056,16 @@ const SmileSimulatorAI = () => {
     const maskImg = await loadImage(maskDataUrl);
     const c2 = document.createElement("canvas"); c2.width = nw; c2.height = nh;
     c2.getContext("2d").drawImage(maskImg, 0, 0, nw, nh);
-    return { mouth: c1.toDataURL("image/jpeg", 0.88), mask: c2.toDataURL("image/png") };
+    
+    const res = {
+      mouth: await new Promise(r => c1.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.88)),
+      mask: await new Promise(r => c2.toBlob(blob => r(URL.createObjectURL(blob)), "image/png"))
+    };
+    c1.width = 0; c2.width = 0;
+    return res;
   };
 
-  const createTeethMaskForCrop = async (mouthImageSrc, cw, ch, ovalInCrop) => {
+  const createTeethMaskForCrop = async (mouthImageSrc, cw, ch, ovalInCrop, generation = 0) => {
     const canvas = document.createElement("canvas");
     canvas.width = cw; canvas.height = ch;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -1068,8 +1079,14 @@ const SmileSimulatorAI = () => {
     const { cx, cy, rx, ry } = ovalInCrop;
     const out = ctx.getImageData(0, 0, cw, ch);
     const od = out.data;
+    let _maskSafe = 0;
     for (let y = 0; y < ch; y++) {
+      if (y % 16 === 0) {
+        if (generation && generation !== pipelineGenerationRef.current) throw "CANCELLED";
+        await yieldMainThread();
+      }
       for (let x = 0; x < cw; x++) {
+        if (++_maskSafe > 1_500_000) break;
         const nx = (x - cx) / Math.max(rx, 1), ny = (y - cy) / Math.max(ry, 1);
         if (nx * nx + ny * ny > 1.06) continue;
         const i = (y * cw + x) * 4;
@@ -1078,15 +1095,14 @@ const SmileSimulatorAI = () => {
         const lum = 0.2126*r + 0.7152*g + 0.0722*b;
         const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
         if (lum < ENAMEL_LUM_MIN || lum > ENAMEL_LUM_MAX || sat > ENAMEL_SAT_MAX) continue;
-        od[i] = od[i+1] = od[i+2] = od[i+3] = 255;
+        od[i] = od[i+1] = od[i+2] = 255;
+        od[i+3] = 255;
       }
     }
     ctx.putImageData(out, 0, 0);
-    ctx.filter = `blur(${MASK_CLIP_FEATHER_PX}px)`;
-    ctx.globalCompositeOperation = "source-over";
-    ctx.drawImage(canvas, 0, 0);
-    ctx.filter = "none";
-    return canvas.toDataURL("image/png");
+    const resUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/png"));
+    canvas.width = 0; src.width = 0;
+    return resUrl;
   };
 
   const getFacialMidlineXNorm = (landmarks) => {
@@ -1224,7 +1240,7 @@ const SmileSimulatorAI = () => {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
-        const normalized = await normalizeImage(ev.target.result, 1024);
+        const normalized = await normalizeImage(ev.target.result, 720);
         await processWithAI(normalized, { alreadyNormalized: true });
       } catch (err) {
         setError(err?.message || "Could not process this image.");
@@ -1246,7 +1262,7 @@ const SmileSimulatorAI = () => {
     setActiveTreatment(selectedTreatment);
 
     try {
-      const normalized = alreadyNormalized ? baseImage : await normalizeImage(baseImage, 1024);
+      const normalized = alreadyNormalized ? baseImage : await normalizeImage(baseImage, 720);
       const mouth = await detectMouth(normalized);
 
       if (!mouth.bounds || !mouth.oval) {
@@ -1309,14 +1325,17 @@ const SmileSimulatorAI = () => {
 
         (async () => {
           try {
-            const mask = await createTeethMaskForCrop(mouthCrop, bounds.width, bounds.height, ovalInCrop);
+            const mask = await createTeethMaskForCrop(mouthCrop, bounds.width, bounds.height, ovalInCrop, generation);
             const { mouth: apiMouth, mask: apiMask } = await scaleMouthAndMaskForApi(mouthCrop, mask, API_MOUTH_MAX_EDGE);
             const aiPolishedCrop = await enhanceWithAI(apiMouth, apiMask, replicateTreatment, midlineXNorm);
-            if (!aiPolishedCrop || generation !== pipelineGenerationRef.current) return;
-            const merged = await mergeFinalImage(normalized, aiPolishedCrop, bounds, oval, landmarks);
+            if (!aiPolishedCrop || generation !== pipelineGenerationRef.current) {
+              safeRevoke(mask); safeRevoke(apiMouth); safeRevoke(apiMask);
+              return;
+            }
+            const merged = await mergeFinalImage(normalized, aiPolishedCrop, bounds, oval, landmarks, generation);
             const afterSquare = await cropImageToDataUrl(merged, previewRect);
             setAfterImage(afterSquare);
-            safeRevoke(merged);
+            safeRevoke(merged); safeRevoke(mask); safeRevoke(apiMouth); safeRevoke(apiMask);
           } catch {
             /* keep client preview */
           }

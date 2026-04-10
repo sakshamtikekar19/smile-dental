@@ -67,8 +67,8 @@ function findEnamelCentroid(startX, startY, pixelData, iw, ih, radius = 18) {
   const y0 = clamp(Math.floor(startY - radius), 0, ih - 1);
   const y1 = clamp(Math.ceil(startY + radius), 0, ih - 1);
 
-  // Mandate 5: Performance - scan every 2nd pixel if radius is large
-  const step = radius > 12 ? 2 : 1;
+  // Safe-Mode: scan every 3rd pixel if radius is large to reduce iterations by 9x
+  const step = radius > 14 ? 3 : (radius > 10 ? 2 : 1);
 
   let _centroidSafe = 0;
   for (let y = y0; y <= y1; y += step) {
