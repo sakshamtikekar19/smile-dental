@@ -326,6 +326,10 @@ const SmileSimulatorAI = () => {
   const videoRef    = useRef(null);
   const canvasRef   = useRef(null);
   const streamRef   = useRef(null);
+  /** Phase 6: Singleton Engine Canvas to prevent Buffer Fragmentation */
+  const engineCanvasRef = useRef(null);
+  const engineCanvasSecondaryRef = useRef(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   /** Invalidates in-flight background AI polish when user starts a new run. */
   const pipelineGenerationRef = useRef(0);
 
@@ -378,18 +382,18 @@ const SmileSimulatorAI = () => {
   };
 
   const normalizeImage = async (imageSrc, maxWidth = 512) => {
-    // Phase 5: 512px Low-Memory mode for total mobile/budget stability
+    // Phase 6: Logic for singleton canvas
+    if (!engineCanvasRef.current) engineCanvasRef.current = document.createElement("canvas");
+    const canvas = engineCanvasRef.current;
+    
     setProcessingLog("Decoding hardware pixels...");
     const img = await loadBitmap(imageSrc, maxWidth);
     const width = img.width, height = img.height;
     
-    // Clear log and render
-    const canvas = document.createElement("canvas");
     canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(img, 0, 0);
     
-    // Help GC - important if img is a bitmap
     if (img.close) img.close();
     
     return new Promise(resolve => {
@@ -527,7 +531,9 @@ const SmileSimulatorAI = () => {
     setProcessingLog("Locating anatomical landmarks...");
     const img = await loadImage(imageSrc);
     const iw = img.width, ih = img.height;
-    const canvas = document.createElement("canvas");
+    
+    if (!engineCanvasRef.current) engineCanvasRef.current = document.createElement("canvas");
+    const canvas = engineCanvasRef.current;
     canvas.width = iw; canvas.height = ih;
     const detCtx = canvas.getContext("2d");
     detCtx.drawImage(img, 0, 0);
@@ -550,7 +556,8 @@ const SmileSimulatorAI = () => {
 
   const cropImageToDataUrl = async (imageSrc, rect) => {
     const img = await loadImage(imageSrc);
-    const canvas = document.createElement("canvas");
+    if (!engineCanvasRef.current) engineCanvasRef.current = document.createElement("canvas");
+    const canvas = engineCanvasRef.current;
     canvas.width = rect.width; canvas.height = rect.height;
     canvas.getContext("2d").drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
     return canvas.toDataURL("image/jpeg", 0.92);
@@ -723,7 +730,8 @@ const SmileSimulatorAI = () => {
    * Creates a fast-lookup boolean bitmap for a polygon to avoid per-pixel math.
    */
   const createBitmapMask = async (poly, iw, ih, generation = 0) => {
-    const canvas = document.createElement("canvas");
+    if (!engineCanvasRef.current) engineCanvasRef.current = document.createElement("canvas");
+    const canvas = engineCanvasRef.current;
     canvas.width = iw; canvas.height = ih;
     const ctx = canvas.getContext("2d", { alpha: false });
     ctx.fillStyle = "black";
@@ -748,8 +756,6 @@ const SmileSimulatorAI = () => {
       bitmap[i] = data[i * 4] > 128 ? 1 : 0;
     }
     
-    // Explicit Cleanup for GC
-    canvas.width = 0; canvas.height = 0;
     return bitmap;
   };
 
@@ -1001,7 +1007,8 @@ const SmileSimulatorAI = () => {
 
   const cropMouthRegion = async (imageSrc, bounds) => {
     const img = await loadImage(imageSrc);
-    const canvas = document.createElement("canvas");
+    if (!engineCanvasRef.current) engineCanvasRef.current = document.createElement("canvas");
+    const canvas = engineCanvasRef.current;
     canvas.width = bounds.width; canvas.height = bounds.height;
     canvas.getContext("2d").drawImage(img, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
     return canvas.toDataURL("image/jpeg", 0.95);
@@ -1014,34 +1021,40 @@ const SmileSimulatorAI = () => {
     const scale = longest > maxEdge ? maxEdge / longest : 1;
     if (scale >= 1) return { mouth: mouthDataUrl, mask: maskDataUrl };
     const nw = Math.max(1, Math.round(w * scale)), nh = Math.max(1, Math.round(h * scale));
-    const c1 = document.createElement("canvas"); c1.width = nw; c1.height = nh;
-    c1.getContext("2d").drawImage(mouthImg, 0, 0, nw, nh);
-    const maskImg = await loadImage(maskDataUrl);
-    const c2 = document.createElement("canvas"); c2.width = nw; c2.height = nh;
-    c2.getContext("2d").drawImage(maskImg, 0, 0, nw, nh);
     
-    const res = {
-      mouth: await new Promise(r => c1.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.88)),
-      mask: await new Promise(r => c2.toBlob(blob => r(URL.createObjectURL(blob)), "image/png"))
-    };
-    c1.width = 0; c2.width = 0;
-    return res;
+    if (!engineCanvasRef.current) engineCanvasRef.current = document.createElement("canvas");
+    const canvas = engineCanvasRef.current;
+    
+    canvas.width = nw; canvas.height = nh;
+    canvas.getContext("2d").drawImage(mouthImg, 0, 0, nw, nh);
+    const mouthRes = canvas.toDataURL("image/jpeg", 0.88);
+    
+    const maskImg = await loadImage(maskDataUrl);
+    canvas.getContext("2d").drawImage(maskImg, 0, 0, nw, nh);
+    const maskRes = canvas.toDataURL("image/png");
+
+    return { mouth: mouthRes, mask: maskRes };
   };
 
   const createTeethMaskForCrop = async (mouthImageSrc, cw, ch, ovalInCrop, generation = 0) => {
-    const canvas = document.createElement("canvas");
+    if (!engineCanvasRef.current) engineCanvasRef.current = document.createElement("canvas");
+    const canvas = engineCanvasRef.current;
     canvas.width = cw; canvas.height = ch;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, cw, ch);
+    
+    // We need a secondary canvas momentarily for the source pixels if we want to avoid multiple canvases,
+    // but the source image is already loaded. We can use the singleton if we cache the ImageData.
     const img = await loadImage(mouthImageSrc);
-    const src = document.createElement("canvas");
-    src.width = cw; src.height = ch;
-    const sctx = src.getContext("2d", { willReadFrequently: true });
-    sctx.drawImage(img, 0, 0, cw, ch);
-    const frame = sctx.getImageData(0, 0, cw, ch).data;
-    const { cx, cy, rx, ry } = ovalInCrop;
+    ctx.drawImage(img, 0, 0, cw, ch);
+    const frame = ctx.getImageData(0, 0, cw, ch).data;
+    
+    // Now clear and build mask
+    ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, cw, ch);
     const out = ctx.getImageData(0, 0, cw, ch);
     const od = out.data;
+    
+    const { cx, cy, rx, ry } = ovalInCrop;
     let _maskSafe = 0;
     for (let y = 0; y < ch; y++) {
       if (y % 16 === 0) {
@@ -1063,9 +1076,8 @@ const SmileSimulatorAI = () => {
       }
     }
     ctx.putImageData(out, 0, 0);
-    const resUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/png"));
-    canvas.width = 0; src.width = 0;
-    return resUrl;
+    const result = canvas.toDataURL("image/png");
+    return result;
   };
 
   const getFacialMidlineXNorm = (landmarks) => {
@@ -1113,28 +1125,34 @@ const SmileSimulatorAI = () => {
   /** Outside core enamel hull, keep mostly original pixels so AI polish does not recolor lips/gums. */
   const MERGE_OUTSIDE_ENAMEL_WEIGHT = 0; // Prevent AI artifacts from leaking onto skin/lips
 
-  const mergeFinalImage = async (originalSrc, mouthEnhancedSrc, bounds, oval, landmarks = null) => {
+  const mergeFinalImage = async (originalSrc, mouthEnhancedSrc, bounds, oval, landmarks = null, generation = 0) => {
     const [original, mouth] = await Promise.all([loadImage(originalSrc), loadImage(mouthEnhancedSrc)]);
-    const canvas = document.createElement("canvas");
+    
+    if (!engineCanvasRef.current) engineCanvasRef.current = document.createElement("canvas");
+    const canvas = engineCanvasRef.current;
     canvas.width = original.width; canvas.height = original.height;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(original, 0, 0);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const out = imageData.data;
+    
     let enamelCore = null;
     if (landmarks) {
       const pts = getTightenedWhiteningMaskPoints(landmarks, canvas.width, canvas.height, WHITEN_HULL_EXTRA_INSET_PX);
       if (pts && pts.length >= 3) enamelCore = pts;
     }
-    const tmp = document.createElement("canvas");
+    
+    // Phase 6: Use secondary singleton for localized sampling
+    if (!engineCanvasSecondaryRef.current) engineCanvasSecondaryRef.current = document.createElement("canvas");
+    const tmp = engineCanvasSecondaryRef.current;
     tmp.width = bounds.width; tmp.height = bounds.height;
     tmp.getContext("2d").drawImage(mouth, 0, 0, mouth.width, mouth.height, 0, 0, bounds.width, bounds.height);
     const mouthPixels = tmp.getContext("2d").getImageData(0, 0, bounds.width, bounds.height).data;
-    const maskBitmap = enamelCore ? createBitmapMask(enamelCore, original.width, original.height) : null;
+    const maskBitmap = enamelCore ? await createBitmapMask(enamelCore, original.width, original.height, generation) : null;
 
     let _mergeSafe = 0;
     for (let py = bounds.y; py < bounds.y + bounds.height; py++) {
-      if (generation !== pipelineGenerationRef.current) throw "CANCELLED";
+      if (generation && generation !== pipelineGenerationRef.current) throw "CANCELLED";
       if (py % 24 === 0) await yieldMainThread();
       for (let px = bounds.x; px < bounds.x + bounds.width; px++) {
         if (++_mergeSafe > 1_500_000) break;
@@ -1217,9 +1235,11 @@ const SmileSimulatorAI = () => {
 
   // ── Main AI pipeline ─────────────────────────────────────────────────
   const processWithAI = async (baseImage, options = {}) => {
+    if (isProcessing) return;
     const { alreadyNormalized = false } = options;
     const generation = ++pipelineGenerationRef.current;
 
+    setIsProcessing(true);
     setStep("processing");
     setError(null);
     setActiveTreatment(selectedTreatment);
@@ -1288,6 +1308,7 @@ const SmileSimulatorAI = () => {
         safeRevoke(mouthUrl);
         if (currentStepUrl !== normalized) safeRevoke(currentStepUrl);
         safeRevoke(normalized);
+        setIsProcessing(false);
       };
 
       await finalizeAndShow(mouthCrop);
@@ -1318,11 +1339,30 @@ const SmileSimulatorAI = () => {
         })();
       }
     } catch (err) {
+      setIsProcessing(false);
       if (err === "CANCELLED") return;
       setError(err?.message || "Simulation failed.");
       setStep("upload");
     }
   };
+
+  useEffect(() => {
+    // Phase 6: Pre-Heat AI on mount
+    initFaceLandmarker().catch(() => {});
+    return () => {
+      pipelineGenerationRef.current += 1;
+      if (engineCanvasRef.current) {
+        engineCanvasRef.current.width = 0;
+        engineCanvasRef.current.height = 0;
+        engineCanvasRef.current = null;
+      }
+      if (engineCanvasSecondaryRef.current) {
+        engineCanvasSecondaryRef.current.width = 0;
+        engineCanvasSecondaryRef.current.height = 0;
+        engineCanvasSecondaryRef.current = null;
+      }
+    };
+  }, []);
 
   const reset = () => {
     pipelineGenerationRef.current += 1;
