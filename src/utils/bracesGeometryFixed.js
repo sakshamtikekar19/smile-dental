@@ -92,7 +92,10 @@ function findEnamelCentroid(startX, startY, pixelData, iw, ih, radius = 18) {
   }
 
   if (count < 10) return { x: startX, y: startY }; // Fallback
-  return { x: sumX / count, y: sumY / count };
+  const res = { x: sumX / count, y: sumY / count };
+  // Help GC
+  sumX = null; sumY = null;
+  return res;
 }
 
 /**
@@ -187,7 +190,7 @@ export function buildBracesPack(landmarks, iw, ih, oval, pixelData = null) {
     ? calculateParabolicPath(lowerStuds, false, mouthOpen)
     : [];
 
-  return {
+  const res = {
     upperAnchors,
     lowerAnchors: lowerAnchors ?? [],
     upperStuds,
@@ -198,6 +201,10 @@ export function buildBracesPack(landmarks, iw, ih, oval, pixelData = null) {
     baseW: BRACKET_SIDE_PX,
     baseH: BRACKET_SIDE_PX,
   };
+
+  // Explicitly clear references to the heavy pixel buffer
+  pixelData = null; 
+  return res;
 }
 
 export { lm as landmarkToPx };

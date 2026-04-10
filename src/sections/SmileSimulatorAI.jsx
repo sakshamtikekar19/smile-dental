@@ -288,6 +288,20 @@ let faceMeshLoadFailed = false;
 let faceLandmarkerInstance;
 let faceLandmarkerLoadFailed = false;
 
+// --- Singleton Request Queue for FaceMesh ---
+let faceMeshRequest = null; 
+const setupFaceMeshSingleton = (faceMesh) => {
+  faceMesh.onResults(results => {
+    if (faceMeshRequest) {
+      const { resolve, canvas, iw, ih } = faceMeshRequest;
+      faceMeshRequest = null;
+      const landmarks = results?.multiFaceLandmarks?.[0];
+      if (!landmarks) { resolve({ ok: false }); return; }
+      resolve({ ok: true, landmarks });
+    }
+  });
+};
+
 const initFaceLandmarker = async () => {
   if (faceLandmarkerLoadFailed) return null;
   if (faceLandmarkerInstance) return faceLandmarkerInstance;
@@ -328,6 +342,7 @@ const initFaceMesh = async () => {
       minDetectionConfidence: 0.2,
       minTrackingConfidence: 0.2,
     });
+    setupFaceMeshSingleton(faceMesh);
     faceMeshInstance = faceMesh;
     return faceMeshInstance;
   } catch {
@@ -366,21 +381,29 @@ const SmileSimulatorAI = () => {
 
   const normalizeImage = async (imageSrc, maxWidth = 1024) => {
     const img = await loadImage(imageSrc);
-    // Mandate 1: Force downscaling to preserve main thread stability
     const scale = Math.min(1, maxWidth / Math.max(img.width, img.height, 1));
     const width = Math.round(img.width * scale);
     const height = Math.round(img.height * scale);
     const canvas = document.createElement("canvas");
     canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext("2d");
-    // Draw with smooth interpolation
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(img, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", 0.9);
+    
+    return new Promise(resolve => {
+      canvas.toBlob(blob => {
+        const url = URL.createObjectURL(blob);
+        resolve(url);
+      }, "image/jpeg", 0.9);
+    });
   };
 
-  const yieldMainThread = () => new Promise(resolve => setTimeout(resolve, 0));
+  const yieldMainThread = () => new Promise(resolve => setTimeout(resolve, 10)); // Increased yield for GC
+
+  const safeRevoke = (url) => {
+    if (url && url.startsWith("blob:")) URL.revokeObjectURL(url);
+  };
 
   // ── Mouth detection ─────────────────────────────────────────────────
   const buildMouthAnalysis = (landmarks, iw, ih, indices) => {
@@ -501,23 +524,34 @@ const SmileSimulatorAI = () => {
 
   const runFaceMeshOnCanvas = (canvas) =>
     new Promise(resolve => {
-      let settled = false, timer;
-      const finish = p => { if (settled) return; settled = true; clearTimeout(timer); resolve(p); };
-      timer = setTimeout(() => finish({ ok: false }), 12000);
-      Promise.race([
-        initFaceMesh(),
-        new Promise(r => setTimeout(() => r(null), FACE_MESH_INIT_TIMEOUT_MS)),
-      ]).then(faceMesh => {
-        if (!faceMesh) { finish({ ok: false }); return; }
-        faceMesh.onResults(results => {
-          const landmarks = results?.multiFaceLandmarks?.[0];
-          if (!landmarks) { finish({ ok: false }); return; }
-          const analysis = analyzeMouthFromLandmarks(landmarks, canvas.width, canvas.height) ||
-                           buildAnalysisFromMinimalMouthHull(landmarks, canvas.width, canvas.height);
-          if (!analysis) { finish({ ok: false }); return; }
-          finish({ ok: true, ...analysis, landmarks });
+      if (faceMeshRequest) { resolve({ ok: false }); return; }
+      
+      let timer = setTimeout(() => {
+        faceMeshRequest = null;
+        resolve({ ok: false });
+      }, 15000);
+
+      initFaceMesh().then(faceMesh => {
+        if (!faceMesh) { clearTimeout(timer); resolve({ ok: false }); return; }
+        
+        faceMeshRequest = {
+          resolve: (res) => {
+            clearTimeout(timer);
+            if (!res.ok) { resolve({ ok: false }); return; }
+            const landmarks = res.landmarks;
+            const analysis = analyzeMouthFromLandmarks(landmarks, canvas.width, canvas.height) ||
+                             buildAnalysisFromMinimalMouthHull(landmarks, canvas.width, canvas.height);
+            if (!analysis) { resolve({ ok: false }); return; }
+            resolve({ ok: true, ...analysis, landmarks });
+          },
+          canvas
+        };
+
+        faceMesh.send({ image: canvas }).catch(() => {
+          clearTimeout(timer);
+          faceMeshRequest = null;
+          resolve({ ok: false });
         });
-        faceMesh.send({ image: canvas }).catch(() => finish({ ok: false }));
       });
     });
 
@@ -606,11 +640,10 @@ const SmileSimulatorAI = () => {
 
     let _pixelSafe = 0;
     for (let py = minY; py < maxY; py++) {
-      // Mandate 3: Yield every few rows to keep UI responsive
-      if (py % 12 === 0) await yieldMainThread();
+      if (generation !== pipelineGenerationRef.current) throw "CANCELLED";
+      if (py % 16 === 0) await yieldMainThread();
 
       for (let px = minX; px < maxX; px++) {
-        // Mandate 2: Hard loop fail-safe
         if (++_pixelSafe > 1_500_000) break;
 
         const i = (py * iw + px) * 4;
@@ -699,11 +732,13 @@ const SmileSimulatorAI = () => {
         ctx.drawImage(img, 0, 0);
         ctx.save();
         if (!landmarks) { ctx.beginPath(); ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2); ctx.clip(); }
-        applyLuminosityWhiteningPass(ctx, w, h, 0.38, landmarks).then(() => {
+        applyLuminosityWhiteningPass(ctx, w, h, 0.38, landmarks, generation).then(() => {
           applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks);
           ctx.restore();
-          resolve(canvas.toDataURL("image/jpeg", 0.95));
-        });
+          canvas.toBlob(blob => {
+            resolve(URL.createObjectURL(blob));
+          }, "image/jpeg", 0.95);
+        }).catch(reject);
       };
       img.onerror = () => reject(new Error("Could not load image for whitening"));
       img.src = imageSrc;
@@ -728,7 +763,7 @@ const SmileSimulatorAI = () => {
   const createBitmapMask = (poly, iw, ih) => {
     const canvas = document.createElement("canvas");
     canvas.width = iw; canvas.height = ih;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false });
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, iw, ih);
     ctx.fillStyle = "white";
@@ -737,11 +772,16 @@ const SmileSimulatorAI = () => {
     for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
     ctx.closePath();
     ctx.fill();
-    const data = ctx.getImageData(0, 0, iw, ih).data;
+    
+    const imageData = ctx.getImageData(0, 0, iw, ih);
+    const data = imageData.data;
     const bitmap = new Uint8Array(iw * ih);
     for (let i = 0; i < iw * ih; i++) {
       bitmap[i] = data[i * 4] > 128 ? 1 : 0;
     }
+    
+    // Explicit Cleanup for GC
+    canvas.width = 0; canvas.height = 0;
     return bitmap;
   };
 
@@ -810,6 +850,7 @@ const SmileSimulatorAI = () => {
         const valid = new Uint8Array(width);
         let _warpSafe1 = 0;
         for (let cx = 0; cx < width; cx++) {
+          if (generation !== pipelineGenerationRef.current) throw "CANCELLED";
           if (cx % 32 === 0) await yieldMainThread();
           for (let cy = 0; cy <= upperCap; cy++) {
             if (++_warpSafe1 > 1_500_000) break;
@@ -919,6 +960,7 @@ const SmileSimulatorAI = () => {
         // Texture-preserving inverse warp: local rotation (column pivot) + translation = homography-style enamel move.
         let _warpSafe2 = 0;
         for (let cy = 0; cy < height; cy++) {
+          if (generation !== pipelineGenerationRef.current) throw "CANCELLED";
           if (cy % 16 === 0) await yieldMainThread();
           for (let cx = 0; cx < width; cx++) {
             if (++_warpSafe2 > 2_000_000) break;
@@ -980,7 +1022,9 @@ const SmileSimulatorAI = () => {
         }
 
         ctx.putImageData(outImg, x, y);
-        resolve(canvas.toDataURL("image/jpeg", 0.95));
+        canvas.toBlob(blob => {
+          resolve(URL.createObjectURL(blob));
+        }, "image/jpeg", 0.95);
       };
       img.onerror = () => reject(new Error("Could not load image for alignment"));
       img.src = imageSrc;
@@ -1111,6 +1155,7 @@ const SmileSimulatorAI = () => {
 
     let _mergeSafe = 0;
     for (let py = bounds.y; py < bounds.y + bounds.height; py++) {
+      if (generation !== pipelineGenerationRef.current) throw "CANCELLED";
       if (py % 24 === 0) await yieldMainThread();
       for (let px = bounds.x; px < bounds.x + bounds.width; px++) {
         if (++_mergeSafe > 1_500_000) break;
@@ -1129,7 +1174,11 @@ const SmileSimulatorAI = () => {
       }
     }
     ctx.putImageData(imageData, 0, 0);
-    return canvas.toDataURL("image/jpeg", 0.95);
+    return new Promise(resolve => {
+      canvas.toBlob(blob => {
+        resolve(URL.createObjectURL(blob));
+      }, "image/jpeg", 0.95);
+    });
   };
 
   // ── FIXED: Braces overlay now uses clean fixed pipeline ──────────────
@@ -1201,6 +1250,7 @@ const SmileSimulatorAI = () => {
       const mouth = await detectMouth(normalized);
 
       if (!mouth.bounds || !mouth.oval) {
+        safeRevoke(normalized);
         setError("Keep your mouth slightly open so we can see your teeth clearly, then try again.");
         setStep("upload");
         return;
@@ -1208,31 +1258,44 @@ const SmileSimulatorAI = () => {
 
       const { bounds, oval, landmarks } = mouth;
       const fullFrame = await loadImage(normalized);
-      let canvasEnhanced = normalized;
+      let currentStepUrl = normalized;
 
-      // Whitening pass (for whitening, transformation, braces)
+      // Whitening pass
       if (["whitening", "transformation", "braces"].includes(selectedTreatment)) {
-        canvasEnhanced = await applyTeethWhitening(canvasEnhanced, oval, landmarks, bounds);
+        const next = await applyTeethWhitening(currentStepUrl, oval, landmarks, bounds);
+        if (currentStepUrl !== normalized) safeRevoke(currentStepUrl);
+        currentStepUrl = next;
       }
+      
       // Alignment pass
       if (["alignment", "transformation"].includes(selectedTreatment)) {
-        canvasEnhanced = await applyAlignmentWarp(canvasEnhanced, bounds, landmarks, oval, selectedTreatment);
+        const next = await applyAlignmentWarp(currentStepUrl, bounds, landmarks, oval, selectedTreatment);
+        if (currentStepUrl !== normalized) safeRevoke(currentStepUrl);
+        currentStepUrl = next;
       }
 
-      const mouthCrop = await cropMouthRegion(canvasEnhanced, bounds);
-
+      const mouthCrop = await cropMouthRegion(currentStepUrl, bounds);
       const previewRect = squareCropRect(fullFrame.width, fullFrame.height, oval);
       const beforeSquare = await cropImageToDataUrl(normalized, previewRect);
 
-      const finalizeAndShow = async (mouthDataUrl) => {
-        let merged = await mergeFinalImage(normalized, mouthDataUrl, bounds, oval, landmarks);
+      const finalizeAndShow = async (mouthUrl) => {
+        const mergedUrl = await mergeFinalImage(normalized, mouthUrl, bounds, oval, landmarks);
+        let finalUrl = mergedUrl;
         if (selectedTreatment === "braces") {
-          merged = await applyBracesOverlay(merged, fullFrame.width, fullFrame.height);
+          finalUrl = await applyBracesOverlay(mergedUrl, fullFrame.width, fullFrame.height);
+          safeRevoke(mergedUrl);
         }
-        const afterSquare = await cropImageToDataUrl(merged, previewRect);
+        const afterSquare = await cropImageToDataUrl(finalUrl, previewRect);
+        
+        // Final state cleanup
         setBeforeImage(beforeSquare);
         setAfterImage(afterSquare);
         setStep("result");
+        
+        // Keep finalUrl and beforeSquare in state, but we'll revoke others
+        safeRevoke(mouthUrl);
+        if (currentStepUrl !== normalized) safeRevoke(currentStepUrl);
+        safeRevoke(normalized);
       };
 
       await finalizeAndShow(mouthCrop);
@@ -1253,12 +1316,14 @@ const SmileSimulatorAI = () => {
             const merged = await mergeFinalImage(normalized, aiPolishedCrop, bounds, oval, landmarks);
             const afterSquare = await cropImageToDataUrl(merged, previewRect);
             setAfterImage(afterSquare);
+            safeRevoke(merged);
           } catch {
             /* keep client preview */
           }
         })();
       }
     } catch (err) {
+      if (err === "CANCELLED") return;
       setError(err?.message || "Simulation failed.");
       setStep("upload");
     }
@@ -1268,6 +1333,8 @@ const SmileSimulatorAI = () => {
     pipelineGenerationRef.current += 1;
     stopCamera();
     setStep("upload");
+    if (beforeImage) safeRevoke(beforeImage);
+    if (afterImage) safeRevoke(afterImage);
     setBeforeImage(null);
     setAfterImage(null);
     setError(null);
