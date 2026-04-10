@@ -283,24 +283,8 @@ const FACE_MESH_INIT_TIMEOUT_MS      = 22_000;
 /** Background AI polish only (preview shows first); keep bounded so UI does not hang forever. */
 const AI_SMILE_FETCH_TIMEOUT_MS      = 75_000;
 
-let faceMeshInstance;
-let faceMeshLoadFailed = false;
 let faceLandmarkerInstance;
 let faceLandmarkerLoadFailed = false;
-
-// --- Singleton Request Queue for FaceMesh ---
-let faceMeshRequest = null; 
-const setupFaceMeshSingleton = (faceMesh) => {
-  faceMesh.onResults(results => {
-    if (faceMeshRequest) {
-      const { resolve, canvas, iw, ih } = faceMeshRequest;
-      faceMeshRequest = null;
-      const landmarks = results?.multiFaceLandmarks?.[0];
-      if (!landmarks) { resolve({ ok: false }); return; }
-      resolve({ ok: true, landmarks });
-    }
-  });
-};
 
 const initFaceLandmarker = async () => {
   if (faceLandmarkerLoadFailed) return null;
@@ -324,29 +308,6 @@ const initFaceLandmarker = async () => {
     return faceLandmarkerInstance;
   } catch {
     faceLandmarkerLoadFailed = true;
-    return null;
-  }
-};
-
-const initFaceMesh = async () => {
-  if (faceMeshLoadFailed) return null;
-  if (faceMeshInstance) return faceMeshInstance;
-  try {
-    const FaceMeshModule = await import("@mediapipe/face_mesh");
-    const faceMesh = new FaceMeshModule.FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-    });
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.2,
-      minTrackingConfidence: 0.2,
-    });
-    setupFaceMeshSingleton(faceMesh);
-    faceMeshInstance = faceMesh;
-    return faceMeshInstance;
-  } catch {
-    faceMeshLoadFailed = true;
     return null;
   }
 };
@@ -523,39 +484,6 @@ const SmileSimulatorAI = () => {
     return { ...analysis, landmarks: faceLm };
   };
 
-  const runFaceMeshOnCanvas = (canvas) =>
-    new Promise(resolve => {
-      if (faceMeshRequest) { resolve({ ok: false }); return; }
-      
-      let timer = setTimeout(() => {
-        faceMeshRequest = null;
-        resolve({ ok: false });
-      }, 15000);
-
-      initFaceMesh().then(faceMesh => {
-        if (!faceMesh) { clearTimeout(timer); resolve({ ok: false }); return; }
-        
-        faceMeshRequest = {
-          resolve: (res) => {
-            clearTimeout(timer);
-            if (!res.ok) { resolve({ ok: false }); return; }
-            const landmarks = res.landmarks;
-            const analysis = analyzeMouthFromLandmarks(landmarks, canvas.width, canvas.height) ||
-                             buildAnalysisFromMinimalMouthHull(landmarks, canvas.width, canvas.height);
-            if (!analysis) { resolve({ ok: false }); return; }
-            resolve({ ok: true, ...analysis, landmarks });
-          },
-          canvas
-        };
-
-        faceMesh.send({ image: canvas }).catch(() => {
-          clearTimeout(timer);
-          faceMeshRequest = null;
-          resolve({ ok: false });
-        });
-      });
-    });
-
   const detectMouth = async (imageSrc) => {
     const img = await loadImage(imageSrc);
     if (typeof img.decode === "function") { try { await img.decode(); } catch {} }
@@ -568,10 +496,7 @@ const SmileSimulatorAI = () => {
 
     let lm = null;
     try { lm = await tryFaceLandmarker(canvas); } catch {}
-    if (lm) return { ok: true, bounds: lm.bounds, oval: lm.oval, confidence: lm.confidence, landmarks: lm.landmarks };
-
-    const mesh = await runFaceMeshOnCanvas(canvas);
-    if (mesh.ok && mesh.bounds && mesh.oval) return mesh;
+    if (lm) return { ok: true, ...lm };
 
     const h = heuristicMouthRegion(iw, ih);
     return { ok: true, ...h, landmarks: null };
@@ -1459,8 +1384,8 @@ const SmileSimulatorAI = () => {
               <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="bg-white p-20 rounded-3xl border border-zinc-100 shadow-xl text-center">
                 <div className="w-16 h-16 border-4 border-zinc-100 border-t-brand-gold rounded-full animate-spin mx-auto mb-8" />
-                <p className="text-lg font-serif text-zinc-800 animate-pulse">Designing your future smile…</p>
-                <p className="text-sm text-zinc-400 mt-2">This may take up to 30 seconds</p>
+                <p className="text-lg font-serif text-zinc-800">Designing your future smile…</p>
+                <p className="text-sm text-zinc-400 mt-2">This may take up to 20 seconds</p>
               </motion.div>
             )}
 
