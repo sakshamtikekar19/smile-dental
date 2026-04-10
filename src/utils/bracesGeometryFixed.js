@@ -46,7 +46,9 @@ function calculateParabolicPath(studs, isUpper, mouthOpen, steps = 24) {
   const path = [];
   // Extend slightly beyond endpoints to wrap behind molars
   const padding = 12;
+  let _paraSafe = 0;
   for (let i = 0; i <= steps; i++) {
+    if (++_paraSafe > 1000) break;
     const x = (xMin - padding) + (i / steps) * (width + padding * 2);
     const y = a * Math.pow(x - midX, 2) + k;
     path.push({ x, y });
@@ -68,8 +70,10 @@ function findEnamelCentroid(startX, startY, pixelData, iw, ih, radius = 18) {
   // Mandate 5: Performance - scan every 2nd pixel if radius is large
   const step = radius > 12 ? 2 : 1;
 
+  let _centroidSafe = 0;
   for (let y = y0; y <= y1; y += step) {
     for (let x = x0; x <= x1; x += step) {
+      if (++_centroidSafe > 10000) break;
       const idx = (Math.floor(y) * iw + Math.floor(x)) * 4;
       const r = pixelData[idx], g = pixelData[idx+1], b = pixelData[idx+2];
       

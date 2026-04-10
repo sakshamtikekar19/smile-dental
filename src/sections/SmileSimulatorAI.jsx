@@ -366,14 +366,21 @@ const SmileSimulatorAI = () => {
 
   const normalizeImage = async (imageSrc, maxWidth = 1024) => {
     const img = await loadImage(imageSrc);
-    const scale  = img.width > maxWidth ? maxWidth / img.width : 1;
-    const width  = Math.round(img.width  * scale);
+    // Mandate 1: Force downscaling to preserve main thread stability
+    const scale = Math.min(1, maxWidth / Math.max(img.width, img.height, 1));
+    const width = Math.round(img.width * scale);
     const height = Math.round(img.height * scale);
     const canvas = document.createElement("canvas");
     canvas.width = width; canvas.height = height;
-    canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+    const ctx = canvas.getContext("2d");
+    // Draw with smooth interpolation
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, width, height);
     return canvas.toDataURL("image/jpeg", 0.9);
   };
+
+  const yieldMainThread = () => new Promise(resolve => setTimeout(resolve, 0));
 
   // ── Mouth detection ─────────────────────────────────────────────────
   const buildMouthAnalysis = (landmarks, iw, ih, indices) => {
@@ -564,7 +571,7 @@ const SmileSimulatorAI = () => {
   };
 
   // Mandate 1: Restore Soft-Light composite blending
-  const applyLuminosityWhiteningPass = (ctx, iw, ih, strength = 0.38, landmarks = null) => {
+  const applyLuminosityWhiteningPass = async (ctx, iw, ih, strength = 0.38, landmarks = null) => {
     const pristineData = ctx.getImageData(0, 0, iw, ih).data;
 
     // Create a layer for the white overlay
@@ -597,8 +604,15 @@ const SmileSimulatorAI = () => {
       maxY = Math.min(ih, Math.ceil(Math.max(...ys)) + 15);
     }
 
+    let _pixelSafe = 0;
     for (let py = minY; py < maxY; py++) {
+      // Mandate 3: Yield every few rows to keep UI responsive
+      if (py % 12 === 0) await yieldMainThread();
+
       for (let px = minX; px < maxX; px++) {
+        // Mandate 2: Hard loop fail-safe
+        if (++_pixelSafe > 1_500_000) break;
+
         const i = (py * iw + px) * 4;
         
         // Fast lookup instead of pointInPoly
@@ -607,21 +621,16 @@ const SmileSimulatorAI = () => {
         const r = pristineData[i], g = pristineData[i+1], b = pristineData[i+2];
         
         // --- Mandate 1: Red-Channel Suppression Gate (Tighter) ---
-        // Protect gums/lips more aggressively
         const redExcess = r / Math.max(g, 1);
         const redExcessB = r / Math.max(b, 1);
         if (r > 105 && (redExcess > 1.18 || redExcessB > 1.22)) continue;
 
-        // --- Mandate 1: Wider Luminance Target (Catch Molars) ---
         const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-        if (lum < 0.04) continue; // Only skip the absolute darkest voids
+        if (lum < 0.04) continue;
 
-        // Apply a clinically-tuned ivory-white sheen
-        // We use full white here; the soft-light composite operation will handle the natural texture preservation
         d[i]   = 255;
         d[i+1] = 255;
-        d[i+2] = 250; // Very slightly warm white
-        // Higher alpha at lower luminance to boost molars without blowing out highlights
+        d[i+2] = 250;
         const lumFactor = Math.pow(1 - lum, 0.5);
         d[i+3] = Math.min(255, Math.round(strength * 255 * (0.85 + 0.4 * lumFactor)));
       }
@@ -690,10 +699,11 @@ const SmileSimulatorAI = () => {
         ctx.drawImage(img, 0, 0);
         ctx.save();
         if (!landmarks) { ctx.beginPath(); ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2); ctx.clip(); }
-        applyLuminosityWhiteningPass(ctx, w, h, 0.38, landmarks);
-        applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks);
-        ctx.restore();
-        resolve(canvas.toDataURL("image/jpeg", 0.95));
+        applyLuminosityWhiteningPass(ctx, w, h, 0.38, landmarks).then(() => {
+          applyEnamelGlossAndGumOcclusion(ctx, w, h, landmarks);
+          ctx.restore();
+          resolve(canvas.toDataURL("image/jpeg", 0.95));
+        });
       };
       img.onerror = () => reject(new Error("Could not load image for whitening"));
       img.src = imageSrc;
@@ -758,7 +768,7 @@ const SmileSimulatorAI = () => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.onload = () => {
+      img.onload = async () => {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
         canvas.width = img.width; canvas.height = img.height;
@@ -798,8 +808,11 @@ const SmileSimulatorAI = () => {
 
         const topEdge = new Float32Array(width).fill(1e9);
         const valid = new Uint8Array(width);
+        let _warpSafe1 = 0;
         for (let cx = 0; cx < width; cx++) {
+          if (cx % 32 === 0) await yieldMainThread();
           for (let cy = 0; cy <= upperCap; cy++) {
+            if (++_warpSafe1 > 1_500_000) break;
             if (!maskBitmap[cy * width + cx]) continue;
             const i = (cy * width + cx) * 4;
             const r = src[i], g = src[i + 1], b = src[i + 2];
@@ -904,8 +917,11 @@ const SmileSimulatorAI = () => {
         };
 
         // Texture-preserving inverse warp: local rotation (column pivot) + translation = homography-style enamel move.
+        let _warpSafe2 = 0;
         for (let cy = 0; cy < height; cy++) {
+          if (cy % 16 === 0) await yieldMainThread();
           for (let cx = 0; cx < width; cx++) {
+            if (++_warpSafe2 > 2_000_000) break;
             const oi = (cy * width + cx) * 4;
             if (!maskBitmap[cy * width + cx]) continue;
             if (cy > upperCap) {
@@ -1093,8 +1109,11 @@ const SmileSimulatorAI = () => {
     const mouthPixels = tmp.getContext("2d").getImageData(0, 0, bounds.width, bounds.height).data;
     const maskBitmap = enamelCore ? createBitmapMask(enamelCore, original.width, original.height) : null;
 
+    let _mergeSafe = 0;
     for (let py = bounds.y; py < bounds.y + bounds.height; py++) {
+      if (py % 24 === 0) await yieldMainThread();
       for (let px = bounds.x; px < bounds.x + bounds.width; px++) {
+        if (++_mergeSafe > 1_500_000) break;
         const w0 = ellipseFeatherWeight(px, py, oval, OVAL_FEATHER_PX);
         if (w0 <= 0) continue;
         const wEnamel = (!maskBitmap || maskBitmap[py * original.width + px])
