@@ -29,8 +29,8 @@ function calculateParabolicPath(studs, isUpper, mouthOpen, steps = 24) {
   
   const xMin = studs[0].x;
   const xMax = studs[studs.length - 1].x;
+  const width = Math.max(xMax - xMin, 1);
   const midX = (xMin + xMax) / 2;
-  const width = xMax - xMin;
   
   // Apex 'k' is the peak of the curve. Endpoints are at 'y_ends'.
   // a = (y_ends - k) / (width/2)^2
@@ -38,8 +38,8 @@ function calculateParabolicPath(studs, isUpper, mouthOpen, steps = 24) {
   
   // Mandate 2: Force distinct smile curvature even on flat landmarks
   const minSag = Math.max(12, width * 0.12);
-  const sagPlex = clamp(width * 0.08 + mouthOpen * 0.12, minSag, 60);
-  const k = isUpper ? yEnds - sagPlex : yEnds + sagPlex;
+  const sagPlex = Math.min(width * 0.08 + mouthOpen * 0.12, 60);
+  const k = isUpper ? yEnds - Math.max(minSag, sagPlex) : yEnds + Math.max(minSag, sagPlex);
   
   const a = (yEnds - k) / Math.pow(width / 2, 2);
   
@@ -65,9 +65,12 @@ function findEnamelCentroid(startX, startY, pixelData, iw, ih, radius = 18) {
   const y0 = clamp(Math.floor(startY - radius), 0, ih - 1);
   const y1 = clamp(Math.ceil(startY + radius), 0, ih - 1);
 
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      const idx = (y * iw + x) * 4;
+  // Mandate 5: Performance - scan every 2nd pixel if radius is large
+  const step = radius > 12 ? 2 : 1;
+
+  for (let y = y0; y <= y1; y += step) {
+    for (let x = x0; x <= x1; x += step) {
+      const idx = (Math.floor(y) * iw + Math.floor(x)) * 4;
       const r = pixelData[idx], g = pixelData[idx+1], b = pixelData[idx+2];
       
       // Enamel detection: Light, low-saturation pixels

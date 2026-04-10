@@ -581,20 +581,28 @@ const SmileSimulatorAI = () => {
       const mp = getTightenedWhiteningMaskPoints(landmarks, iw, ih, 0);
       if (mp && mp.length >= 3) maskPoly = mp;
     }
+
+    // --- Performance Optimization: Pre-render Mask to Bitmap ---
+    // This avoids calling pointInPoly (expensive) for every single pixel.
+    const maskBitmap = maskPoly ? createBitmapMask(maskPoly, iw, ih) : null;
     
     // Bounding box for optimization
     let minX = 0, maxX = iw, minY = 0, maxY = ih;
     if (maskPoly && maskPoly.length > 0) {
-      minX = Math.max(0, Math.floor(Math.min(...maskPoly.map(p => p.x))) - 15);
-      maxX = Math.min(iw, Math.ceil(Math.max(...maskPoly.map(p => p.x))) + 15);
-      minY = Math.max(0, Math.floor(Math.min(...maskPoly.map(p => p.y))) - 15);
-      maxY = Math.min(ih, Math.ceil(Math.max(...maskPoly.map(p => p.y))) + 15);
+      const xs = maskPoly.map(p => p.x);
+      const ys = maskPoly.map(p => p.y);
+      minX = Math.max(0, Math.floor(Math.min(...xs)) - 15);
+      maxX = Math.min(iw, Math.ceil(Math.max(...xs)) + 15);
+      minY = Math.max(0, Math.floor(Math.min(...ys)) - 15);
+      maxY = Math.min(ih, Math.ceil(Math.max(...ys)) + 15);
     }
 
     for (let py = minY; py < maxY; py++) {
       for (let px = minX; px < maxX; px++) {
         const i = (py * iw + px) * 4;
-        if (maskPoly && !pointInPoly(px, py, maskPoly)) continue;
+        
+        // Fast lookup instead of pointInPoly
+        if (maskBitmap && !maskBitmap[py * iw + px]) continue;
 
         const r = pristineData[i], g = pristineData[i+1], b = pristineData[i+2];
         
@@ -703,6 +711,30 @@ const SmileSimulatorAI = () => {
     return inside;
   };
 
+  /**
+   * --- Mandate 5: Performance Recovery ---
+   * Creates a fast-lookup boolean bitmap for a polygon to avoid per-pixel math.
+   */
+  const createBitmapMask = (poly, iw, ih) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = iw; canvas.height = ih;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, iw, ih);
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    ctx.moveTo(poly[0].x, poly[0].y);
+    for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i].x, poly[i].y);
+    ctx.closePath();
+    ctx.fill();
+    const data = ctx.getImageData(0, 0, iw, ih).data;
+    const bitmap = new Uint8Array(iw * ih);
+    for (let i = 0; i < iw * ih; i++) {
+      bitmap[i] = data[i * 4] > 128 ? 1 : 0;
+    }
+    return bitmap;
+  };
+
   const sampleRGBA = (src, sw, sh, x, y) => {
     const px = clamp(x, 0, sw - 1);
     const py = clamp(y, 0, sh - 1);
@@ -750,6 +782,8 @@ const SmileSimulatorAI = () => {
         const out = outImg.data;
 
         const localPoly = maskPts.map((p) => ({ x: p.x - x, y: p.y - y }));
+        const maskBitmap = createBitmapMask(localPoly, width, height);
+
         const lipU = landmarks[13], lipL = landmarks[14];
         const midY = lipU && lipL ? ((lipU.y + lipL.y) * 0.5 * canvas.height - y) : height * 0.5;
         /** Only warp / inpaint / sharpen above this row — below is lip/lower arch (must stay original pixels). */
@@ -766,7 +800,7 @@ const SmileSimulatorAI = () => {
         const valid = new Uint8Array(width);
         for (let cx = 0; cx < width; cx++) {
           for (let cy = 0; cy <= upperCap; cy++) {
-            if (!pointInPoly(cx, cy, localPoly)) continue;
+            if (!maskBitmap[cy * width + cx]) continue;
             const i = (cy * width + cx) * 4;
             const r = src[i], g = src[i + 1], b = src[i + 2];
             const maxc = Math.max(r, g, b), minc = Math.min(r, g, b);
@@ -873,7 +907,7 @@ const SmileSimulatorAI = () => {
         for (let cy = 0; cy < height; cy++) {
           for (let cx = 0; cx < width; cx++) {
             const oi = (cy * width + cx) * 4;
-            if (!pointInPoly(cx, cy, localPoly)) continue;
+            if (!maskBitmap[cy * width + cx]) continue;
             if (cy > upperCap) {
               copyPixel(out, oi, src, oi);
               continue;
@@ -893,9 +927,9 @@ const SmileSimulatorAI = () => {
             const sinT = Math.sin(theta);
             const srx = vx * cosT + vy * sinT;
             const sry = -vx * sinT + vy * cosT;
-            const sx = cx + srx;
-            const sy = top + sry;
-            const smp = pointInPoly(sx, sy, localPoly)
+            const sx = Math.round(cx + srx);
+            const sy = Math.round(top + sry);
+            const smp = (sx >= 0 && sx < width && sy >= 0 && sy < height && maskBitmap[sy * width + sx])
               ? sampleRGBA(src, width, height, sx, sy)
               : sampleRGBA(src, width, height, cx, cy);
             
@@ -923,7 +957,7 @@ const SmileSimulatorAI = () => {
         // Hard composite: anything outside teeth hull or below lip line stays identical to source (fixes jagged halos / lip tint).
         for (let cy = 0; cy < height; cy++) {
           for (let cx = 0; cx < width; cx++) {
-            if (cy <= upperCap && pointInPoly(cx, cy, localPoly)) continue;
+            if (cy <= upperCap && maskBitmap[cy * width + cx]) continue;
             const oi = (cy * width + cx) * 4;
             copyPixel(out, oi, src, oi);
           }
@@ -1057,15 +1091,15 @@ const SmileSimulatorAI = () => {
     tmp.width = bounds.width; tmp.height = bounds.height;
     tmp.getContext("2d").drawImage(mouth, 0, 0, mouth.width, mouth.height, 0, 0, bounds.width, bounds.height);
     const mouthPixels = tmp.getContext("2d").getImageData(0, 0, bounds.width, bounds.height).data;
+    const maskBitmap = enamelCore ? createBitmapMask(enamelCore, original.width, original.height) : null;
+
     for (let py = bounds.y; py < bounds.y + bounds.height; py++) {
       for (let px = bounds.x; px < bounds.x + bounds.width; px++) {
         const w0 = ellipseFeatherWeight(px, py, oval, OVAL_FEATHER_PX);
         if (w0 <= 0) continue;
-        const wEnamel = !enamelCore
+        const wEnamel = (!maskBitmap || maskBitmap[py * original.width + px])
           ? 1
-          : pointInPoly(px, py, enamelCore)
-            ? 1
-            : MERGE_OUTSIDE_ENAMEL_WEIGHT;
+          : MERGE_OUTSIDE_ENAMEL_WEIGHT;
         const w = w0 * wEnamel;
         if (w <= 0) continue;
         const oi = (py * canvas.width + px) * 4;
