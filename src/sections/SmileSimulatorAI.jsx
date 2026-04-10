@@ -377,7 +377,8 @@ const SmileSimulatorAI = () => {
     }
   };
 
-  const normalizeImage = async (imageSrc, maxWidth = 720) => {
+  const normalizeImage = async (imageSrc, maxWidth = 512) => {
+    // Phase 5: 512px Low-Memory mode for total mobile/budget stability
     setProcessingLog("Decoding hardware pixels...");
     const img = await loadBitmap(imageSrc, maxWidth);
     const width = img.width, height = img.height;
@@ -530,8 +531,7 @@ const SmileSimulatorAI = () => {
     canvas.width = iw; canvas.height = ih;
     const detCtx = canvas.getContext("2d");
     detCtx.drawImage(img, 0, 0);
-    boostMouthGuideRegion(detCtx, iw, ih);
-
+    
     let lm = null;
     try { lm = await tryFaceLandmarker(canvas); } catch {}
     if (lm) return { ok: true, ...lm };
@@ -1224,9 +1224,13 @@ const SmileSimulatorAI = () => {
     setError(null);
     setActiveTreatment(selectedTreatment);
     setProcessingLog("Analyzing facial features...");
+    
+    // Phase 5 Liberation: Wait for React to paint the "Designing..." screen
+    // BEFORE starting heavy math, preventing the "Freeze" feel.
+    await new Promise(r => setTimeout(r, 100));
 
     try {
-      const normalized = alreadyNormalized ? baseImage : await normalizeImage(baseImage, 720);
+      const normalized = alreadyNormalized ? baseImage : await normalizeImage(baseImage, 512);
       
       // Phase 3: Immediate revocation of high-res original after normalization
       if (!alreadyNormalized) safeRevoke(baseImage);

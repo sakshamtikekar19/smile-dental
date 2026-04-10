@@ -24,7 +24,7 @@ function lm(landmarks, idx, iw, ih) {
  * Build a parabolic path y = a(x - h)^2 + k passing through the midpoint apex 
  * and endpoints defined by the bracket row.
  */
-function calculateParabolicPath(studs, isUpper, mouthOpen, steps = 24) {
+function calculateParabolicPath(studs, isUpper, mouthOpen, steps = 12) {
   if (!studs || studs.length < 2) return [];
   
   const xMin = studs[0].x;
