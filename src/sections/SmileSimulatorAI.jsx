@@ -498,23 +498,8 @@ const SmileSimulatorAI = () => {
 
   const videoRef           = useRef(null);
   const canvasRef          = useRef(null);
-  const fileInputRef       = useRef(null);
   const streamRef          = useRef(null);
   const generationRef      = useRef(0);    // invalidates stale async ops
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      pendingTreatmentRef.current = selectedTreatment;
-      const rawUrl = URL.createObjectURL(file);
-      setStep("processing");
-      setError(null);
-      setActiveTreatment(selectedTreatment);
-      setProcessingLog("Preparing photo...");
-      setRawImageUrl(rawUrl);
-      setIsProcessing(true);
-    }
-  };
 
   // Pre-warm MediaPipe on mount
   useEffect(() => {
@@ -801,39 +786,18 @@ const SmileSimulatorAI = () => {
                     <div className="mb-6 p-4 bg-amber-50 text-amber-800 text-sm rounded-xl border border-amber-100">{cameraError}</div>
                   )}
 
-                  {/* Big tap-friendly buttons */}
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <motion.button
-                      type="button"
-                      onClick={startCamera}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="flex-1 py-4 rounded-2xl font-bold text-sm tracking-wide flex items-center justify-center gap-3 text-white shadow-lg"
-                      style={{ background: "linear-gradient(135deg,#18181b,#3f3f46)" }}
-                    >
-                      <Camera size={20} />
-                      Take Photo
-                    </motion.button>
-                    
-                    <motion.button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="flex-1 py-4 rounded-2xl font-bold text-sm tracking-wide flex items-center justify-center gap-3 bg-white border-2 border-zinc-900 text-zinc-900"
-                    >
-                      <RefreshCw size={20} className="rotate-45" />
-                      Upload Photo
-                    </motion.button>
-                  </div>
-
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    accept="image/*"
-                  />
+                  {/* Big tap-friendly camera button */}
+                  <motion.button
+                    type="button"
+                    onClick={startCamera}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
+                    className="w-full py-5 rounded-2xl font-bold text-base tracking-wide flex items-center justify-center gap-3 text-white shadow-xl shadow-zinc-900/20"
+                    style={{ background: "linear-gradient(135deg,#18181b,#3f3f46)" }}
+                  >
+                    <Camera size={22} />
+                    Take Photo
+                  </motion.button>
 
                   {/* Tips */}
                   <ul className="mt-6 space-y-2.5">
