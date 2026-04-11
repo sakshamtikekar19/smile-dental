@@ -8,6 +8,7 @@ import AnimatedSection from "./components/AnimatedSection";
 import PremiumButton from "./components/PremiumButton";
 
 function App() {
+  console.log("DIAGNOSTIC: App component rendering...");
   return (
     <main className="bg-white min-h-screen selection:bg-brand-gold selection:text-white">
       <Navbar />
