@@ -251,23 +251,37 @@ async function resizeImage(src, maxPx = MAX_IMAGE_SIZE) {
  */
 async function detectLandmarks(imageSrc) {
   try {
+    // Mandate 1: Strict Promise-Based Image Loader (Await-Decode)
     const img = await loadImage(imageSrc);
+    if (!img.width || !img.height) return null;
+
     const canvas  = document.createElement("canvas");
     canvas.width  = img.width;
     canvas.height = img.height;
-    canvas.getContext("2d").drawImage(img, 0, 0);
 
-    const landmarker = await Promise.race([
-      initFaceLandmarker(),
-      new Promise(r => setTimeout(() => r(null), FACE_DETECT_TIMEOUT_MS)),
-    ]);
-    if (!landmarker) return null;
+    // Pillar 3: Fallback Dimension Check
+    if (canvas.width === 0 || canvas.height === 0) {
+       console.warn("AI Detect: Zero-dimension canvas detected.");
+       return null;
+    }
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+
+    // Mandate 2: AI Pre-heating check
+    const landmarker = await initFaceLandmarker();
+    if (!landmarker) {
+       console.warn("AI Engine not ready yet.");
+       return null;
+    }
 
     const result = landmarker.detect(canvas);
     const lm = result?.faceLandmarks?.[0];
-    // Use 100+ for high-fidelity anatomical detection
     return lm?.length >= 100 ? lm : null;
-  } catch { return null; }
+  } catch (err) { 
+    console.error("Detection error:", err);
+    return null; 
+  }
 }
 
 /**
@@ -496,10 +510,16 @@ const SmileSimulatorAI = () => {
   const streamRef          = useRef(null);
   const generationRef      = useRef(0);    // invalidates stale async ops
 
-  // Pre-warm MediaPipe on mount
+  // PERFORMANCE OPTIMAL: Deferred AI Pre-Heating (Mandate 1)
   useEffect(() => {
-    initFaceLandmarker().catch(() => {});
-    return () => { generationRef.current += 1; };
+    // Wait for UI to be fully interactive before hitting the network for WASM
+    const timer = setTimeout(() => {
+      initFaceLandmarker().catch(() => {});
+    }, 1200);
+    return () => {
+      clearTimeout(timer);
+      generationRef.current += 1;
+    };
   }, []);
 
   // Camera cleanup
@@ -572,6 +592,19 @@ const SmileSimulatorAI = () => {
     try {
       // Step 1: Detect landmarks on a standard 1024px image (Pillar 1/Regression 1)
       setProcessingLog("Analyzing anatomy...");
+      
+      // Mandate 3: UI 'Facade' State. If user clicks before AI is ready, show a warm-up message.
+      if (!_faceLandmarkerInstance) {
+        setProcessingLog("Waking up AI engine, please wait a moment...");
+        // Wait for pre-heating for up to 5s
+        for (let i = 0; i < 10; i++) {
+           if (_faceLandmarkerInstance) break;
+           await new Promise(r => setTimeout(r, 500));
+        }
+        if (!_faceLandmarkerInstance) throw new Error("AI Engine took too long to wake up. Please refresh.");
+      }
+
+      setProcessingLog("Locating anatomical landmarks...");
       const detectTarget = await resizeImage(imageUrl, 1024);
       const landmarks = await detectLandmarks(detectTarget.url);
       safeRevoke(detectTarget.url);
