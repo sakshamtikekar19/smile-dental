@@ -433,7 +433,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   const sec     = document.createElement("canvas");
   sec.width     = bounds.width;
   sec.height    = bounds.height;
-  sec.getContext("2d").drawImage(proc, 0, 0, proc.width, proc.height, 0, 0, bounds.width, bounds.height);
+  sec.getContext("2d").drawImage(proc, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
   const mPx = sec.getContext("2d").getImageData(0, 0, bounds.width, bounds.height).data;
 
   // Build enamel bitmap
