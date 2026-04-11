@@ -217,7 +217,12 @@ self.onmessage = function(e) {
     if (["alignment", "transformation"].includes(treatment)) {
       log("Realigning tooth geometry...");
       if (landmarks && maskPoly) {
-        processed = applyAlignmentWarp(processed, iw, ih, maskPoly, landmarks, treatment);
+        try {
+          processed = applyAlignmentWarp(processed, iw, ih, maskPoly, landmarks, treatment);
+        } catch (warpErr) {
+          log("Alignment warp failed, falling back to original geometry...");
+          console.error("Warp error:", warpErr);
+        }
       }
     }
 

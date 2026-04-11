@@ -445,11 +445,11 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // 3. Whitening Overlay (Mandates 2, 3, 4)
+  // 3. Whitening Overlay (Regression 2: Restore Compositing)
   if (treatment !== "alignment") {
     ctx.save();
     
-    // Mandate 2: Use strict inner-lip landmarks for the path
+    // Mandate 2: Restoration sequence
     const enamelPts = landmarks
       ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 2)
       : null;
@@ -460,15 +460,15 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       for (let i = 1; i < enamelPts.length; i++) ctx.lineTo(enamelPts[i].x, enamelPts[i].y);
       ctx.closePath();
 
-      // Mandate 3: Gaussian Feathering (The Edge Blend)
+      // Mandate: Feathering before clip
       ctx.filter = 'blur(6px)';
       ctx.clip();
-      ctx.filter = 'none'; // Reset filter so the fill is crisp within the blurred mask
+      ctx.filter = 'none';
 
-      // Mandate 4: 'Soft-Light' Native Blending
+      // Mandate: Clinical soft-light blend
       ctx.globalCompositeOperation = 'soft-light';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.72)'; 
-      ctx.fillRect(0, 0, canvas.width, canvas.height); 
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; 
+      ctx.fill(); 
     }
     
     ctx.restore();
@@ -585,13 +585,21 @@ const SmileSimulatorAI = () => {
 
       if (!isCurrent()) { console.log("[CANCELLED] after resize"); return; }
 
-      // Step 2: Detect landmarks
-      console.log("[6] AI Waking Up — running FaceLandmarker");
-      setProcessingLog("Locating anatomical landmarks...");
-      const landmarks = await detectLandmarks(normalizedUrl);
-      console.log("[7] FaceLandmarker done — landmarks:", landmarks ? `${landmarks.length} pts` : "null (heuristic fallback)");
+      // --- Regression 1: Decouple UI from Math ---
+      // 1. Detect on a standard 512px image (reliable for MediaPipe)
+      setProcessingLog("Analyzing anatomy...");
+      const detectTarget = await resizeImage(imageUrl, 512);
+      const landmarks = await detectLandmarks(detectTarget.url);
+      safeRevoke(detectTarget.url);
+      console.log("[6] AI Waking Up — running FaceLandmarker on 512px proxy");
 
-      if (!isCurrent()) { console.log("[CANCELLED] after landmark detection"); return; }
+      if (!landmarks) throw new Error("Face not detected. Retake photo with better lighting.");
+
+      // 2. Use the ORIGINAL high-res image for visual rendering
+      console.log("[4] Starting high-res processing");
+      const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
+      safeRevoke(imageUrl);
+      normalizedUrl = resized;
 
       // Step 3: Mouth region
       console.log("[8] Computing mouth bounds");

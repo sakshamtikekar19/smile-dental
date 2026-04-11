@@ -185,15 +185,17 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
     ctx.restore();
   }
 
-  // --- Mandate 4: Ironclad Rendering Sequence ---
+  // --- Mandate 3: Ironclad Rendering Sequence ---
   ctx.save();
-  const maskPts = getWhiteningMaskPoints(landmarks, iw, ih);
+  
+  // Broaden the clip to ensured distal brackets are visible
+  const maskPts = getTeethHullPoints(landmarks, iw, ih, 12); 
   if (maskPts && maskPts.length >= 3) {
     ctx.beginPath();
     ctx.moveTo(maskPts[0].x, maskPts[0].y);
     for (let i = 1; i < maskPts.length; i++) ctx.lineTo(maskPts[i].x, maskPts[i].y);
     ctx.closePath();
-    ctx.clip(); // Pillar 4: Strict Containment
+    ctx.clip(); 
   }
 
   ctx.globalCompositeOperation = 'source-atop'; // Pillar 4: Hard Containment

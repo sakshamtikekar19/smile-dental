@@ -48,88 +48,44 @@ export function drawWire(ctx, pts, lineWidth = 0.8) {
  * Draw a single high-fidelity metallic bracket. 
  * Designed to resemble clinical orthodontic brackets with tie wings and slot.
  */
+/**
+ * Draw a single high-contrast metallic bracket.
+ * Mandate: use #CCCCCC for high visibility.
+ */
 export function drawBracket(ctx, x, y, ang, wMult, hMult, depthOpacity, baseW, baseH, angBias = 0) {
-  const w = Math.max(6, baseW * wMult);
-  const h = Math.max(6, baseH * hMult);
-  const r = 1.2;
+  const w = Math.max(8, baseW * wMult);
+  const h = Math.max(8, baseH * hMult);
 
   ctx.save();
-  ctx.globalAlpha *= clamp(depthOpacity, 0.7, 1.0);
+  ctx.globalAlpha *= clamp(depthOpacity, 0.8, 1.0);
   ctx.translate(x, y);
   ctx.rotate(ang + angBias);
 
-  // 1. Bracket Base (Shadow/Occlusion)
-  ctx.shadowColor = 'rgba(0,0,0,0.45)';
-  ctx.shadowBlur = 2.5;
-  ctx.shadowOffsetY = 1.2;
+  // 1. Shadow for contrast
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 3;
+  ctx.shadowOffsetY = 1;
 
-  // 2. Metallic Body Gradient
-  const grad = ctx.createLinearGradient(-w/2, -h/2, w/2, h/2);
-  grad.addColorStop(0,    '#f8fafc'); // highlight
-  grad.addColorStop(0.3,  '#cbd5e1'); // silver
-  grad.addColorStop(0.7,  '#64748b'); // shadow
-  grad.addColorStop(1,    '#334155'); // deep shadow
-
-  // Main bracket plate
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') {
-    ctx.roundRect(-w*0.48, -h/2, w*0.96, h, r);
-  } else {
-    ctx.rect(-w*0.48, -h/2, w*0.96, h);
-  }
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  // 3. Central Archwire Slot (Dark horizontal line)
-  ctx.fillStyle = 'rgba(15,23,42,0.85)';
-  ctx.fillRect(-w/2, -h*0.1, w, h*0.2);
-  
-  // 4. Tie Wings (Clinical Detail)
-  const tw = w * 0.35;
-  const th = h * 0.35;
-  const tx = w * 0.28;
-  const ty = h * 0.28;
-  
-  const drawWing = (wx, wy) => {
-    ctx.fillStyle = '#cbd5e1';
-    ctx.beginPath();
-    if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(wx - tw/2, wy - th/2, tw, th, 0.8);
-    } else {
-      ctx.rect(wx - tw/2, wy - th/2, tw, th);
-    }
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
-  };
-
-  drawWing(-tx, -ty); // Top Left
-  drawWing( tx, -ty); // Top Right
-  drawWing(-tx,  ty); // Bottom Left
-  drawWing( tx,  ty); // Bottom Right
-
-  // 5. Specular Highlight on top of wings
-  ctx.fillStyle = '#ffffff';
-  ctx.globalAlpha *= 0.6;
-  ctx.fillRect(-tx - tw*0.2, -ty - th*0.2, tw*0.4, th*0.2);
-
-  // 6. Ambient Lighting Pass (Blending)
-  // Mandate: Use 'multiply' to help brackets blend into the mouth's natural lighting
-  ctx.save();
-  ctx.globalCompositeOperation = 'multiply';
-  const ambientGrad = ctx.createLinearGradient(0, -h/2, 0, h/2);
-  ambientGrad.addColorStop(0, 'rgba(0,0,0,0)');
-  ambientGrad.addColorStop(1, 'rgba(0,0,0,0.18)');
-  ctx.fillStyle = ambientGrad;
+  // 2. High-contrast body
+  ctx.fillStyle = '#CCCCCC'; // Silver/Grey High Contrast
   ctx.fillRect(-w/2, -h/2, w, h);
-  ctx.restore();
+
+  // 3. Central Slot (Mandatory Visual Detail)
+  ctx.fillStyle = '#666666';
+  ctx.fillRect(-w/2, -h*0.1, w, h*0.2);
+
+  // 4. Tie Wing highlights
+  ctx.fillStyle = '#EEEEEE';
+  const tw = w * 0.25;
+  const th = h * 0.25;
+  ctx.fillRect(-w/2, -h/2, tw, th); // TL
+  ctx.fillRect( w/2 - tw, -h/2, tw, th); // TR
+  ctx.fillRect(-w/2,  h/2 - th, tw, th); // BL
+  ctx.fillRect( w/2 - tw,  h/2 - th, tw, th); // BR
 
   ctx.restore();
 }
+
 
 
 
