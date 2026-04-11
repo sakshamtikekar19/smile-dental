@@ -16,8 +16,8 @@ const ENAMEL_LUM_MIN  = 18;
 const ENAMEL_LUM_MAX  = 248;
 const ENAMEL_SAT_MAX  = 0.52;
 const TEETH_WHITEN_MASK_INDICES = [
-  61, 185, 40, 39, 37, 0, 267, 270, 269, 409, 291,
-  375, 321, 405, 314, 17, 84, 181, 91, 146,
+  78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 
+  324, 318, 402, 317, 14, 87, 178, 88, 95
 ];
 
 function log(msg) { self.postMessage({ type: "PROGRESS", log: msg }); }
