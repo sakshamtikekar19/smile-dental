@@ -51,7 +51,7 @@ async function initFaceLandmarker() {
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const MAX_IMAGE_SIZE           = 384;   // px — keeps memory safe
+const MAX_IMAGE_SIZE           = 1024;  // px — High fidelity for modern mobile screens without crashing
 const FACE_DETECT_TIMEOUT_MS   = 18_000;
 const AI_FETCH_TIMEOUT_MS      = 75_000;
 const MOUTH_PERIMETER_INDICES  = [61, 291, 17, 13, 14, 78, 308, 181];
@@ -379,7 +379,7 @@ function runWorkerProcessing(imageSrc, treatment, landmarks, onProgress) {
         outCanvas.width     = resultData.width;
         outCanvas.height    = resultData.height;
         outCanvas.getContext("2d").putImageData(resultData, 0, 0);
-        outCanvas.toBlob(blob => resolve(URL.createObjectURL(blob)), "image/jpeg", 0.95);
+        outCanvas.toBlob(blob => resolve(URL.createObjectURL(blob)), "image/jpeg", 0.98);
       };
 
       worker.onerror = (e) => {
@@ -474,7 +474,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.95));
+  return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.98));
 }
 
 // ── Main Component ───────────────────────────────────────────────────────────

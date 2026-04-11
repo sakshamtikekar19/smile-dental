@@ -151,7 +151,7 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
 
   // Scale bracket size proportionally to image width so it's visible on small images
   // At iw=320 → 1.0x (7.5px), at iw=384 → 1.2x (9px), at iw=512 → 1.6x (12px)
-  const bracketScale = clamp(iw / 320, 0.9, 2.2);
+  const bracketScale = clamp(iw / 320, 0.9, 4.5);
   pack.baseW = BRACKET_SIDE_PX * bracketScale;
   pack.baseH = BRACKET_SIDE_PX * bracketScale;
 
