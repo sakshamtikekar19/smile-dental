@@ -109,6 +109,18 @@ function drawContactShadows(ctx, anchors, baseW) {
   ctx.restore();
 }
 
+// ── Shared Engine Canvases (Pillar 2: Anti-Crash) ──────────────────────────
+let _sharedMainCanvas = null;
+let _sharedDetCanvas  = null;
+
+function getSharedCanvases(iw, ih) {
+  if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
+  if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
+  _sharedMainCanvas.width  = iw;  _sharedMainCanvas.height = ih;
+  _sharedDetCanvas.width   = iw;  _sharedDetCanvas.height  = ih;
+  return { main: _sharedMainCanvas, det: _sharedDetCanvas };
+}
+
 /**
  * Main entry: apply braces vector overlay onto mergedImageSrc.
  * @param {string} mergedImageSrc — full-frame merged JPEG after AI whitening
@@ -117,112 +129,88 @@ function drawContactShadows(ctx, anchors, baseW) {
  * @returns {Promise<string>} data URL of result
  */
 export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
-  // Load and draw base image
+  // 1. Get shared canvases (Pillar 2: Single Engine Canvas)
   const img = await loadImage(mergedImageSrc);
-  const canvas = document.createElement('canvas');
-  canvas.width = iw;
-  canvas.height = ih;
+  const { main: canvas, det: detCanvas } = getSharedCanvases(iw, ih);
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Could not get canvas context');
-  ctx.drawImage(img, 0, 0, iw, ih);
-
-  // Detect landmarks on merged frame
-  const detCanvas = document.createElement('canvas');
-  detCanvas.width = iw;
-  detCanvas.height = ih;
   const detCtx = detCanvas.getContext('2d');
+  if (!ctx || !detCtx) throw new Error('Could not get shared canvas contexts');
+
+  // Draw base image
+  ctx.clearRect(0, 0, iw, ih);
+  ctx.drawImage(img, 0, 0, iw, ih);
+  detCtx.clearRect(0, 0, iw, ih);
   detCtx.drawImage(img, 0, 0, iw, ih);
 
   await rAF();
   const landmarks = await detectLandmarks(detCanvas);
 
   if (!landmarks || landmarks.length < 100) {
-    // If detection fails, return image as-is (whitening was applied)
-    console.warn('Braces overlay: landmark detection failed, returning whitened image');
+    console.warn('Braces overlay: landmark detection failed');
     return mergedImageSrc;
   }
 
   let pack = buildBracesPack(landmarks, iw, ih, null);
-  
-  if (!pack || pack.upperAnchors.length < 2) {
-    console.warn('Braces overlay: Geometric pack failed, fallback failed');
-    return mergedImageSrc;
-  }
+  if (!pack || pack.upperAnchors.length < 2) return mergedImageSrc;
 
-  // Scale bracket size proportionally to image width so it's visible on small images
-  // At iw=320 → 1.0x (7.5px), at iw=384 → 1.2x (9px), at iw=512 → 1.6x (12px)
   const bracketScale = clamp(iw / 320, 0.9, 4.5);
   pack.baseW = BRACKET_SIDE_PX * bracketScale;
   pack.baseH = BRACKET_SIDE_PX * bracketScale;
 
   await rAF();
-  await delay(30);
+  const { upperAnchors, lowerAnchors, wireSamplesUpper, wireSamplesLower,
+          mouthOpen, baseW, baseH } = pack;
 
-  const { upperAnchors, lowerAnchors, upperStuds, lowerStuds,
-          wireSamplesUpper, wireSamplesLower, mouthOpen, baseW, baseH } = pack;
-
-  // --- Mandate 2: Sort Coordinates (No Zigzag) ---
+  // --- Mandate 2: Sort Coordinates (Pillar 4) ---
   upperAnchors.sort((a, b) => a.x - b.x);
   lowerAnchors.sort((a, b) => a.x - b.x);
   wireSamplesUpper.sort((a, b) => a.x - b.x);
   wireSamplesLower.sort((a, b) => a.x - b.x);
 
-  // --- Aesthetic Pass: Subtle Whitening ---
-  ctx.save();
-  if (getWhiteningMaskPoints(landmarks, iw, ih)) {
-    const pts = getWhiteningMaskPoints(landmarks, iw, ih);
+  // --- Pillar 3: Pure Canvas Whitening (Second Pass) ---
+  const whitenPts = getWhiteningMaskPoints(landmarks, iw, ih);
+  if (whitenPts && whitenPts.length >= 3) {
+    ctx.save();
     ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.moveTo(whitenPts[0].x, whitenPts[0].y);
+    for (let i = 1; i < whitenPts.length; i++) ctx.lineTo(whitenPts[i].x, whitenPts[i].y);
     ctx.closePath();
-    ctx.globalCompositeOperation = 'soft-light';
-    ctx.fillStyle = '#ffffff';
-    ctx.globalAlpha = 0.45;
+
+    ctx.filter = 'blur(6px)'; // Mandate: Edge feathering
+    ctx.clip();
+    ctx.filter = 'none';
+    ctx.globalCompositeOperation = 'soft-light'; // Mandate: Blend preservation
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'; 
     ctx.fill();
+    ctx.restore();
   }
-  ctx.restore();
 
   // --- Mandate 4: Ironclad Rendering Sequence ---
-
   ctx.save();
-  
-  // 1. Draw the clean, inner-lip polygon (Mandate 4.1)
-  // We use the strict inner-lip mask points
   const maskPts = getWhiteningMaskPoints(landmarks, iw, ih);
   if (maskPts && maskPts.length >= 3) {
     ctx.beginPath();
     ctx.moveTo(maskPts[0].x, maskPts[0].y);
     for (let i = 1; i < maskPts.length; i++) ctx.lineTo(maskPts[i].x, maskPts[i].y);
     ctx.closePath();
-    
-    // 2. Clip to the mask (Mandate 4.2)
-    ctx.clip();
+    ctx.clip(); // Pillar 4: Strict Containment
   }
 
-  // 3. Hard 'source-atop' containment (Mandate 4.3)
-  ctx.globalCompositeOperation = 'source-atop';
+  ctx.globalCompositeOperation = 'source-atop'; // Pillar 4: Hard Containment
 
-  // 1. Contact shadows (bottom-most)
   drawContactShadows(ctx, upperAnchors, baseW);
   if (lowerAnchors.length) drawContactShadows(ctx, lowerAnchors, baseW);
 
-  // 4. Draw the wire (Mandate 4.4)
   ctx.globalAlpha = 0.95;
   drawWire(ctx, wireSamplesUpper, 0.75); 
   if (wireSamplesLower.length >= 2) drawWire(ctx, wireSamplesLower, 0.65); 
   ctx.globalAlpha = 1;
 
-  // 5. Draw the brackets (Mandate 4.5)
-  // Mandate 1 & 2 are handled inside drawBrackets -> drawBracket (save/restore + primitives)
   drawBrackets(ctx, upperAnchors, baseW, baseH, 0);
   if (lowerAnchors.length) drawBrackets(ctx, lowerAnchors, baseW, baseH, Math.PI);
 
-  // 6. Restore to release clip and composite state (Mandate 4.6)
   ctx.restore();
-
-  // Re-apply lip occlusion for extra safety (erasing what might have bled past the soft clip)
   eraseAboveUpperLip(ctx, landmarks, iw, ih, mouthOpen);
 
-
-  return canvas.toDataURL('image/jpeg', 0.95);
+  return canvas.toDataURL('image/jpeg', 0.98); // High Fidelity Locking
 }

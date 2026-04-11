@@ -410,15 +410,21 @@ async function cropRegion(imageSrc, rect) {
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.93));
 }
 
+// ── Shared Engine Canvas (Pillar 2: Anti-Crash) ──────────────────────────────
+let _sharedSimCanvas = null;
+
 /**
  * Merge processed mouth region back onto original full frame.
  */
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
   const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
-  const canvas = document.createElement("canvas");
+  
+  if (!_sharedSimCanvas) _sharedSimCanvas = document.createElement("canvas");
+  const canvas = _sharedSimCanvas;
   canvas.width  = orig.width;
   canvas.height = orig.height;
   const ctx     = canvas.getContext("2d");
+
   // --- Mandate 1 & 4 Revert: Native Composite Architecture ---
   // We completely abandon manual pixel loops to ensure maximum quality and zero artifacts.
   
