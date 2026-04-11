@@ -489,6 +489,11 @@ const SmileSimulatorAI = () => {
   const [cameraError,       setCameraError]       = useState(null);
   const [processingLog,     setProcessingLog]     = useState("");
   const [isProcessing,      setIsProcessing]      = useState(false);
+  // Mandate 1 & 2: rawImageUrl is the ONLY bridge between file selection and processing.
+  // Setting it triggers the useEffect below — the onChange handler itself does NO math.
+  const [rawImageUrl,       setRawImageUrl]       = useState(null);
+  // We snapshot the treatment at the moment the user picks an image (avoids stale closure issues)
+  const pendingTreatmentRef = useRef("whitening");
 
   const fileInputRef       = useRef(null);
   const videoRef           = useRef(null);
@@ -539,24 +544,30 @@ const SmileSimulatorAI = () => {
     setError(null);
     setCameraError(null);
     setIsProcessing(false);
+    setRawImageUrl(null);
     setActiveTreatment(selectedTreatment);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beforeImage, afterImage, selectedTreatment]);
 
-  // ── Core pipeline ─────────────────────────────────────────────────────────
-  const processWithAI = useCallback(async (rawImageUrl) => {
-    if (isProcessing) return;
+  // ── Mandate 2: Double-Timeout Processing Trigger ───────────────────────────
+  // This useEffect is the ONLY place that triggers the heavy pipeline.
+  // The 150ms delay guarantees React has painted the spinner before ANY math starts.
+  useEffect(() => {
+    if (!rawImageUrl || !isProcessing) return;
+    console.log("[2] UI Yielding — waiting 150ms for browser paint before heavy work");
+    const timer = setTimeout(() => {
+      console.log("[3] Starting heavy processing pipeline");
+      startHeavyProcessingPipeline(rawImageUrl);
+    }, 150);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawImageUrl, isProcessing]);
+
+  // ── Core pipeline (Mandate 3: Granular tracking) ───────────────────────────
+  const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
+    const treatment  = pendingTreatmentRef.current;
     const generation = ++generationRef.current;
     const isCurrent  = () => generation === generationRef.current;
-
-    setIsProcessing(true);
-    setStep("processing");
-    setError(null);
-    setActiveTreatment(selectedTreatment);
-    setProcessingLog("Preparing image...");
-
-    // Yield to let React paint the "processing" screen first
-    await new Promise(r => setTimeout(r, 80));
 
     let normalizedUrl = null;
     let processedUrl  = null;
@@ -564,54 +575,66 @@ const SmileSimulatorAI = () => {
     let finalUrl      = null;
 
     try {
-      // 1. Resize to safe dimensions
+      // Step 1: Resize to safe dimensions
+      console.log("[4] Starting downscale / resize");
       setProcessingLog("Decoding & resizing...");
-      const { url: resized, w: iw, h: ih } = await resizeImage(rawImageUrl, MAX_IMAGE_SIZE);
-      safeRevoke(rawImageUrl);
+      const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
+      safeRevoke(imageUrl);
       normalizedUrl = resized;
+      console.log(`[5] Resize complete — ${iw}×${ih}px`);
 
-      if (!isCurrent()) return;
+      if (!isCurrent()) { console.log("[CANCELLED] after resize"); return; }
 
-      // 2. Detect landmarks (fast — already loaded singleton)
+      // Step 2: Detect landmarks
+      console.log("[6] AI Waking Up — running FaceLandmarker");
       setProcessingLog("Locating anatomical landmarks...");
       const landmarks = await detectLandmarks(normalizedUrl);
+      console.log("[7] FaceLandmarker done — landmarks:", landmarks ? `${landmarks.length} pts` : "null (heuristic fallback)");
 
-      if (!isCurrent()) return;
+      if (!isCurrent()) { console.log("[CANCELLED] after landmark detection"); return; }
 
-      // 3. Find mouth region
+      // Step 3: Mouth region
+      console.log("[8] Computing mouth bounds");
       const mouthInfo = landmarks
         ? buildMouthBounds(landmarks, iw, ih) ?? heuristicMouthBounds(iw, ih)
         : heuristicMouthBounds(iw, ih);
-
       const { bounds, oval } = mouthInfo;
+      console.log("[9] Mouth bounds ready:", bounds);
 
-      // 4. Worker does all heavy pixel work
+      // Step 4: Worker pixel processing (off main thread)
+      console.log("[10] Posting to Web Worker — treatment:", treatment);
       setProcessingLog("Applying AI simulation (off-thread)...");
       processedUrl = await runWorkerProcessing(
         normalizedUrl,
-        selectedTreatment,
+        treatment,
         landmarks,
         (msg) => { if (isCurrent()) setProcessingLog(msg); }
       );
+      console.log("[11] Worker returned processed image URL");
 
-      if (!isCurrent()) { safeRevoke(processedUrl); return; }
+      if (!isCurrent()) { safeRevoke(processedUrl); console.log("[CANCELLED] after worker"); return; }
 
-      // 5. Merge processed back into full frame
+      // Step 5: Merge back into full frame
+      console.log("[12] Merging processed pixels into full frame");
       setProcessingLog("Compositing result...");
       mergedUrl = await mergeIntoFullFrame(normalizedUrl, processedUrl, bounds, oval, landmarks);
       safeRevoke(processedUrl); processedUrl = null;
+      console.log("[13] Merge complete");
 
-      if (!isCurrent()) { safeRevoke(mergedUrl); return; }
+      if (!isCurrent()) { safeRevoke(mergedUrl); console.log("[CANCELLED] after merge"); return; }
 
-      // 6. Braces overlay (vector-based, fast)
-      if (selectedTreatment === "braces") {
+      // Step 6: Braces vector overlay
+      if (treatment === "braces") {
+        console.log("[14] Applying braces vector overlay");
         setProcessingLog("Placing brackets...");
         try {
           const bracesUrl = await applyBracesOverlayFixed(mergedUrl, iw, ih);
           if (bracesUrl !== mergedUrl) safeRevoke(mergedUrl);
           finalUrl = bracesUrl;
-        } catch {
-          finalUrl = mergedUrl; // fallback to whitened image
+          console.log("[15] Braces overlay applied");
+        } catch (bracesErr) {
+          console.warn("[15] Braces overlay failed, using whitened image:", bracesErr);
+          finalUrl = mergedUrl;
         }
         mergedUrl = null;
       } else {
@@ -619,31 +642,37 @@ const SmileSimulatorAI = () => {
         mergedUrl = null;
       }
 
-      if (!isCurrent()) { safeRevoke(finalUrl); return; }
+      if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after braces"); return; }
 
-      // 7. Crop square previews for the before/after slider
+      // Step 7: Crop square before/after previews
+      console.log("[16] Cropping before/after previews");
       setProcessingLog("Finalizing...");
-      const rect      = squareCropRect(iw, ih, oval);
+      const rect = squareCropRect(iw, ih, oval);
       const [bImg, aImg] = await Promise.all([
         cropRegion(normalizedUrl, rect),
         cropRegion(finalUrl, rect),
       ]);
+      console.log("[17] Previews ready — rendering result");
 
-      if (!isCurrent()) { safeRevoke(bImg); safeRevoke(aImg); return; }
+      if (!isCurrent()) { safeRevoke(bImg); safeRevoke(aImg); console.log("[CANCELLED] after crop"); return; }
 
-      safeRevoke(finalUrl); finalUrl = null;
+      safeRevoke(finalUrl);    finalUrl    = null;
       safeRevoke(normalizedUrl); normalizedUrl = null;
 
       setBeforeImage(bImg);
       setAfterImage(aImg);
       setStep("result");
+      console.log("[18] ✅ Pipeline complete");
     } catch (err) {
       if (!isCurrent()) return;
-      console.error("Smile processing error:", err);
+      console.error("[ERROR] Pipeline crashed at:", err);
       setError(err?.message || "Simulation failed. Please try another photo.");
       setStep("upload");
     } finally {
-      if (isCurrent()) setIsProcessing(false);
+      if (isCurrent()) {
+        setIsProcessing(false);
+        setRawImageUrl(null);
+      }
       // Cleanup any lingering URLs
       safeRevoke(normalizedUrl);
       safeRevoke(processedUrl);
@@ -651,30 +680,50 @@ const SmileSimulatorAI = () => {
       safeRevoke(finalUrl);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProcessing, selectedTreatment]);
+  }, []);
 
+  // ── Mandate 1: Zero-Math onChange Handler ─────────────────────────────────
+  // Does EXACTLY 3 things. No canvas, no FileReader, no AI calls.
   const handleFileUpload = (e) => {
+    console.log("[1] File selected — zero-math handler firing");
+    e.preventDefault();
     const file = e.target.files?.[0];
     if (!file) return;
-    // Reset file input so re-uploading same file works
-    e.target.value = "";
-    processWithAI(URL.createObjectURL(file));
+    e.target.value = ""; // reset so same file can be re-selected
+    pendingTreatmentRef.current = selectedTreatment;
+    const rawUrl = URL.createObjectURL(file);
+    // These 3 state updates batch together in React 18 — UI transitions to
+    // "processing" spinner BEFORE any heavy work begins.
+    setStep("processing");
+    setError(null);
+    setActiveTreatment(selectedTreatment);
+    setProcessingLog("Preparing image...");
+    setRawImageUrl(rawUrl);
+    setIsProcessing(true);
   };
 
   const takePhoto = () => {
+    console.log("[1] Photo taken — zero-math capture handler firing");
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     if (!video.videoWidth || !video.videoHeight) return;
-    const scale = video.videoWidth > 1024 ? 1024 / video.videoWidth : 1;
-    const outW  = Math.round(video.videoWidth * scale);
-    const outH  = Math.round(video.videoHeight * scale);
+    const scale  = video.videoWidth > 1024 ? 1024 / video.videoWidth : 1;
+    const outW   = Math.round(video.videoWidth  * scale);
+    const outH   = Math.round(video.videoHeight * scale);
     const canvas = canvasRef.current;
     canvas.width  = outW;
     canvas.height = outH;
     canvas.getContext("2d").drawImage(video, 0, 0, outW, outH);
     stopCamera();
     canvas.toBlob(blob => {
-      processWithAI(URL.createObjectURL(blob));
+      pendingTreatmentRef.current = selectedTreatment;
+      const rawUrl = URL.createObjectURL(blob);
+      setStep("processing");
+      setError(null);
+      setActiveTreatment(selectedTreatment);
+      setProcessingLog("Preparing image...");
+      setRawImageUrl(rawUrl);
+      setIsProcessing(true);
     }, "image/jpeg", 0.9);
   };
 
