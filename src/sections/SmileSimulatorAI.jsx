@@ -169,7 +169,7 @@ function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       disabled={disabled}
-      className="relative h-[74px] w-[74px] rounded-full border border-white/10 bg-white/5 backdrop-blur-xl"
+      className="relative h-16 w-16 md:h-[74px] md:w-[74px] rounded-full border border-white/10 bg-white/5 backdrop-blur-xl transition-colors"
       style={{ borderColor: active ? theme.ring : "rgba(255,255,255,0.1)" }}
       animate={{
         scale: active ? [1, 1.05, 1] : 1,
@@ -265,7 +265,8 @@ async function detectLandmarks(imageSrc) {
 
     const result = landmarker.detect(canvas);
     const lm = result?.faceLandmarks?.[0];
-    return lm?.length >= 50 ? lm : null;
+    // Use 100+ for high-fidelity anatomical detection
+    return lm?.length >= 100 ? lm : null;
   } catch { return null; }
 }
 
@@ -722,8 +723,8 @@ const SmileSimulatorAI = () => {
         </AnimatedSection>
 
         {/* Floating treatment dock — scales down on mobile */}
-        <AnimatedSection className="fixed bottom-5 sm:bottom-10 left-1/2 -translate-x-1/2 z-50 flex justify-center w-full px-4">
-          <div className="inline-flex items-center justify-center gap-2 sm:gap-4 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/75 px-3 sm:px-5 py-2 sm:py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+        <AnimatedSection className="fixed bottom-5 sm:bottom-10 left-1/2 -translate-x-1/2 z-50 flex justify-center w-full px-2 sm:px-4">
+          <div className="inline-flex items-center justify-center gap-1.5 sm:gap-4 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/75 px-2.5 sm:px-5 py-2 sm:py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl">
             {TREATMENTS.map(t => (
               <TreatmentDockButton
                 key={t.id}

@@ -142,9 +142,7 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
     return mergedImageSrc;
   }
 
-  // Extract raw pixel data to empower the geometric solver to snap mathematically placed brackets to physical teeth gaps
-  const imgData = ctx.getImageData(0, 0, iw, ih);
-  let pack = buildBracesPack(landmarks, iw, ih, null, imgData.data);
+  let pack = buildBracesPack(landmarks, iw, ih, null);
   
   if (!pack || pack.upperAnchors.length < 2) {
     console.warn('Braces overlay: Geometric pack failed, fallback failed');
@@ -163,27 +161,40 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
   const { upperAnchors, lowerAnchors, upperStuds, lowerStuds,
           wireSamplesUpper, wireSamplesLower, mouthOpen, baseW, baseH } = pack;
 
+  // --- Mandate 2: Sort Coordinates (No Zigzag) ---
+  upperAnchors.sort((a, b) => a.x - b.x);
+  lowerAnchors.sort((a, b) => a.x - b.x);
+  wireSamplesUpper.sort((a, b) => a.x - b.x);
+  wireSamplesLower.sort((a, b) => a.x - b.x);
+
   // --- Mandate 4: Hard Wire Containment (Clipping) ---
-  // We use an overlay canvas to draw the braces and then composite it back 
-  // using 'source-atop' against a mask of the teeth enamel.
   const overlay = document.createElement('canvas');
   overlay.width = iw;
   overlay.height = ih;
   const octx = overlay.getContext('2d');
   if (!octx) throw new Error('Could not get overlay context');
 
-  // 1. First, define the 'destination' which is the teeth enamel area
-  // We draw this solid on the overlay canvas
+  // --- Mandate 1: Fix Solid White Fill (Whitening Pass) ---
+  // We apply whitening directly to the main context before drawing braces
+  ctx.save();
+  const maskApplied = clipToTeethEnamel(ctx, landmarks, iw, ih, 2);
+  if (maskApplied) {
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Now prepare the overlay mask for braces
   octx.save();
-  const maskSuccess = clipToTeethEnamel(octx, landmarks, iw, ih, 4); // Tight fit
+  const maskSuccess = clipToTeethEnamel(octx, landmarks, iw, ih, 4); 
   if (maskSuccess) {
     octx.fillStyle = '#fff';
     octx.fillRect(0, 0, iw, ih);
   }
   octx.restore();
 
-  // 2. Set composition to 'source-atop'
-  // Everything drawn now will ONLY appear where the enamel mask (the white pixels) exists
+  // 2. Set composition to 'source-atop' for braces
   octx.globalCompositeOperation = 'source-atop';
 
   // 1. Contact shadows (bottom-most)
@@ -192,9 +203,10 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
 
   // 2. Archwires
   octx.globalAlpha = 0.92;
-  drawWire(octx, wireSamplesUpper, 0.7); // Made wire very thin
-  if (wireSamplesLower.length >= 2) drawWire(octx, wireSamplesLower, 0.6); // Made wire very thin
+  drawWire(octx, wireSamplesUpper, 0.7); 
+  if (wireSamplesLower.length >= 2) drawWire(octx, wireSamplesLower, 0.6); 
   octx.globalAlpha = 1;
+
 
   // 3. Brackets
   drawBrackets(octx, upperAnchors, baseW, baseH, 0);
