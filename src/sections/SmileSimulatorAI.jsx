@@ -472,13 +472,13 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       for (let i = 1; i < enamelPts.length; i++) ctx.lineTo(enamelPts[i].x, enamelPts[i].y);
       ctx.closePath();
 
-      ctx.filter = 'blur(6px)'; // Soften the gumline
-      ctx.clip();
+      ctx.filter = 'blur(6px)'; // Soften the gumline boundary
+      ctx.clip(); // Contain the white
 
-      ctx.filter = 'none'; // CRITICAL: Reset filter before filling
+      ctx.filter = 'none'; // Reset filter so texture isn't blurred
       ctx.globalCompositeOperation = 'soft-light'; // CRITICAL: Restores 3D shadows
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
-      ctx.fillRect(0, 0, canvas.width, canvas.height); // Fill the clipped area safely
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; // Semi-transparent white
+      ctx.fillRect(0, 0, canvas.width, canvas.height); // Simple full fill
     }
     ctx.restore();
   }
