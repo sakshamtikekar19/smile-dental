@@ -9,7 +9,7 @@
 import { buildBracesPack, BRACKET_SIDE_PX } from './bracesGeometryFixed';
 import { buildAnatomicalArchLockPack } from './bracesAnatomicalLock';
 import { drawWire, drawBrackets } from './bracesCanvasRenderFixed';
-import { clipToTeethEnamel, eraseAboveUpperLip } from './bracesClipFixed';
+import { clipToTeethEnamel, eraseAboveUpperLip, getWhiteningMaskPoints } from './bracesClipFixed';
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -167,63 +167,62 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
   wireSamplesUpper.sort((a, b) => a.x - b.x);
   wireSamplesLower.sort((a, b) => a.x - b.x);
 
-  // --- Mandate 4: Hard Wire Containment (Clipping) ---
-  const overlay = document.createElement('canvas');
-  overlay.width = iw;
-  overlay.height = ih;
-  const octx = overlay.getContext('2d');
-  if (!octx) throw new Error('Could not get overlay context');
-
-  // --- Mandate 1: Fix Solid White Fill (Whitening Pass) ---
-  // We apply whitening directly to the main context before drawing braces
+  // --- Aesthetic Pass: Subtle Whitening ---
   ctx.save();
-  const maskApplied = clipToTeethEnamel(ctx, landmarks, iw, ih, 2);
-  if (maskApplied) {
+  if (getWhiteningMaskPoints(landmarks, iw, ih)) {
+    const pts = getWhiteningMaskPoints(landmarks, iw, ih);
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.closePath();
     ctx.globalCompositeOperation = 'soft-light';
     ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.45;
     ctx.fill();
   }
   ctx.restore();
 
-  // Now prepare the overlay mask for braces
-  octx.save();
-  const maskSuccess = clipToTeethEnamel(octx, landmarks, iw, ih, 4); 
-  if (maskSuccess) {
-    octx.fillStyle = '#fff';
-    octx.fillRect(0, 0, iw, ih);
-  }
-  octx.restore();
+  // --- Mandate 4: Ironclad Rendering Sequence ---
 
-  // 2. Set composition to 'source-atop' for braces
-  octx.globalCompositeOperation = 'source-atop';
+  ctx.save();
+  
+  // 1. Draw the clean, inner-lip polygon (Mandate 4.1)
+  // We use the strict inner-lip mask points
+  const maskPts = getWhiteningMaskPoints(landmarks, iw, ih);
+  if (maskPts && maskPts.length >= 3) {
+    ctx.beginPath();
+    ctx.moveTo(maskPts[0].x, maskPts[0].y);
+    for (let i = 1; i < maskPts.length; i++) ctx.lineTo(maskPts[i].x, maskPts[i].y);
+    ctx.closePath();
+    
+    // 2. Clip to the mask (Mandate 4.2)
+    ctx.clip();
+  }
+
+  // 3. Hard 'source-atop' containment (Mandate 4.3)
+  ctx.globalCompositeOperation = 'source-atop';
 
   // 1. Contact shadows (bottom-most)
-  drawContactShadows(octx, upperAnchors, baseW);
-  if (lowerAnchors.length) drawContactShadows(octx, lowerAnchors, baseW);
+  drawContactShadows(ctx, upperAnchors, baseW);
+  if (lowerAnchors.length) drawContactShadows(ctx, lowerAnchors, baseW);
 
-  // 2. Archwires
-  octx.globalAlpha = 0.92;
-  drawWire(octx, wireSamplesUpper, 0.7); 
-  if (wireSamplesLower.length >= 2) drawWire(octx, wireSamplesLower, 0.6); 
-  octx.globalAlpha = 1;
+  // 4. Draw the wire (Mandate 4.4)
+  ctx.globalAlpha = 0.95;
+  drawWire(ctx, wireSamplesUpper, 0.75); 
+  if (wireSamplesLower.length >= 2) drawWire(ctx, wireSamplesLower, 0.65); 
+  ctx.globalAlpha = 1;
 
+  // 5. Draw the brackets (Mandate 4.5)
+  // Mandate 1 & 2 are handled inside drawBrackets -> drawBracket (save/restore + primitives)
+  drawBrackets(ctx, upperAnchors, baseW, baseH, 0);
+  if (lowerAnchors.length) drawBrackets(ctx, lowerAnchors, baseW, baseH, Math.PI);
 
-  // 3. Brackets
-  drawBrackets(octx, upperAnchors, baseW, baseH, 0);
-  if (lowerAnchors.length) drawBrackets(octx, lowerAnchors, baseW, baseH, Math.PI);
-
-  // --- End Mandate 4 composition ---
-
-  // 4. Erase above upper lip (soft anti-bleed)
-  eraseAboveUpperLip(octx, landmarks, iw, ih, mouthOpen);
-
-  // --- Composite overlay onto base image ---
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.25)';
-  ctx.shadowBlur = 2;
-  ctx.shadowOffsetY = 1;
-  ctx.drawImage(overlay, 0, 0);
+  // 6. Restore to release clip and composite state (Mandate 4.6)
   ctx.restore();
+
+  // Re-apply lip occlusion for extra safety (erasing what might have bled past the soft clip)
+  eraseAboveUpperLip(ctx, landmarks, iw, ih, mouthOpen);
+
 
   return canvas.toDataURL('image/jpeg', 0.95);
 }

@@ -49,105 +49,33 @@ export function drawWire(ctx, pts, lineWidth = 1.2) {
 }
 
 /**
- * Draw a single metallic bracket at (x, y) with given transform
+ * Draw a single metallic bracket at (x, y) with given transform.
+ * Mandate 1: No drawImage. Mandate 2: Save/Restore state isolation.
  */
 export function drawBracket(ctx, x, y, ang, wMult, hMult, depthOpacity, baseW, baseH, angBias = 0) {
-  const w = Math.max(2, baseW * wMult);
-  const h = Math.max(2, baseH * hMult);
-  const r = clamp(Math.min(w, h) * 0.18, 0.8, 3.5);
+  const w = Math.max(4, baseW * wMult);
+  const h = Math.max(4, baseH * hMult);
 
   ctx.save();
   ctx.globalAlpha *= clamp(depthOpacity, 0.6, 1.0);
   ctx.translate(x, y);
   ctx.rotate(ang + angBias);
 
-  // Drop shadow
-  ctx.shadowColor = 'rgba(0,0,0,0.4)';
-  ctx.shadowBlur = 1.5;
-  ctx.shadowOffsetX = 0;
-  // Explicit bracket depth occlusion for non-sticker look.
-  ctx.shadowOffsetY = 1.5;
+  // Mandate 1: Simple geometric rectangle (silver/grey)
+  ctx.fillStyle = '#C0C0C0'; 
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 2;
+  ctx.shadowOffsetY = 1;
 
-  // Main body gradient (light top → dark bottom)
-  const grad = ctx.createLinearGradient(-w/2, -h/2, w/2, h/2);
-  grad.addColorStop(0,    '#f8fafc');
-  grad.addColorStop(0.25, '#e2e8f0');
-  grad.addColorStop(0.55, '#94a3b8');
-  grad.addColorStop(1,    '#475569');
+  ctx.fillRect(-w / 2, -h / 2, w, h);
 
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') {
-    ctx.roundRect(-w*0.45, -h/2, w*0.9, h, r);
-  } else {
-    ctx.rect(-w*0.45, -h/2, w*0.9, h);
-  }
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 0;
-
-  // Cyan Elastic Ligatures (left and right tie wings)
-  const bandW = w * 0.28;
-  const bandH = h * 0.88;
-  const bandXOffset = w * 0.24;
-  const bandR = Math.max(1, bandW * 0.35);
-
-  const drawBand = (bx, by) => {
-    const bandGrad = ctx.createLinearGradient(bx - bandW/2, by - bandH/2, bx + bandW/2, by + bandH/2);
-    bandGrad.addColorStop(0, '#22d3ee'); // cyan-400
-    bandGrad.addColorStop(0.4, '#06b6d4'); // cyan-500
-    bandGrad.addColorStop(1, '#083344'); // cyan-950
-
-    ctx.shadowColor = 'rgba(0,0,0,0.3)';
-    ctx.shadowBlur = 1.5;
-    ctx.shadowOffsetY = 0.5;
-
-    ctx.beginPath();
-    if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(bx - bandW/2, by - bandH/2, bandW, bandH, bandR);
-    } else {
-      ctx.rect(bx - bandW/2, by - bandH/2, bandW, bandH);
-    }
-    ctx.fillStyle = bandGrad;
-    ctx.fill();
-
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
-    // Specular highlight on band
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = Math.max(0.4, bandW * 0.2);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(bx - bandW * 0.15, by - bandH * 0.25);
-    ctx.lineTo(bx + bandW * 0.15, by - bandH * 0.25);
-    ctx.stroke();
-  };
-
-  drawBand(-bandXOffset, 0);
-  drawBand(bandXOffset, 0);
-
-  // Silver proxy-wire over the bracket (aligns with the external archwire)
-  ctx.fillStyle = '#94a3b8'; // slate-400 base
-  ctx.fillRect(-w/2, -h*0.06, w, h*0.12);
-  ctx.fillStyle = '#ffffff'; // specular reflection
-  ctx.fillRect(-w/2, -h*0.06, w, h*0.04);
-
-  // Outer rim for bracket base
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-  ctx.lineWidth = 0.6;
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') {
-    ctx.roundRect(-w*0.45, -h/2, w*0.9, h, r);
-  } else {
-    ctx.rect(-w*0.45, -h/2, w*0.9, h);
-  }
-  ctx.stroke();
+  // Subtle metallic highlight line
+  ctx.fillStyle = '#E2E8F0';
+  ctx.fillRect(-w * 0.4, -h * 0.4, w * 0.8, h * 0.1);
 
   ctx.restore();
 }
+
 
 /**
  * Draw all brackets for one arch row
