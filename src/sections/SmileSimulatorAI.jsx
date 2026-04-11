@@ -830,43 +830,52 @@ const SmileSimulatorAI = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="relative w-full overflow-hidden rounded-3xl bg-black shadow-2xl"
-                style={{ aspectRatio: "3/4" }}
+                className="flex flex-col rounded-3xl overflow-hidden bg-black shadow-2xl"
               >
-                <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />
+                {/* Video + mask — controls never enter this box */}
+                <div className="relative w-full" style={{ aspectRatio: "3/4" }}>
+                  <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />
 
-                {/* Oval guide overlay */}
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <span className="rounded-full border border-white/25 bg-black/50 px-4 py-1.5 text-[11px] font-semibold tracking-widest text-white/90">
-                      ALIGN TEETH IN CENTER
-                    </span>
-                    <div className="h-20 w-56 sm:w-72 rounded-full border-2 border-dashed border-white/70 bg-white/5" />
+                  {/* Teeth guide overlay — pointer-events-none so it doesn't block taps */}
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <span className="rounded-full border border-white/25 bg-black/50 px-4 py-1.5 text-[11px] font-semibold tracking-widest text-white/90">
+                        ALIGN TEETH IN CENTER
+                      </span>
+                      <div className="h-20 w-56 sm:w-72 rounded-full border-2 border-dashed border-white/70 bg-white/5" />
+                    </div>
                   </div>
                 </div>
 
-                {/* Camera controls */}
-                <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-6 px-6 pb-8 pt-4 bg-gradient-to-t from-black/60 to-transparent">
+                {/* Controls bar — always below the video, never overlapping the mask */}
+                <div className="flex items-center justify-center gap-8 bg-zinc-950 px-6 py-6">
+                  {/* Cancel */}
                   <button
                     type="button"
                     onClick={reset}
-                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white active:scale-95 transition-transform"
+                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white active:scale-90 transition-transform"
+                    aria-label="Cancel"
                   >
                     <X size={20} />
                   </button>
+
                   {/* Shutter */}
                   <motion.button
                     type="button"
                     onClick={takePhoto}
-                    whileTap={{ scale: 0.92 }}
-                    className="flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-xl shadow-black/30"
+                    whileTap={{ scale: 0.88 }}
+                    className="flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-xl shadow-black/40"
+                    aria-label="Take photo"
                   >
                     <span className="h-14 w-14 rounded-full bg-zinc-900" />
                   </motion.button>
+
+                  {/* Flip / retry */}
                   <button
                     type="button"
                     onClick={() => { stopCamera(); startCamera(); }}
-                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/15 text-white active:scale-95 transition-transform"
+                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white active:scale-90 transition-transform"
+                    aria-label="Flip camera"
                   >
                     <RefreshCw size={18} />
                   </button>
@@ -875,6 +884,7 @@ const SmileSimulatorAI = () => {
                 <canvas ref={canvasRef} className="hidden" />
               </motion.div>
             )}
+
 
             {/* ── Processing step ── */}
             {step === "processing" && (
