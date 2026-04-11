@@ -123,96 +123,72 @@ function getSharedCanvases(iw, ih) {
 
 /**
  * Main entry: apply braces vector overlay onto mergedImageSrc.
- * @param {string} mergedImageSrc — full-frame merged JPEG after AI whitening
- * @param {number} iw — image width
- * @param {number} ih — image height
- * @returns {Promise<string>} data URL of result
+ * Mandate 3: Nuclear Overwrite for Invisible Braces.
  */
 export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
-  // 1. Get shared canvases (Pillar 2: Single Engine Canvas)
   const img = await loadImage(mergedImageSrc);
   const { main: canvas, det: detCanvas } = getSharedCanvases(iw, ih);
   const ctx = canvas.getContext('2d');
   const detCtx = detCanvas.getContext('2d');
-  if (!ctx || !detCtx) throw new Error('Could not get shared canvas contexts');
-
-  // Draw base image
-  ctx.clearRect(0, 0, iw, ih);
+  
   ctx.drawImage(img, 0, 0, iw, ih);
-  detCtx.clearRect(0, 0, iw, ih);
   detCtx.drawImage(img, 0, 0, iw, ih);
 
-  await rAF();
   const landmarks = await detectLandmarks(detCanvas);
+  if (!landmarks) return mergedImageSrc;
 
-  if (!landmarks || landmarks.length < 100) {
-    console.warn('Braces overlay: landmark detection failed');
-    return mergedImageSrc;
-  }
+  const pack = buildBracesPack(landmarks, iw, ih, null);
+  if (!pack || !pack.upperAnchors.length) return mergedImageSrc;
 
-  let pack = buildBracesPack(landmarks, iw, ih, null);
-  if (!pack || pack.upperAnchors.length < 2) return mergedImageSrc;
+  const { upperAnchors, lowerAnchors, wireSamplesUpper, wireSamplesLower } = pack;
 
-  const bracketScale = clamp(iw / 320, 0.9, 4.5);
-  pack.baseW = BRACKET_SIDE_PX * bracketScale;
-  pack.baseH = BRACKET_SIDE_PX * bracketScale;
-
-  await rAF();
-  const { upperAnchors, lowerAnchors, wireSamplesUpper, wireSamplesLower,
-          mouthOpen, baseW, baseH } = pack;
-
-  // --- Mandate 2: Sort Coordinates (Pillar 4) ---
-  upperAnchors.sort((a, b) => a.x - b.x);
-  lowerAnchors.sort((a, b) => a.x - b.x);
-  wireSamplesUpper.sort((a, b) => a.x - b.x);
-  wireSamplesLower.sort((a, b) => a.x - b.x);
-
-  // --- Pillar 3: Pure Canvas Whitening (Second Pass) ---
-  const whitenPts = getWhiteningMaskPoints(landmarks, iw, ih);
-  if (whitenPts && whitenPts.length >= 3) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(whitenPts[0].x, whitenPts[0].y);
-    for (let i = 1; i < whitenPts.length; i++) ctx.lineTo(whitenPts[i].x, whitenPts[i].y);
-    ctx.closePath();
-
-    ctx.filter = 'blur(6px)'; // Mandate: Edge feathering
-    ctx.clip();
-    ctx.filter = 'none';
-    ctx.globalCompositeOperation = 'soft-light'; // Mandate: Blend preservation
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'; 
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // --- Mandate 3: Ironclad Rendering Sequence ---
+  // --- Mandate 3 Core Overwrite ---
   ctx.save();
-  
-  // Broaden the clip to ensured distal brackets are visible
-  const maskPts = getTeethHullPoints(landmarks, iw, ih, 12); 
-  if (maskPts && maskPts.length >= 3) {
+  ctx.globalCompositeOperation = 'source-over'; // Force draw on top
+
+  // 1. Sort Anchors to fix zigzag
+  const sortedU = [...upperAnchors].sort((a, b) => a.x - b.x);
+  const sortedL = [...lowerAnchors].sort((a, b) => a.x - b.x);
+
+  // 2. Draw Wire (Upper)
+  if (sortedU.length >= 2) {
     ctx.beginPath();
-    ctx.moveTo(maskPts[0].x, maskPts[0].y);
-    for (let i = 1; i < maskPts.length; i++) ctx.lineTo(maskPts[i].x, maskPts[i].y);
-    ctx.closePath();
-    ctx.clip(); 
+    ctx.moveTo(sortedU[0].x, sortedU[0].y);
+    for (let i = 1; i < sortedU.length; i++) {
+      // Simple curve logic using midpoints
+      const xc = (sortedU[i].x + sortedU[i-1].x) / 2;
+      const yc = (sortedU[i].y + sortedU[i-1].y) / 2;
+      ctx.quadraticCurveTo(sortedU[i-1].x, sortedU[i-1].y, xc, yc);
+    }
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#888888';
+    ctx.stroke();
   }
 
-  ctx.globalCompositeOperation = 'source-atop'; // Pillar 4: Hard Containment
+  // 2b. Draw Wire (Lower)
+  if (sortedL.length >= 2) {
+    ctx.beginPath();
+    ctx.moveTo(sortedL[0].x, sortedL[0].y);
+    for (let i = 1; i < sortedL.length; i++) {
+      const xc = (sortedL[i].x + sortedL[i-1].x) / 2;
+      const yc = (sortedL[i].y + sortedL[i-1].y) / 2;
+      ctx.quadraticCurveTo(sortedL[i-1].x, sortedL[i-1].y, xc, yc);
+    }
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#888888';
+    ctx.stroke();
+  }
 
-  drawContactShadows(ctx, upperAnchors, baseW);
-  if (lowerAnchors.length) drawContactShadows(ctx, lowerAnchors, baseW);
-
-  ctx.globalAlpha = 0.95;
-  drawWire(ctx, wireSamplesUpper, 0.75); 
-  if (wireSamplesLower.length >= 2) drawWire(ctx, wireSamplesLower, 0.65); 
-  ctx.globalAlpha = 1;
-
-  drawBrackets(ctx, upperAnchors, baseW, baseH, 0);
-  if (lowerAnchors.length) drawBrackets(ctx, lowerAnchors, baseW, baseH, Math.PI);
+  // 3. Draw Primitive Brackets (NO drawImage)
+  ctx.fillStyle = '#CCCCCC'; // Silver
+  [...sortedU, ...sortedL].forEach(anchor => {
+     ctx.fillRect(anchor.x - 5, anchor.y - 4, 10, 8); // Simple visible rectangle
+     // Add a tiny slot for detail
+     ctx.fillStyle = '#666666';
+     ctx.fillRect(anchor.x - 5, anchor.y - 1, 10, 2);
+     ctx.fillStyle = '#CCCCCC';
+  });
 
   ctx.restore();
-  eraseAboveUpperLip(ctx, landmarks, iw, ih, mouthOpen);
-
-  return canvas.toDataURL('image/jpeg', 0.98); // High Fidelity Locking
+  return canvas.toDataURL('image/jpeg', 0.98);
 }

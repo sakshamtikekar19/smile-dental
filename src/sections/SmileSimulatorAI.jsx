@@ -428,14 +428,14 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   // --- Mandate 1 & 4 Revert: Native Composite Architecture ---
   // We completely abandon manual pixel loops to ensure maximum quality and zero artifacts.
   
-  // 1. Draw the base original image
-  ctx.drawImage(orig, 0, 0);
+  // --- Mandate 1: Force High-Res Display (Pillar 1) ---
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.filter = 'none';
+  ctx.drawImage(orig, 0, 0, canvas.width, canvas.height);
 
   // 2. Alignment Overlay (if applicable)
-  // If the worker processed an alignment warp, we overlay it only in the mouth region with feathering.
   if (treatment === "alignment" || treatment === "transformation") {
     ctx.save();
-    // Create a feathered clip to merge the warped teeth into the original face
     ctx.beginPath();
     ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2);
     ctx.filter = `blur(${OVAL_FEATHER_PX}px)`;
@@ -445,11 +445,9 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // 3. Whitening Overlay (Regression 2: Restore Compositing)
+  // --- Mandate 2: Overwrite Whitening Pass (Pillar 2) ---
   if (treatment !== "alignment") {
     ctx.save();
-    
-    // Mandate 2: Restoration sequence
     const enamelPts = landmarks
       ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 2)
       : null;
@@ -460,17 +458,14 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       for (let i = 1; i < enamelPts.length; i++) ctx.lineTo(enamelPts[i].x, enamelPts[i].y);
       ctx.closePath();
 
-      // Mandate: Feathering before clip
-      ctx.filter = 'blur(6px)';
+      ctx.filter = 'blur(6px)'; // Soften the gumline
       ctx.clip();
-      ctx.filter = 'none';
 
-      // Mandate: Clinical soft-light blend
-      ctx.globalCompositeOperation = 'soft-light';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; 
-      ctx.fill(); 
+      ctx.filter = 'none'; // CRITICAL: Reset filter before filling
+      ctx.globalCompositeOperation = 'soft-light'; // CRITICAL: Restores 3D shadows
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
+      ctx.fillRect(0, 0, canvas.width, canvas.height); // Fill the clipped area safely
     }
-    
     ctx.restore();
   }
 
