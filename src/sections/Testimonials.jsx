@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import AnimatedSection from "../components/AnimatedSection";
 import PremiumButton from "../components/PremiumButton";
 
