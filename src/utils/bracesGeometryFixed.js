@@ -10,7 +10,8 @@ const UPPER_ARCH_IDX = [308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78];
 // Lower arch tooth-face landmarks (left→right)  
 const LOWER_ARCH_IDX = [324, 318, 402, 317, 14, 87, 178, 88, 95];
 
-export const BRACKET_SIDE_PX = 7.5;
+// Bracket size is relative to image width — fixed 7.5px is too small on 384×384
+export const BRACKET_SIDE_PX = 7.5; // base; caller should scale by (iw / 320)
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -170,7 +171,8 @@ export function buildBracesPack(landmarks, iw, ih, oval, pixelData = null) {
   if (!lipU || !lipL) return null;
 
   const mouthOpen = Math.abs(lipL.y - lipU.y);
-  if (mouthOpen < 5) return null;
+  // Threshold of 5 was too strict for small (384px) images — use 2
+  if (mouthOpen < 2) return null;
 
   const lipMidY = (lipU.y + lipL.y) / 2;
 

@@ -1,7 +1,6 @@
 /**
  * smileProcessor.worker.js
- * Runs ALL heavy pixel operations (whitening, alignment warp, mask building)
- * in a dedicated Web Worker so the main thread can never crash or freeze.
+ * Runs ALL heavy pixel operations in a dedicated Web Worker.
  *
  * Messages IN  (from main thread):
  *   { type: "PROCESS", imageData: ImageData, treatment: string, landmarks: Array|null }
@@ -13,19 +12,18 @@
  */
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const ENAMEL_LUM_MIN  = 15;
-const ENAMEL_LUM_MAX  = 252;
-const ENAMEL_SAT_MAX  = 0.58;
-const OVAL_FEATHER_PX = 16;
+const ENAMEL_LUM_MIN  = 18;
+const ENAMEL_LUM_MAX  = 248;
+const ENAMEL_SAT_MAX  = 0.52;
 const TEETH_WHITEN_MASK_INDICES = [
   61, 185, 40, 39, 37, 0, 267, 270, 269, 409, 291,
   375, 321, 405, 314, 17, 84, 181, 91, 146,
 ];
 
 function log(msg) { self.postMessage({ type: "PROGRESS", log: msg }); }
-
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+// ── Ray-cast point-in-polygon ─────────────────────────────────────────────────
 function pointInPoly(x, y, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -45,11 +43,9 @@ function buildBitmapMask(poly, iw, ih) {
   const maxX = Math.min(iw - 1, Math.ceil(Math.max(...xs)));
   const minY = Math.max(0, Math.floor(Math.min(...ys)));
   const maxY = Math.min(ih - 1, Math.ceil(Math.max(...ys)));
-  for (let py = minY; py <= maxY; py++) {
-    for (let px = minX; px <= maxX; px++) {
+  for (let py = minY; py <= maxY; py++)
+    for (let px = minX; px <= maxX; px++)
       if (pointInPoly(px, py, poly)) mask[py * iw + px] = 1;
-    }
-  }
   return mask;
 }
 
@@ -73,6 +69,111 @@ function getMaskPoints(landmarks, iw, ih, extraInset = 0) {
   return pts;
 }
 
+// ── RGB ↔ HSL helpers ────────────────────────────────────────────────────────
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = max === r ? (g - b) / d + (g < b ? 6 : 0)
+        : max === g ? (b - r) / d + 2
+        : (r - g) / d + 4;
+  h /= 6;
+  return [h, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2rgb = (p, q, t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  return [
+    Math.round(hue2rgb(p, q, h + 1/3) * 255),
+    Math.round(hue2rgb(p, q, h)       * 255),
+    Math.round(hue2rgb(p, q, h - 1/3) * 255),
+  ];
+}
+
+// ── Clinical Dental Whitening ─────────────────────────────────────────────────
+/**
+ * Realistic dental whitening uses three principles:
+ * 1. Desaturate: real whitening removes chromophores, lowering saturation
+ * 2. Lighten via Screen blend (not linear push toward white — that's paint)
+ * 3. Shift hue slightly toward neutral/warm white (away from yellow)
+ * 4. Preserve inter-tooth shadows (dark areas whiten less)
+ */
+function applyWhitening(srcData, iw, ih, maskPoly, strength = 0.42) {
+  const out = new Uint8ClampedArray(srcData);
+  const mask = maskPoly ? buildBitmapMask(maskPoly, iw, ih) : null;
+
+  const xs = maskPoly?.map(p => p.x) ?? [0], ys = maskPoly?.map(p => p.y) ?? [0];
+  const minX = Math.max(0, Math.floor(Math.min(...xs)) - 4);
+  const maxX = Math.min(iw - 1, Math.ceil(Math.max(...xs)) + 4);
+  const minY = Math.max(0, Math.floor(Math.min(...ys)) - 4);
+  const maxY = Math.min(ih - 1, Math.ceil(Math.max(...ys)) + 4);
+
+  for (let py = minY; py <= maxY; py++) {
+    for (let px = minX; px <= maxX; px++) {
+      if (mask && !mask[py * iw + px]) continue;
+
+      const i = (py * iw + px) * 4;
+      const r = srcData[i], g = srcData[i + 1], b = srcData[i + 2];
+
+      // ── Gate 1: Skip gum/lip pixels using red-excess heuristic ──
+      // Gum tissue has significantly elevated red channel relative to blue
+      const rg = r / Math.max(g, 1), rb = r / Math.max(b, 1);
+      if (r > 100 && (rg > 1.22 || rb > 1.28)) continue;
+
+      // ── Gate 2: Skip very dark pixels (inter-tooth shadows, crevices) ──
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      if (lum < 18 || lum > 245) continue;
+
+      // ── Convert to HSL for realistic manipulation ──
+      const [h, s, l] = rgbToHsl(r, g, b);
+
+      // ── Gate 3: Skip pixels that don't look like enamel (too saturated) ──
+      if (s > 0.55) continue;
+
+      // ── Compute whitening intensity: brighter pixels whiten less (Screen-like) ──
+      // Screen blend: 1 - (1-src)(1-dst) where dst=1 (white)
+      // Simplified: src + (1-src)*alpha — but we modulate alpha by luminance
+      // so dark stained areas get more whitening than already-bright areas
+      const darkBoost  = Math.pow(1 - l, 0.7);   // 0→1 (darker = higher boost)
+      const alpha      = clamp(strength * (0.6 + 0.8 * darkBoost), 0, 0.72);
+
+      // ── Step 1: Screen blend — lifts luminance naturally ──
+      const newL = clamp(1 - (1 - l) * (1 - alpha * 0.65), 0, 0.97);
+
+      // ── Step 2: Desaturate (remove chromophores) ──
+      // Real whitening strips yellow/brown pigments → lower saturation
+      const satReduction = alpha * 0.55;
+      const newS = clamp(s * (1 - satReduction), 0, 1);
+
+      // ── Step 3: Warm hue correction ──
+      // Shift yellow (h≈0.14) toward neutral white (h≈0.11) slightly
+      let newH = h;
+      if (h > 0.08 && h < 0.22) {          // yellow-ish range
+        newH = h - (h - 0.10) * alpha * 0.35; // gentle pull to neutral
+      }
+
+      const [nr, ng, nb] = hslToRgb(newH, newS, newL);
+      out[i]     = nr;
+      out[i + 1] = ng;
+      out[i + 2] = nb;
+    }
+  }
+  return out;
+}
+
+// ── Alignment Warp ───────────────────────────────────────────────────────────
 function sampleRGBA(src, sw, sh, x, y) {
   const px = clamp(x, 0, sw - 1), py = clamp(y, 0, sh - 1);
   const x0 = Math.floor(px), y0 = Math.floor(py);
@@ -83,49 +184,12 @@ function sampleRGBA(src, sw, sh, x, y) {
   const out = [0, 0, 0, 255];
   for (let k = 0; k < 3; k++) {
     const a = src[i00 + k] * (1 - tx) + src[i10 + k] * tx;
-    const b = src[i01 + k] * (1 - tx) + src[i11 + k] * tx;
-    out[k] = a * (1 - ty) + b * ty;
+    const bb = src[i01 + k] * (1 - tx) + src[i11 + k] * tx;
+    out[k] = a * (1 - ty) + bb * ty;
   }
   return out;
 }
 
-// ── Whitening Pass ───────────────────────────────────────────────────────────
-function applyWhitening(srcData, iw, ih, maskPoly, strength = 0.38) {
-  const out = new Uint8ClampedArray(srcData);
-  const mask = maskPoly ? buildBitmapMask(maskPoly, iw, ih) : null;
-
-  const xs = maskPoly?.map(p => p.x) ?? [0], ys = maskPoly?.map(p => p.y) ?? [0];
-  const minX = Math.max(0, Math.floor(Math.min(...xs)) - 5);
-  const maxX = Math.min(iw - 1, Math.ceil(Math.max(...xs)) + 5);
-  const minY = Math.max(0, Math.floor(Math.min(...ys)) - 5);
-  const maxY = Math.min(ih - 1, Math.ceil(Math.max(...ys)) + 5);
-
-  for (let py = minY; py <= maxY; py++) {
-    for (let px = minX; px <= maxX; px++) {
-      if (mask && !mask[py * iw + px]) continue;
-      const i = (py * iw + px) * 4;
-      const r = srcData[i], g = srcData[i + 1], b = srcData[i + 2];
-
-      // Red gate — skip gum/lip pixels
-      const redExcess = r / Math.max(g, 1);
-      if (r > 105 && (redExcess > 1.18 || r / Math.max(b, 1) > 1.22)) continue;
-
-      const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-      if (lum < 0.04) continue;
-
-      const lumFactor = Math.pow(1 - lum, 0.5);
-      const alpha = clamp(strength * (0.85 + 0.4 * lumFactor), 0, 1);
-
-      // Soft-light blend: pull toward white
-      out[i]     = clamp(Math.round(r + (255 - r) * alpha * 0.55), 0, 255);
-      out[i + 1] = clamp(Math.round(g + (255 - g) * alpha * 0.55), 0, 255);
-      out[i + 2] = clamp(Math.round(b + (250 - b) * alpha * 0.45), 0, 255);
-    }
-  }
-  return out;
-}
-
-// ── Alignment Warp ───────────────────────────────────────────────────────────
 function applyAlignmentWarp(srcData, iw, ih, maskPoly, landmarks, treatment) {
   const out = new Uint8ClampedArray(srcData);
   const mask = maskPoly ? buildBitmapMask(maskPoly, iw, ih) : null;
@@ -135,9 +199,8 @@ function applyAlignmentWarp(srcData, iw, ih, maskPoly, landmarks, treatment) {
   const midYNorm = lipU && lipL ? (lipU.y + lipL.y) * 0.5 : 0.55;
   const upperCap = Math.floor(clamp(midYNorm * ih - 2, 0, ih - 1));
 
-  // Find enamel top edge per column
   const topEdge = new Float32Array(iw).fill(1e9);
-  const valid    = new Uint8Array(iw);
+  const valid   = new Uint8Array(iw);
   for (let cx = 0; cx < iw; cx++) {
     for (let cy = 0; cy <= upperCap; cy++) {
       if (!mask[cy * iw + cx]) continue;
@@ -152,7 +215,6 @@ function applyAlignmentWarp(srcData, iw, ih, maskPoly, landmarks, treatment) {
     }
   }
 
-  // Median-smooth top edge
   const smoothTop = new Float32Array(iw);
   for (let cx = 0; cx < iw; cx++) {
     const vals = [];
@@ -181,7 +243,6 @@ function applyAlignmentWarp(srcData, iw, ih, maskPoly, landmarks, treatment) {
     dxCol[cx] = clamp(-slope * 0.14, -1.1, 1.1);
   }
 
-  // Inverse warp
   for (let cy = 0; cy < ih; cy++) {
     for (let cx = 0; cx < iw; cx++) {
       const oi = (cy * iw + cx) * 4;
@@ -201,7 +262,7 @@ function applyAlignmentWarp(srcData, iw, ih, maskPoly, landmarks, treatment) {
       const smp = (sx >= 0 && sx < iw && sy >= 0 && sy < ih && mask[sy * iw + sx])
         ? sampleRGBA(srcData, iw, ih, sx, sy)
         : sampleRGBA(srcData, iw, ih, cx, cy);
-      const isGum = smp[0] > 140 && smp[0] / Math.max(smp[1],1) > 1.25 && smp[0] / Math.max(smp[2],1) > 1.25;
+      const isGum = smp[0] > 135 && smp[0] / Math.max(smp[1],1) > 1.22 && smp[0] / Math.max(smp[2],1) > 1.22;
       if (!isGum) { out[oi]=smp[0]; out[oi+1]=smp[1]; out[oi+2]=smp[2]; out[oi+3]=smp[3]; }
     }
   }
@@ -217,12 +278,13 @@ self.onmessage = function(e) {
     const { data, width: iw, height: ih } = imageData;
     let processed = new Uint8ClampedArray(data);
 
-    const maskPoly = landmarks ? getMaskPoints(landmarks, iw, ih, 3) : null;
+    // Use a tighter inset (2px) for the mask — less gum bleed
+    const maskPoly = landmarks ? getMaskPoints(landmarks, iw, ih, 2) : null;
 
-    // Step 1: Whitening
+    // Step 1: Whitening — realistic HSL-based dental whitening
     if (["whitening", "transformation", "braces"].includes(treatment)) {
       log("Applying clinical whitening...");
-      processed = applyWhitening(processed, iw, ih, maskPoly, 0.4);
+      processed = applyWhitening(processed, iw, ih, maskPoly, 0.45);
     }
 
     // Step 2: Alignment warp

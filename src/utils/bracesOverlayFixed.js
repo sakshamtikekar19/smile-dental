@@ -151,9 +151,11 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
     return mergedImageSrc;
   }
 
-  // Supply dimensions typically passed dynamically
-  pack.baseW = BRACKET_SIDE_PX;
-  pack.baseH = BRACKET_SIDE_PX;
+  // Scale bracket size proportionally to image width so it's visible on small images
+  // At iw=320 → 1.0x (7.5px), at iw=384 → 1.2x (9px), at iw=512 → 1.6x (12px)
+  const bracketScale = clamp(iw / 320, 0.9, 2.2);
+  pack.baseW = BRACKET_SIDE_PX * bracketScale;
+  pack.baseH = BRACKET_SIDE_PX * bracketScale;
 
   await rAF();
   await delay(30);
