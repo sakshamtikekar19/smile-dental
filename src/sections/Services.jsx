@@ -39,9 +39,12 @@ const Services = () => {
             <p className="text-zinc-500 text-lg leading-relaxed mb-6">
               We combine advanced medical technology with an artistic eye to deliver results that are both beautiful and healthy.
             </p>
-            <a href="#" className="inline-flex items-center gap-2 text-black font-semibold hover:gap-4 transition-all">
-              View All Services <ArrowRight size={20} />
-            </a>
+            <button 
+              onClick={() => document.getElementById('contact').scrollIntoView({ behavior: 'smooth' })}
+              className="inline-flex items-center gap-2 text-black font-bold uppercase tracking-wider text-[11px] hover:gap-4 transition-all"
+            >
+              Consultation <ArrowRight size={16} className="text-brand-gold" />
+            </button>
           </AnimatedSection>
         </div>
 
@@ -50,18 +53,21 @@ const Services = () => {
             <AnimatedSection 
               key={service.title} 
               delay={index * 0.1}
-              className="group p-10 rounded-3xl border border-zinc-100 bg-zinc-50 hover:bg-white hover:shadow-2xl hover:shadow-zinc-200/50 transition-all duration-500"
+              className="group p-10 rounded-[2.5rem] border border-zinc-100 bg-zinc-50/50 hover:bg-white hover:shadow-[0_20px_60px_rgba(0,0,0,0.08)] transition-all duration-500"
             >
-              <div className={`w-16 h-16 ${service.color} rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-500`}>
-                <service.icon size={32} />
+              <div className={`w-16 h-16 ${service.color} rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 shadow-sm shadow-black/5`}>
+                <service.icon size={28} />
               </div>
-              <h3 className="text-2xl font-serif mb-4 text-zinc-900">{service.title}</h3>
-              <p className="text-zinc-500 leading-relaxed mb-8">
+              <h3 className="text-2xl font-serif mb-4 text-zinc-900 leading-tight">{service.title}</h3>
+              <p className="text-zinc-500 leading-relaxed mb-8 text-sm">
                 {service.description}
               </p>
-              <div className="w-10 h-10 rounded-full border border-zinc-200 flex items-center justify-center group-hover:bg-black group-hover:text-white transition-all duration-300">
+              <button 
+                onClick={() => document.getElementById('simulation').scrollIntoView({ behavior: 'smooth' })}
+                className="w-11 h-11 rounded-full border border-zinc-200 flex items-center justify-center group-hover:bg-zinc-900 group-hover:border-zinc-900 group-hover:text-white transition-all duration-300"
+              >
                 <ArrowRight size={18} />
-              </div>
+              </button>
             </AnimatedSection>
           ))}
         </div>

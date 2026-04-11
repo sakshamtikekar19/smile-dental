@@ -576,7 +576,7 @@ const SmileSimulatorAI = () => {
   };
 
   // Mandate 1: Restore Soft-Light composite blending
-  const applyLuminosityWhiteningPass = async (ctx, iw, ih, strength = 0.38, landmarks = null) => {
+  const applyLuminosityWhiteningPass = async (ctx, iw, ih, strength = 0.38, landmarks = null, generation = 0) => {
     const pristineData = ctx.getImageData(0, 0, iw, ih).data;
 
     // Create a layer for the white overlay
@@ -689,7 +689,7 @@ const SmileSimulatorAI = () => {
 
 
 
-  const applyTeethWhitening = async (imageSrc, oval, landmarks, bounds) => {
+  const applyTeethWhitening = async (imageSrc, oval, landmarks, bounds, generation = 0) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -778,7 +778,7 @@ const SmileSimulatorAI = () => {
     return out;
   };
 
-  const applyAlignmentWarp = async (imageSrc, bounds, landmarks, oval, treatment = "alignment") => {
+  const applyAlignmentWarp = async (imageSrc, bounds, landmarks, oval, treatment = "alignment", generation = 0) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -806,7 +806,7 @@ const SmileSimulatorAI = () => {
         const out = outImg.data;
 
         const localPoly = maskPts.map((p) => ({ x: p.x - x, y: p.y - y }));
-        const maskBitmap = createBitmapMask(localPoly, width, height);
+        const maskBitmap = await createBitmapMask(localPoly, width, height, generation);
 
         const lipU = landmarks[13], lipL = landmarks[14];
         const midY = lipU && lipL ? ((lipU.y + lipL.y) * 0.5 * canvas.height - y) : height * 0.5;
@@ -1488,7 +1488,7 @@ const SmileSimulatorAI = () => {
             {step === "result" && (
               <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="space-y-8">
                 <motion.div
-                  className="rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-white/20 bg-black w-full max-w-lg mx-auto aspect-square max-h-[min(92vw,560px)] origin-center"
+                  className="relative rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.12)] border border-white/20 bg-black w-full max-w-lg mx-auto aspect-square max-h-[min(92vw,560px)] origin-center"
                   initial={{ scale: 1.08, y: 6 }} animate={{ scale: 1, y: 0 }}
                   transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
                 >
@@ -1500,6 +1500,18 @@ const SmileSimulatorAI = () => {
                     leftImageCss={{ objectFit: "cover", objectPosition: "center center" }}
                     rightImageCss={{ objectFit: "cover", objectPosition: "center center" }}
                   />
+                  
+                  {/* Premium Slider Labels */}
+                  <div className="absolute top-6 left-6 pointer-events-none">
+                    <span className="glass px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest text-zinc-900 shadow-sm">
+                      Original
+                    </span>
+                  </div>
+                  <div className="absolute top-6 right-6 pointer-events-none">
+                    <span className="glass px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest text-brand-gold shadow-sm">
+                      Simulation
+                    </span>
+                  </div>
                 </motion.div>
                 <p className="text-center text-xs text-zinc-500 md:hidden">Drag the gold line to compare</p>
 

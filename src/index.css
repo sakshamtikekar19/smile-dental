@@ -4,27 +4,44 @@
   --font-serif: "Playfair Display", serif;
   --font-sans: "Inter", sans-serif;
   
-  --color-brand-gold: #D4AF37;
-  --color-brand-beige: #F5F5DC;
-  --color-brand-blue: #E0F2F7;
+  /* Premium Palette */
+  --color-brand-gold: oklch(0.78 0.15 88);
+  --color-brand-gold-light: oklch(0.92 0.08 92);
+  --color-brand-beige: oklch(0.98 0.01 80);
+  --color-brand-blue: oklch(0.94 0.03 230);
+  --color-brand-blue-deep: oklch(0.45 0.12 245);
 }
 
 :root {
   background-color: #ffffff;
-  color: #333333;
+  color: oklch(0.25 0.02 250);
 }
 
 body {
   margin: 0;
   font-family: var(--font-sans);
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-serif);
+  letter-spacing: -0.02em;
 }
 
-/* Ensure Tailwind base styles are applied */
+/* Premium Glassmorphism Utilities */
+@layer utilities {
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.08)];
+  }
+  .glass-dark {
+    @apply bg-black/40 backdrop-blur-xl border border-white/10 shadow-[0_12px_48px_rgba(0,0,0,0.3)];
+  }
+  .text-shadow-sm {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+}
+
 @layer base {
   * {
     @apply border-zinc-200;
@@ -38,4 +55,13 @@ h1, h2, h3, h4, h5, h6 {
   0% { transform: translateX(-100%); }
   50% { transform: translateX(0); }
   100% { transform: translateX(100%); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
 }

@@ -1,20 +1,18 @@
 import AnimatedSection from "../components/AnimatedSection";
 import PremiumButton from "../components/PremiumButton";
+import BrandLogo from "./BrandLogo";
 
 const Footer = () => {
   return (
-    <footer id="about" className="bg-zinc-900 text-white py-24 scroll-mt-28">
+    <footer id="about" className="bg-zinc-950 text-white py-24 scroll-mt-28">
       <div className="container mx-auto px-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-16 mb-20">
           <div className="lg:col-span-1">
-            <div className="flex items-center gap-2 mb-8">
-              <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
-                <div className="w-4 h-4 bg-black rounded-sm rotate-45" />
-              </div>
-              <span className="font-serif text-xl font-semibold tracking-tight">SMILE STUDIO</span>
+            <div className="mb-10">
+              <BrandLogo className="brightness-200 grayscale contrast-200" />
             </div>
-            <p className="text-zinc-400 leading-relaxed mb-8 max-w-xs">
-              Redefining cosmetic dentistry through advanced technology and artistic precision.
+            <p className="text-zinc-500 leading-relaxed mb-8 max-w-xs text-sm">
+              We define the union of advanced medical technology and artistic precision in modern cosmetic dentistry.
             </p>
             <div className="flex gap-4">
               {["IG", "FB", "TW", "LI"].map((s) => (
