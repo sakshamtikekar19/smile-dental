@@ -36,8 +36,8 @@ async function initFaceLandmarker() {
         },
         runningMode: "IMAGE",
         numFaces: 1,
-        minFaceDetectionConfidence: 0.2,
-        minFacePresenceConfidence:  0.2,
+        minFaceDetectionConfidence: 0.1,
+        minFacePresenceConfidence:  0.1,
       });
       return _faceLandmarkerInstance;
     } catch {
@@ -570,9 +570,9 @@ const SmileSimulatorAI = () => {
     let finalUrl      = null;
 
     try {
-      // Step 1: Detect landmarks on a standard 512px image (Pillar 1/Regression 1)
+      // Step 1: Detect landmarks on a standard 1024px image (Pillar 1/Regression 1)
       setProcessingLog("Analyzing anatomy...");
-      const detectTarget = await resizeImage(imageUrl, 512);
+      const detectTarget = await resizeImage(imageUrl, 1024);
       const landmarks = await detectLandmarks(detectTarget.url);
       safeRevoke(detectTarget.url);
       console.log("[6] AI Waking Up — running FaceLandmarker on 512px proxy");
