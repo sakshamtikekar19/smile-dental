@@ -9,7 +9,7 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 /**
  * Draw archwire polyline: dark shadow → silver body → white highlight
  */
-export function drawWire(ctx, pts, lineWidth = 1.2) {
+export function drawWire(ctx, pts, lineWidth = 0.8) {
   if (!pts || pts.length < 2) return;
 
   const draw = () => {
@@ -22,59 +22,104 @@ export function drawWire(ctx, pts, lineWidth = 1.2) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Shadow stroke
+  // Ambient Occlusion / Shadow
   draw();
-  ctx.strokeStyle = 'rgba(20,22,28,0.85)';
-  ctx.lineWidth = lineWidth + 2.4;
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = 1.5;
-  ctx.shadowOffsetY = 1.5;
+  ctx.strokeStyle = 'rgba(15,17,23,0.6)';
+  ctx.lineWidth = lineWidth + 1.2;
   ctx.stroke();
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
 
-  // Silver body
+  // Silver Core
   draw();
-  ctx.strokeStyle = 'rgba(185,188,200,1.0)';
+  ctx.strokeStyle = '#94a3b8'; // Slate-400 (Metallic Base)
   ctx.lineWidth = lineWidth;
   ctx.stroke();
 
-  // Specular highlight (thinner, shifted up slightly)
+  // Highlight
   draw();
-  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-  ctx.lineWidth = Math.max(0.4, lineWidth * 0.35);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = lineWidth * 0.45;
   ctx.stroke();
 
   ctx.restore();
 }
 
+
 /**
- * Draw a single metallic bracket at (x, y) with given transform.
- * Mandate 1: No drawImage. Mandate 2: Save/Restore state isolation.
+ * Draw a single high-fidelity metallic bracket. 
+ * Designed to resemble clinical orthodontic brackets with tie wings and slot.
  */
 export function drawBracket(ctx, x, y, ang, wMult, hMult, depthOpacity, baseW, baseH, angBias = 0) {
-  const w = Math.max(4, baseW * wMult);
-  const h = Math.max(4, baseH * hMult);
+  const w = Math.max(6, baseW * wMult);
+  const h = Math.max(6, baseH * hMult);
+  const r = 1.2;
 
   ctx.save();
-  ctx.globalAlpha *= clamp(depthOpacity, 0.6, 1.0);
+  ctx.globalAlpha *= clamp(depthOpacity, 0.7, 1.0);
   ctx.translate(x, y);
   ctx.rotate(ang + angBias);
 
-  // Mandate 1: Simple geometric rectangle (silver/grey)
-  ctx.fillStyle = '#C0C0C0'; 
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = 2;
-  ctx.shadowOffsetY = 1;
+  // 1. Bracket Base (Shadow/Occlusion)
+  ctx.shadowColor = 'rgba(0,0,0,0.45)';
+  ctx.shadowBlur = 2.5;
+  ctx.shadowOffsetY = 1.2;
 
-  ctx.fillRect(-w / 2, -h / 2, w, h);
+  // 2. Metallic Body Gradient
+  const grad = ctx.createLinearGradient(-w/2, -h/2, w/2, h/2);
+  grad.addColorStop(0,    '#f8fafc'); // highlight
+  grad.addColorStop(0.3,  '#cbd5e1'); // silver
+  grad.addColorStop(0.7,  '#64748b'); // shadow
+  grad.addColorStop(1,    '#334155'); // deep shadow
 
-  // Subtle metallic highlight line
-  ctx.fillStyle = '#E2E8F0';
-  ctx.fillRect(-w * 0.4, -h * 0.4, w * 0.8, h * 0.1);
+  // Main bracket plate
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(-w*0.48, -h/2, w*0.96, h, r);
+  } else {
+    ctx.rect(-w*0.48, -h/2, w*0.96, h);
+  }
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  // 3. Central Archwire Slot (Dark horizontal line)
+  ctx.fillStyle = 'rgba(15,23,42,0.85)';
+  ctx.fillRect(-w/2, -h*0.1, w, h*0.2);
+  
+  // 4. Tie Wings (Clinical Detail)
+  const tw = w * 0.35;
+  const th = h * 0.35;
+  const tx = w * 0.28;
+  const ty = h * 0.28;
+  
+  const drawWing = (wx, wy) => {
+    ctx.fillStyle = '#cbd5e1';
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(wx - tw/2, wy - th/2, tw, th, 0.8);
+    } else {
+      ctx.rect(wx - tw/2, wy - th/2, tw, th);
+    }
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  };
+
+  drawWing(-tx, -ty); // Top Left
+  drawWing( tx, -ty); // Top Right
+  drawWing(-tx,  ty); // Bottom Left
+  drawWing( tx,  ty); // Bottom Right
+
+  // 5. Specular Highlight on top of wings
+  ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha *= 0.6;
+  ctx.fillRect(-tx - tw*0.2, -ty - th*0.2, tw*0.4, th*0.2);
 
   ctx.restore();
 }
+
 
 
 /**
