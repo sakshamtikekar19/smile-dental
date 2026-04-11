@@ -51,7 +51,7 @@ async function initFaceLandmarker() {
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const MAX_IMAGE_SIZE           = 1024;  // px — High fidelity for modern mobile screens without crashing
+const MAX_IMAGE_SIZE           = 8192;  // High-fidelity limit (essentially original resolution)
 const FACE_DETECT_TIMEOUT_MS   = 18_000;
 const AI_FETCH_TIMEOUT_MS      = 75_000;
 const MOUTH_PERIMETER_INDICES  = [61, 291, 17, 13, 14, 78, 308, 181];
@@ -413,67 +413,61 @@ async function cropRegion(imageSrc, rect) {
 /**
  * Merge processed mouth region back onto original full frame.
  */
-async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks) {
+async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
   const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
   const canvas = document.createElement("canvas");
   canvas.width  = orig.width;
   canvas.height = orig.height;
   const ctx     = canvas.getContext("2d");
+  // --- Mandate 1 & 4 Revert: Native Composite Architecture ---
+  // We completely abandon manual pixel loops to ensure maximum quality and zero artifacts.
+  
+  // 1. Draw the base original image
   ctx.drawImage(orig, 0, 0);
 
-  // Build enamel mask for compositing
-  const enamelPts = landmarks
-    ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 3)
-    : null;
-
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const out = imageData.data;
-
-  // Build a small secondary canvas to sample processed pixels
-  const sec     = document.createElement("canvas");
-  sec.width     = bounds.width;
-  sec.height    = bounds.height;
-  sec.getContext("2d").drawImage(proc, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
-  const mPx = sec.getContext("2d").getImageData(0, 0, bounds.width, bounds.height).data;
-
-  // Build enamel bitmap
-  let enamelMask = null;
-  if (enamelPts && enamelPts.length >= 3) {
-    const mW = canvas.width, mH = canvas.height;
-    enamelMask = new Uint8Array(mW * mH);
-    const xs = enamelPts.map(p => p.x), ys = enamelPts.map(p => p.y);
-    const eMinX = Math.max(0, Math.floor(Math.min(...xs)));
-    const eMaxX = Math.min(mW - 1, Math.ceil(Math.max(...xs)));
-    const eMinY = Math.max(0, Math.floor(Math.min(...ys)));
-    const eMaxY = Math.min(mH - 1, Math.ceil(Math.max(...ys)));
-    function ptInPoly(x, y, poly) {
-      let inside = false;
-      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
-        if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-6) + xi) inside = !inside;
-      }
-      return inside;
-    }
-    for (let py = eMinY; py <= eMaxY; py++)
-      for (let px = eMinX; px <= eMaxX; px++)
-        if (ptInPoly(px, py, enamelPts)) enamelMask[py * mW + px] = 1;
+  // 2. Alignment Overlay (if applicable)
+  // If the worker processed an alignment warp, we overlay it only in the mouth region with feathering.
+  if (treatment === "alignment" || treatment === "transformation") {
+    ctx.save();
+    // Create a feathered clip to merge the warped teeth into the original face
+    ctx.beginPath();
+    ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2);
+    ctx.filter = `blur(${OVAL_FEATHER_PX}px)`;
+    ctx.clip();
+    ctx.filter = 'none';
+    ctx.drawImage(proc, 0, 0);
+    ctx.restore();
   }
 
-  for (let py = bounds.y; py < bounds.y + bounds.height; py++) {
-    for (let px = bounds.x; px < bounds.x + bounds.width; px++) {
-      const w0 = ellipseWeight(px, py, oval, OVAL_FEATHER_PX);
-      if (w0 <= 0) continue;
-      const wE = !enamelMask || enamelMask[py * canvas.width + px] ? 1 : 0;
-      const w  = w0 * wE;
-      if (w <= 0) continue;
-      const oi = (py * canvas.width + px) * 4;
-      const mi = ((py - bounds.y) * bounds.width + (px - bounds.x)) * 4;
-      out[oi]   = Math.round(out[oi]   * (1 - w) + mPx[mi]   * w);
-      out[oi+1] = Math.round(out[oi+1] * (1 - w) + mPx[mi+1] * w);
-      out[oi+2] = Math.round(out[oi+2] * (1 - w) + mPx[mi+2] * w);
+  // 3. Whitening Overlay (Mandates 2, 3, 4)
+  if (treatment !== "alignment") {
+    ctx.save();
+    
+    // Mandate 2: Use strict inner-lip landmarks for the path
+    const enamelPts = landmarks
+      ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 2)
+      : null;
+
+    if (enamelPts && enamelPts.length >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(enamelPts[0].x, enamelPts[0].y);
+      for (let i = 1; i < enamelPts.length; i++) ctx.lineTo(enamelPts[i].x, enamelPts[i].y);
+      ctx.closePath();
+
+      // Mandate 3: Gaussian Feathering (The Edge Blend)
+      ctx.filter = 'blur(6px)';
+      ctx.clip();
+      ctx.filter = 'none'; // Reset filter so the fill is crisp within the blurred mask
+
+      // Mandate 4: 'Soft-Light' Native Blending
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.72)'; 
+      ctx.fillRect(0, 0, canvas.width, canvas.height); 
     }
+    
+    ctx.restore();
   }
-  ctx.putImageData(imageData, 0, 0);
+
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.98));
 }
 
@@ -617,7 +611,7 @@ const SmileSimulatorAI = () => {
       // Step 5: Merge back into full frame
       console.log("[12] Merging processed pixels into full frame");
       setProcessingLog("Compositing result...");
-      mergedUrl = await mergeIntoFullFrame(normalizedUrl, processedUrl, bounds, oval, landmarks);
+      mergedUrl = await mergeIntoFullFrame(normalizedUrl, processedUrl, bounds, oval, landmarks, treatment);
       safeRevoke(processedUrl); processedUrl = null;
       console.log("[13] Merge complete");
 
@@ -688,7 +682,7 @@ const SmileSimulatorAI = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     if (!video.videoWidth || !video.videoHeight) return;
-    const scale  = video.videoWidth > 1024 ? 1024 / video.videoWidth : 1;
+    const scale  = video.videoWidth > 4096 ? 4096 / video.videoWidth : 1;
     const outW   = Math.round(video.videoWidth  * scale);
     const outH   = Math.round(video.videoHeight * scale);
     const canvas = canvasRef.current;

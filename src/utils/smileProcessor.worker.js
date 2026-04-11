@@ -102,76 +102,8 @@ function hslToRgb(h, s, l) {
   ];
 }
 
-// ── Clinical Dental Whitening ─────────────────────────────────────────────────
-/**
- * Realistic dental whitening uses three principles:
- * 1. Desaturate: real whitening removes chromophores, lowering saturation
- * 2. Lighten via Screen blend (not linear push toward white — that's paint)
- * 3. Shift hue slightly toward neutral/warm white (away from yellow)
- * 4. Preserve inter-tooth shadows (dark areas whiten less)
- */
-function applyWhitening(srcData, iw, ih, maskPoly, strength = 0.42) {
-  const out = new Uint8ClampedArray(srcData);
-  const mask = maskPoly ? buildBitmapMask(maskPoly, iw, ih) : null;
+// --- Whitening Logic removed per CRITICAL ARCHITECTURE REVERT (Mandate 1) ---
 
-  const xs = maskPoly?.map(p => p.x) ?? [0], ys = maskPoly?.map(p => p.y) ?? [0];
-  const minX = Math.max(0, Math.floor(Math.min(...xs)) - 4);
-  const maxX = Math.min(iw - 1, Math.ceil(Math.max(...xs)) + 4);
-  const minY = Math.max(0, Math.floor(Math.min(...ys)) - 4);
-  const maxY = Math.min(ih - 1, Math.ceil(Math.max(...ys)) + 4);
-
-  for (let py = minY; py <= maxY; py++) {
-    for (let px = minX; px <= maxX; px++) {
-      if (mask && !mask[py * iw + px]) continue;
-
-      const i = (py * iw + px) * 4;
-      const r = srcData[i], g = srcData[i + 1], b = srcData[i + 2];
-
-      // ── Gate 1: Skip gum/lip pixels using red-excess heuristic ──
-      // Gum tissue has significantly elevated red channel relative to blue
-      const rg = r / Math.max(g, 1), rb = r / Math.max(b, 1);
-      if (r > 100 && (rg > 1.22 || rb > 1.28)) continue;
-
-      // ── Gate 2: Skip very dark pixels (inter-tooth shadows, crevices) ──
-      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      if (lum < 18 || lum > 245) continue;
-
-      // ── Convert to HSL for realistic manipulation ──
-      const [h, s, l] = rgbToHsl(r, g, b);
-
-      // ── Gate 3: Skip pixels that don't look like enamel (too saturated) ──
-      if (s > 0.55) continue;
-
-      // ── Compute whitening intensity: brighter pixels whiten less (Screen-like) ──
-      // Screen blend: 1 - (1-src)(1-dst) where dst=1 (white)
-      // Simplified: src + (1-src)*alpha — but we modulate alpha by luminance
-      // so dark stained areas get more whitening than already-bright areas
-      const darkBoost  = Math.pow(1 - l, 0.7);   // 0→1 (darker = higher boost)
-      const alpha      = clamp(strength * (0.6 + 0.8 * darkBoost), 0, 0.72);
-
-      // ── Step 1: Screen blend — lifts luminance naturally ──
-      const newL = clamp(1 - (1 - l) * (1 - alpha * 0.65), 0, 0.97);
-
-      // ── Step 2: Desaturate (remove chromophores) ──
-      // Real whitening strips yellow/brown pigments → lower saturation
-      const satReduction = alpha * 0.55;
-      const newS = clamp(s * (1 - satReduction), 0, 1);
-
-      // ── Step 3: Warm hue correction ──
-      // Shift yellow (h≈0.14) toward neutral white (h≈0.11) slightly
-      let newH = h;
-      if (h > 0.08 && h < 0.22) {          // yellow-ish range
-        newH = h - (h - 0.10) * alpha * 0.35; // gentle pull to neutral
-      }
-
-      const [nr, ng, nb] = hslToRgb(newH, newS, newL);
-      out[i]     = nr;
-      out[i + 1] = ng;
-      out[i + 2] = nb;
-    }
-  }
-  return out;
-}
 
 // ── Alignment Warp ───────────────────────────────────────────────────────────
 function sampleRGBA(src, sw, sh, x, y) {
@@ -281,13 +213,7 @@ self.onmessage = function(e) {
     // Use a tighter inset (2px) for the mask — less gum bleed
     const maskPoly = landmarks ? getMaskPoints(landmarks, iw, ih, 2) : null;
 
-    // Step 1: Whitening — realistic HSL-based dental whitening
-    if (["whitening", "transformation", "braces"].includes(treatment)) {
-      log("Applying clinical whitening...");
-      processed = applyWhitening(processed, iw, ih, maskPoly, 0.45);
-    }
-
-    // Step 2: Alignment warp
+    // Step 2: Alignment warp (Whitening moved to main thread per Mandate 2)
     if (["alignment", "transformation"].includes(treatment)) {
       log("Realigning tooth geometry...");
       if (landmarks && maskPoly) {
