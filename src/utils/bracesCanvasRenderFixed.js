@@ -117,6 +117,17 @@ export function drawBracket(ctx, x, y, ang, wMult, hMult, depthOpacity, baseW, b
   ctx.globalAlpha *= 0.6;
   ctx.fillRect(-tx - tw*0.2, -ty - th*0.2, tw*0.4, th*0.2);
 
+  // 6. Ambient Lighting Pass (Blending)
+  // Mandate: Use 'multiply' to help brackets blend into the mouth's natural lighting
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  const ambientGrad = ctx.createLinearGradient(0, -h/2, 0, h/2);
+  ambientGrad.addColorStop(0, 'rgba(0,0,0,0)');
+  ambientGrad.addColorStop(1, 'rgba(0,0,0,0.18)');
+  ctx.fillStyle = ambientGrad;
+  ctx.fillRect(-w/2, -h/2, w, h);
+  ctx.restore();
+
   ctx.restore();
 }
 
