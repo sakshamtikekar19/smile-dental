@@ -575,18 +575,7 @@ const SmileSimulatorAI = () => {
     let finalUrl      = null;
 
     try {
-      // Step 1: Resize to safe dimensions
-      console.log("[4] Starting downscale / resize");
-      setProcessingLog("Decoding & resizing...");
-      const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
-      safeRevoke(imageUrl);
-      normalizedUrl = resized;
-      console.log(`[5] Resize complete — ${iw}×${ih}px`);
-
-      if (!isCurrent()) { console.log("[CANCELLED] after resize"); return; }
-
-      // --- Regression 1: Decouple UI from Math ---
-      // 1. Detect on a standard 512px image (reliable for MediaPipe)
+      // Step 1: Detect landmarks on a standard 512px image (Pillar 1/Regression 1)
       setProcessingLog("Analyzing anatomy...");
       const detectTarget = await resizeImage(imageUrl, 512);
       const landmarks = await detectLandmarks(detectTarget.url);
@@ -595,11 +584,14 @@ const SmileSimulatorAI = () => {
 
       if (!landmarks) throw new Error("Face not detected. Retake photo with better lighting.");
 
-      // 2. Use the ORIGINAL high-res image for visual rendering
+      // Step 2: Use the ORIGINAL high-res image for visual rendering
       console.log("[4] Starting high-res processing");
       const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       safeRevoke(imageUrl);
       normalizedUrl = resized;
+      console.log(`[5] High-res resize complete — ${iw}×${ih}px`);
+
+      if (!isCurrent()) { console.log("[CANCELLED] after high-res resize"); return; }
 
       // Step 3: Mouth region
       console.log("[8] Computing mouth bounds");
