@@ -1,6 +1,6 @@
 /**
  * Fixed braces overlay pipeline.
- * 1. Re-detect landmarks on merged image
+ * 1. Re-detect landmarks on merged image (reuses app singleton — no double WASM load)
  * 2. Build bracket positions from fixed geometry
  * 3. Draw wire → contact shadows → brackets
  * 4. Erase above upper lip
@@ -23,57 +23,64 @@ function loadImage(src) {
   });
 }
 
-const rAF = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+const rAF   = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
+// ── Shared FaceLandmarker singleton (reuse app's instance, avoid double WASM load) ─────
+let _sharedLandmarker      = null;
+let _sharedLandmarkerFail  = false;
+let _sharedLandmarkerInit  = null;
+
+async function getSharedLandmarker() {
+  if (_sharedLandmarkerFail) return null;
+  if (_sharedLandmarker) return _sharedLandmarker;
+  if (_sharedLandmarkerInit) return _sharedLandmarkerInit;
+
+  _sharedLandmarkerInit = (async () => {
+    try {
+      const { FaceLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision');
+      const fs = await Promise.race([
+        FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm'
+        ),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20_000)),
+      ]);
+      _sharedLandmarker = await FaceLandmarker.createFromOptions(fs, {
+        baseOptions: {
+          modelAssetPath:
+            'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+          delegate: 'CPU',
+        },
+        runningMode: 'IMAGE',
+        numFaces: 1,
+        minFaceDetectionConfidence: 0.15,
+        minFacePresenceConfidence:  0.15,
+      });
+      return _sharedLandmarker;
+    } catch {
+      _sharedLandmarkerFail  = true;
+      _sharedLandmarkerInit  = null;
+      return null;
+    }
+  })();
+
+  return _sharedLandmarkerInit;
+}
+
 /**
- * Detect face landmarks on image using FaceLandmarker (tasks-vision).
- * Falls back to FaceMesh if needed.
+ * Detect face landmarks using the shared singleton. Falls back to null on failure.
  */
 async function detectLandmarks(canvas) {
-  // Try FaceLandmarker first
   try {
-    const { FaceLandmarker, FilesetResolver } = await import('@mediapipe/tasks-vision');
-    const fs = await Promise.race([
-      FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm'
-      ),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000))
+    const landmarker = await Promise.race([
+      getSharedLandmarker(),
+      new Promise(r => setTimeout(() => r(null), 18_000)),
     ]);
-    const fl = await FaceLandmarker.createFromOptions(fs, {
-      baseOptions: {
-        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-        delegate: 'CPU',
-      },
-      runningMode: 'IMAGE',
-      numFaces: 1,
-      minFaceDetectionConfidence: 0.15,
-      minFacePresenceConfidence: 0.15,
-    });
-    const result = fl.detect(canvas);
+    if (!landmarker) return null;
+    const result = landmarker.detect(canvas);
     const lm = result?.faceLandmarks?.[0];
-    if (lm?.length >= 100) return lm;
-  } catch { /* fall through */ }
-
-  // Try FaceMesh
-  return new Promise(resolve => {
-    let done = false;
-    const finish = lm => {
-      if (done) return;
-      done = true;
-      resolve(lm);
-    };
-    setTimeout(() => finish(null), 12000);
-
-    import('@mediapipe/face_mesh').then(FaceMeshModule => {
-      const fm = new FaceMeshModule.FaceMesh({
-        locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
-      });
-      fm.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.15, minTrackingConfidence: 0.15 });
-      fm.onResults(r => finish(r?.multiFaceLandmarks?.[0] ?? null));
-      fm.send({ image: canvas }).catch(() => finish(null));
-    }).catch(() => finish(null));
-  });
+    return lm?.length >= 100 ? lm : null;
+  } catch { return null; }
 }
 
 /**
