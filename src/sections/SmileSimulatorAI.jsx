@@ -433,22 +433,18 @@ function getSharedCanvases(iw, ih) {
   if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
   if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
   
-  // Rule 1: High-DPI (Retina) Scaling (Mandate 1)
-  const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-  const maxSafeRes = 4096; // Pillar 2: Prevent mobile memory crashes
-  
+  // Restore Physical Pixel Correlation (Mandate 1: The Blur Fix)
+  // We use the original high-res dimensions up to a 4096px safety cap
+  const maxSafeRes = 4096; 
   const width = Math.min(iw, maxSafeRes);
   const height = Math.min(ih, maxSafeRes);
 
-  _sharedMainCanvas.width  = width * dpr;
-  _sharedMainCanvas.height = height * dpr;
-  _sharedDetCanvas.width   = width; // Internal detection stays 1x
-  _sharedDetCanvas.height  = height;
+  _sharedMainCanvas.width  = width;
+  _sharedMainCanvas.height = height;
+  _sharedDetCanvas.width   = 1024; // Standard detection size
+  _sharedDetCanvas.height  = 1024;
 
-  const ctx = _sharedMainCanvas.getContext('2d');
-  if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Correct scale for subsequent draws
-
-  return { main: _sharedMainCanvas, det: _sharedDetCanvas, dpr };
+  return { main: _sharedMainCanvas, det: _sharedDetCanvas };
 }
 
 /**
@@ -487,7 +483,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
 
     if (enamelPts && enamelPts.length >= 3) {
       ctx.save();
-      ctx.globalAlpha = 1.0; // Mandate 2: Wake up GPU / Flush context (Safari Fix)
+      ctx.globalAlpha = 1.0; 
       ctx.filter = 'blur(6px)'; 
       ctx.beginPath();
       ctx.moveTo(enamelPts[0].x, enamelPts[0].y);
@@ -495,10 +491,10 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       ctx.closePath();
       ctx.clip(); 
 
+      // 2. Restore 'Tooth-by-Tooth' Whitening (Mandate 2: The Sticker Fix)
       ctx.filter = 'none'; 
       ctx.globalCompositeOperation = 'soft-light'; 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
-      // Ensure we fill the entire Retina-scaled buffer
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; 
       ctx.fillRect(0, 0, canvas.width, canvas.height); 
       ctx.restore();
     }
