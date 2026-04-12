@@ -453,32 +453,39 @@ function getSharedCanvases(iw, ih) {
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
   const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
   
-  const { main: canvas, dpr } = getSharedCanvases(orig.width, orig.height);
+  // Rule 1: Synchronize all math with the Rendered Canvas Size (Pillar 1)
+  const { main: canvas } = getSharedCanvases(orig.width, orig.height);
+  const rw = canvas.width;  // Rendered Width
+  const rh = canvas.height; // Rendered Height
   const ctx = canvas.getContext("2d");
 
-  // --- Mandate 1: Force High-Res Display (Pillar 1) ---
+  // Force draw the image to match our clinical 4K limit perfectly
   ctx.globalCompositeOperation = 'source-over';
   ctx.filter = 'none';
-  ctx.drawImage(orig, 0, 0, orig.width, orig.height);
+  ctx.drawImage(orig, 0, 0, rw, rh);
 
-  // --- Mandate 1: Step 3: Alignment / Warp Overlay (Mouth Region Only) ---
+  // --- Step 2: Alignment Overlay (Render-Scaled coordinates) ---
   if (treatment === "alignment" || treatment === "transformation") {
+    // We must scale the mouth bounds to the current render resolution
+    const scaleX = rw / orig.width;
+    const scaleY = rh / orig.height;
+    
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2);
+    ctx.ellipse(oval.cx * scaleX, oval.cy * scaleY, oval.rx * scaleX, oval.ry * scaleY, 0, 0, Math.PI * 2);
     ctx.filter = `blur(${OVAL_FEATHER_PX}px)`;
     ctx.clip();
     ctx.filter = 'none';
-    // CRITICAL: Draw the mouth-region 'proc' at its specific bounds
-    ctx.drawImage(proc, bounds.x, bounds.y, bounds.width, bounds.height);
+    ctx.drawImage(proc, bounds.x * scaleX, bounds.y * scaleY, bounds.width * scaleX, bounds.height * scaleY);
     ctx.restore();
   }
 
-  // --- Mandate 2: Step 4: Whitening Pass (April 5th High-Fidelity Standard) ---
+  // --- Step 3: Whitening Pass (Clinical Separation from Lips) ---
   if (treatment !== "alignment") {
     ctx.save();
+    // Use a strict 4px tightening (Mandate: Fix bleed onto lips)
     const enamelPts = landmarks
-      ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 2)
+      ? getTightenedWhiteningMaskPoints(landmarks, rw, rh, 4)
       : null;
 
     if (enamelPts && enamelPts.length >= 3) {

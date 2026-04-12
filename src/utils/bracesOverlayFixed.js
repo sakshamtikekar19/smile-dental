@@ -143,13 +143,17 @@ function getSharedCanvases(iw, ih) {
 export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih, landmarks) {
   const img = await loadImage(mergedImageSrc);
   const { main: canvas } = getSharedCanvases(iw, ih);
+  const rw = canvas.width;  // Actual Rendered Width (Capped at 4096)
+  const rh = canvas.height; // Actual Rendered Height
   const ctx = canvas.getContext('2d');
   
-  ctx.drawImage(img, 0, 0, iw, ih);
+  // High-Fidelity Synchronization
+  ctx.drawImage(img, 0, 0, rw, rh);
 
   if (!landmarks) return mergedImageSrc;
 
-  const pack = buildBracesPack(landmarks, iw, ih, null);
+  // Use rw/rh for the geometry pack so brackets land on the 4K pixels
+  const pack = buildBracesPack(landmarks, rw, rh, null);
   if (!pack || !pack.upperAnchors.length) return mergedImageSrc;
 
   const { upperAnchors, lowerAnchors, wireSamplesUpper, wireSamplesLower } = pack;
