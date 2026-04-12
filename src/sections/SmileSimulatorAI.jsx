@@ -592,15 +592,40 @@ async function preprocessWhitening(imageSrc) {
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.95));
 }
 
-async function processWhitening(image) {
-  console.log("[AI] Firing Replicate Whitening pass (strength: 0.28)");
-  const base = await preprocessWhitening(image);
-  
-  // Mock/Template for Replicate structure (User will provide specific API endpoints if different)
-  // return await replicate.run("antigravity", { input: { image: base, strength: 0.28, ... } });
-  
-  // For now, we return the base which is already clinical-corrected 
-  // as the user's specific Replicate endpoint is private.
+/**
+ * Calculates a tight bounding box around the mouth area using anatomical landmarks.
+ */
+function getTeethCropBounds(landmarks, iw, ih, padding = 0.2) {
+  const mouthIndices = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
+  let minX = 1, minY = 1, maxX = 0, maxY = 0;
+
+  mouthIndices.forEach(idx => {
+    const p = landmarks[idx];
+    if (p) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+  });
+
+  const w = maxX - minX;
+  const h = maxY - minY;
+  const px = w * padding;
+  const py = h * padding;
+
+  return {
+    x: Math.max(0, (minX - px) * iw),
+    y: Math.max(0, (minY - py) * ih),
+    width: Math.min(iw, (w + 2 * px) * iw),
+    height: Math.min(ih, (h + 2 * py) * ih)
+  };
+}
+
+async function processWhitening(imageSrc) {
+  console.log("[AI] Firing Replicate Whitening pass on CROP (strength: 0.28)");
+  const base = await preprocessWhitening(imageSrc);
+  // Optional Replicate Polish here
   return base;
 }
 
@@ -644,22 +669,21 @@ async function placeBrackets(imageSrc, landmarks) {
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.95));
 }
 
-async function processBraces(image, landmarks) {
-  console.log("[AI] Firing 3-Step Braces Engine");
-  
-  // Step 2: Overlay high-res bracket stamps
-  const bracesBase = await placeBrackets(image, landmarks);
+/**
+ * Normalizes landmarks from full-image space [0,1] to crop-local space [0,1].
+ */
+function normalizeLandmarksToCrop(landmarks, iw, ih, cropBounds) {
+  return landmarks.map(p => ({
+    x: ((p.x * iw) - cropBounds.x) / cropBounds.width,
+    y: ((p.y * ih) - cropBounds.y) / cropBounds.height
+  }));
+}
 
-  // Step 3: Polish with AI (harmonize lighting and shadows)
-  console.log("[AI] Firing Replicate Polish pass (strength: 0.25)");
-  // return await replicate.run("antigravity", {
-  //   input: {
-  //     image: bracesBase,
-  //     prompt: "realistic orthodontic braces, natural lighting, integrated with teeth, high resolution",
-  //     strength: 0.25
-  //   }
-  // });
-
+async function processBraces(imageSrc, landmarks, iw, ih, cropBounds) {
+  console.log("[AI] Firing 3-Step Braces Engine on CROP");
+  // Adjust landmarks to the crop coordinate system
+  const localLandmarks = normalizeLandmarksToCrop(landmarks, iw, ih, cropBounds);
+  const bracesBase = await placeBrackets(imageSrc, localLandmarks);
   return bracesBase;
 }
 
@@ -669,15 +693,15 @@ async function processAlignment(image) {
   return image;
 }
 
-async function processSimulation(image, treatment, landmarks) {
-  if (treatment === "whitening") return await processWhitening(image);
-  if (treatment === "braces") return await processBraces(image, landmarks);
-  if (treatment === "alignment") return await processAlignment(image);
+async function processSimulation(croppedImage, treatment, landmarks, iw, ih, cropBounds) {
+  if (treatment === "whitening") return await processWhitening(croppedImage);
+  if (treatment === "braces") return await processBraces(croppedImage, landmarks, iw, ih, cropBounds);
+  if (treatment === "alignment") return croppedImage; 
   if (treatment === "transformation" || treatment === "both") {
-    const w = await processWhitening(image);
-    return await processAlignment(w);
+    const w = await processWhitening(croppedImage);
+    return w;
   }
-  return image;
+  return croppedImage;
 }
 
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
@@ -878,23 +902,28 @@ const SmileSimulatorAI = () => {
 
       if (!isCurrent()) { console.log("[CANCELLED] after high-res resize"); return; }
 
-      // Step 3: Mouth region
-      console.log("[8] Computing mouth bounds");
-      const mouthInfo = landmarks
-        ? buildMouthBounds(landmarks, iw, ih) ?? heuristicMouthBounds(iw, ih)
-        : heuristicMouthBounds(iw, ih);
-      const { bounds, oval } = mouthInfo;
-      console.log("[9] Mouth bounds ready:", bounds);
+      // Step 3: Mouth region & Teeth Focus Crop
+      console.log("[8] Computing mouth focus bounds");
+      const mouthCropBounds = getTeethCropBounds(landmarks, iw, ih);
+      const teethImageRegion = await cropRegion(normalizedUrl, mouthCropBounds);
+      console.log("[9] Mouth focus crop ready for AI");
 
-      // Step 4 & 5: AI SPLIT-ENGINE (Whitening, Braces, or Alignment)
-      console.log("[10] Firing Split-Engine — treatment:", treatment);
-      setProcessingLog("Generating AI simulation...");
+      // Step 4: AI SPLIT-ENGINE (Whitening, Braces, or Alignment on CROP)
+      console.log("[10] Firing Split-Engine on Focus Crop — treatment:", treatment);
+      setProcessingLog("Generating focus-simulation...");
       
-      // The Split-Engine now handles everything from LAB-Correction to 3-Step Braces
-      finalUrl = await processSimulation(normalizedUrl, treatment, landmarks);
-      console.log("[11] Split-Engine returned final simulation URL");
+      // We process the crop, not the full image, passing dimensions for coordinate math
+      const processedTeethCrop = await processSimulation(teethImageRegion, treatment, landmarks, iw, ih, mouthCropBounds);
+      console.log("[11] Split-Engine returned processed teeth crop");
 
-      if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after AI"); return; }
+      if (!isCurrent()) { safeRevoke(processedTeethCrop); console.log("[CANCELLED] after AI"); return; }
+
+      // Step 5: Merge back into full frame
+      console.log("[12] Merging focus crop back into anatomical frame");
+      setProcessingLog("Compositing result...");
+      finalUrl = await mergeIntoFullFrame(normalizedUrl, processedTeethCrop, mouthCropBounds, null, landmarks, treatment);
+      safeRevoke(processedTeethCrop);
+      console.log("[13] Final composite complete");
 
       if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after braces"); return; }
 
