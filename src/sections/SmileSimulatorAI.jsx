@@ -487,7 +487,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // --- Mandate 3: Restore 'Tooth-by-Tooth' Whitening (Proven Standards) ---
+  // 3. TOOTH-BY-TOOTH WHITENING (Soft-Light Method)
   if (treatment !== "alignment") {
     ctx.save();
     const enamelPts = landmarks
@@ -495,22 +495,21 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       : null;
 
     if (enamelPts && enamelPts.length >= 3) {
-      ctx.save();
-      ctx.filter = 'blur(6px)'; 
       ctx.beginPath();
-      ctx.moveTo(enamelPts[0].x, enamelPts[0].y);
-      for (let i = 1; i < enamelPts.length; i++) ctx.lineTo(enamelPts[i].x, enamelPts[i].y);
+      // Use user's preferred pathing logic
+      enamelPts.forEach((pt, i) => {
+        if (i === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      });
       ctx.closePath();
       ctx.clip(); 
 
-      ctx.filter = 'none'; 
+      // THE MAGIC BLEND: Soft-light brightens without painting a 'sticker'
       ctx.globalCompositeOperation = 'soft-light'; 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'; // High-quality clinical white
       ctx.fillRect(0, 0, rw, rh); 
-      
-      ctx.restore();
     }
-    ctx.restore();
+    ctx.restore(); // CRITICAL: Exits the clip so braces can draw on top
   }
 
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.98));

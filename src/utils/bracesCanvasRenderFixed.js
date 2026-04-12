@@ -7,39 +7,23 @@
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 /**
- * Draw robust archwire: dark shadow → silver body → white highlight
+ * 4. BRACES LAYER (Terminal Operation)
+ * Standardized High-Fidelity Pipeline.
  */
-export function drawWire(ctx, pts, lineWidth = 1.0) {
+export function drawWire(ctx, pts, lineWidth = 2) {
   if (!pts || pts.length < 2) return;
 
-  const draw = () => {
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  };
-
   ctx.save();
+  ctx.globalCompositeOperation = 'source-over'; // Force to top layer
+  ctx.beginPath();
+  ctx.strokeStyle = '#B0B0B0'; // Clinical Silver
+  ctx.lineWidth = lineWidth;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Ambient Occlusion / Shadow
-  draw();
-  ctx.strokeStyle = 'rgba(15,17,23,0.6)';
-  ctx.lineWidth = lineWidth + 1.2;
+  ctx.moveTo(pts[0].x, pts[0].y);
+  pts.forEach((pt, i) => { if (i > 0) ctx.lineTo(pt.x, pt.y); });
   ctx.stroke();
-
-  // Silver Core
-  draw();
-  ctx.strokeStyle = '#94a3b8'; 
-  ctx.lineWidth = lineWidth;
-  ctx.stroke();
-
-  // Highlight
-  draw();
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = lineWidth * 0.45;
-  ctx.stroke();
-
   ctx.restore();
 }
 
