@@ -570,6 +570,9 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   // 1. CLEAR: Start with a fresh slate
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, rw, rh);
+
+  // 1.5 RESTORE BASE IMAGE (Crucial for context)
+  ctx.drawImage(orig, 0, 0, rw, rh);
   
   // 2. THE ONLY ENGINE CALL:
   // Handles Whitening + Braces in one pass.
