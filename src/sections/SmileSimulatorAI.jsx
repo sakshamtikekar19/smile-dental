@@ -484,85 +484,76 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   const { main: canvas, rw, rh } = getSharedCanvases(orig.width, orig.height);
   const ctx = canvas.getContext("2d");
 
+  // --- LAYER 0: BASE ---
   ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, rw, rh);
   ctx.globalCompositeOperation = 'source-over';
   ctx.drawImage(orig, 0, 0, rw, rh);
   ctx.restore();
 
+  // --- LAYER 1: ALIGNMENT / TRANSFORMATION (Coordinate-Mapped) ---
   if (treatment === "alignment" || treatment === "transformation") {
+    ctx.save();
     const scaleX = rw / orig.width;
     const scaleY = rh / orig.height;
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(oval.cx * scaleX, oval.cy * scaleY, oval.rx * scaleX, oval.ry * scaleY, 0, 0, Math.PI * 2);
-    ctx.filter = `blur(${OVAL_FEATHER_PX}px)`;
-    ctx.clip();
-    const bx = bounds.x * scaleX, by = bounds.y * scaleY, bw = bounds.width * scaleX, bh = bounds.height * scaleY;
-    ctx.drawImage(proc, bx, by, bw, bh);
+    const dx = bounds.x * scaleX, dy = bounds.y * scaleY, dw = bounds.width * scaleX, dh = bounds.height * scaleY;
+    // MANDATE 3: Explicit Source-to-Destination Mapping
+    ctx.drawImage(proc, 0, 0, proc.width, proc.height, dx, dy, dw, dh);
     ctx.restore();
   }
 
-  // --- LAYER 2: CLINICAL WHITENING (THE STICKER KILLER) ---
+  // --- LAYER 2: CLINICAL WHITENING (LIP-LOCK ISOLATION) ---
   if (treatment === "whitening" || treatment === "both") {
     ctx.save();
-    
-    // 1. Force the mask to be ultra-precise using Direct Point Injection
     ctx.beginPath();
-    const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-    indices.forEach((idx, i) => {
-      const pt = landmarks[idx];
-      if (pt) {
-        const x = pt.x * rw;
-        const y = pt.y * rh;
+    const upper = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
+    const lower = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
+    const pathIndices = [...upper, ...lower];
+    pathIndices.forEach((idx, i) => {
+      const p = landmarks[idx];
+      if (p) {
+        const x = p.x * rw, y = p.y * rh;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
     });
     ctx.closePath();
     ctx.clip(); 
-
-    // 2. THE NUCLEAR OPTION: High-Pass Luminance Enhancement
-    // This brightens existing enamel details without painting a 'sticker'
-    ctx.globalCompositeOperation = 'soft-light';
-    ctx.filter = 'brightness(1.2) contrast(1.1)'; 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; 
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.filter = 'brightness(1.18) contrast(1.08)'; 
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'; 
     ctx.fillRect(0, 0, rw, rh);
-    
     ctx.restore(); 
   }
 
-  // --- LAYER 3: TERMINAL BRACES (FORCE VISIBILITY) ---
+  // --- LAYER 3: TERMINAL BRACES (BRACKET-CENTRIC) ---
   if (treatment === "braces" || treatment === "both") {
     ctx.save();
-    // FORCE TO TOP: Braces must be drawn with source-over
     ctx.globalCompositeOperation = 'source-over';
-    
-    // Sort indices to ensure the wire doesn't zigzag
-    const sortedIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95]
-      .map(i => landmarks[i])
-      .filter(Boolean)
-      .sort((a, b) => a.x - b.x);
-
-    if (sortedIndices.length >= 2) {
-      // Draw Archwire
+    const wireIndices = [78, 81, 13, 311, 308];
+    const wirePoints = wireIndices.map(i => landmarks[i]).filter(Boolean).sort((a,b)=>a.x-b.x);
+    if (wirePoints.length >= 2) {
       ctx.beginPath();
       ctx.strokeStyle = '#B0B0B0';
-      ctx.lineWidth = 2.5;
-      sortedIndices.forEach((pt, i) => {
+      ctx.lineWidth = Math.max(2, rw / 450);
+      wirePoints.forEach((pt, i) => {
         const x = pt.x * rw, y = pt.y * rh;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
-
-      // Draw Brackets
-      ctx.fillStyle = '#D3D3D3';
-      sortedIndices.forEach(pt => {
-        const x = pt.x * rw, y = pt.y * rh;
-        ctx.fillRect(x - 4, y - 3, 8, 6);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(x - 2, y - 2, 2, 2); // Highlight
-        ctx.fillStyle = '#D3D3D3';
+      const bracketIndices = [191, 80, 81, 82, 13, 312, 311, 310, 415];
+      ctx.fillStyle = '#C0C0C0';
+      bracketIndices.forEach(idx => {
+        const p = landmarks[idx];
+        if (p) {
+          const x = p.x * rw, y = p.y * rh, bSize = Math.max(6, rw / 300);
+          ctx.fillRect(x - bSize/2, y - bSize/2, bSize, bSize); 
+          ctx.fillStyle = 'rgba(255,255,255,0.4)';
+          ctx.fillRect(x - bSize/4, y - bSize/4, bSize/4, bSize/4);
+          ctx.fillStyle = '#C0C0C0';
+        }
       });
     }
     ctx.restore();
@@ -570,15 +561,11 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
 
   // FORCE GPU FLUSH BEFORE BLOB
   return new Promise(resolve => {
-    // requestAnimationFrame ensures the browser has finished the composite passes
     requestAnimationFrame(() => {
-        canvas.toBlob(blob => {
-            if (!blob) {
-               console.error("Blob generation failed");
-               return;
-            }
-            resolve(URL.createObjectURL(blob));
-        }, "image/jpeg", 0.95); // 0.95 is safer for mobile memory than 0.98
+      canvas.toBlob(blob => {
+        if (!blob) return;
+        resolve(URL.createObjectURL(blob));
+      }, "image/jpeg", 0.95);
     });
   });
 }
