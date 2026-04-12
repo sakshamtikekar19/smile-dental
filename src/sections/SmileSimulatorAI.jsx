@@ -479,38 +479,45 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- PIXEL-KILL WHITENING ENGINE (Mandate: Zero Stickers) ---
+// --- TOOTH-BY-TOOTH CLINICAL ENGINE (Mandate: Zero Stickers) ---
 const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.save();
+  
+  // 1. ANATOMIC LIP-LOCK MASK (Inner Mouth Opening)
   ctx.beginPath();
-  const teethIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-  teethIndices.forEach((idx, i) => {
-    const pt = landmarks[idx];
-    if (idx !== undefined && pt) {
-      const x = pt.x * rw, y = pt.y * rh;
+  const mouthInner = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
+  mouthInner.forEach((idx, i) => {
+    const p = landmarks[idx];
+    if (p) {
+      const x = p.x * rw, y = p.y * rh;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
   });
-  ctx.closePath();
-  ctx.clip();
+  ctx.clip(); 
 
-  // STEP A: SELF-REDRAW (Texture Magnification)
-  // Instead of painting, we tell the teeth to brighten themselves
-  ctx.save();
-  ctx.filter = 'brightness(1.15) contrast(1.15) saturate(0.9)';
-  ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
+  // 2. TOOTH-BY-TOOTH GRADIENT WHITENING
+  ctx.globalCompositeOperation = 'overlay';
+  const toothIndices = [191, 80, 81, 82, 13, 312, 311, 310, 415];
+  const radius = Math.max(12, rw / 50);
 
-  // STEP B: LUMINANCE DODGE (Clinical Shine)
-  ctx.globalCompositeOperation = 'color-dodge';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-  ctx.fillRect(0, 0, rw, rh);
+  toothIndices.forEach(idx => {
+    const p = landmarks[idx];
+    if (p) {
+      const x = p.x * rw, y = p.y * rh;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.7)'); 
+      grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.2)'); 
+      grad.addColorStop(1, 'rgba(255, 255, 255, 0)');    
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    }
+  });
 
-  // STEP C: ANATOMIC MULTIPLY (Shadow Stabilization)
-  // This "sinks" the brightness back into the natural shadows between teeth
-  ctx.globalCompositeOperation = 'multiply';
-  ctx.fillStyle = 'rgba(220, 220, 220, 1.0)';
+  // 3. FINAL LUMINANCE SHEEN
+  ctx.globalCompositeOperation = 'soft-light';
+  ctx.filter = 'contrast(1.1) brightness(1.05)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
   ctx.fillRect(0, 0, rw, rh);
 
   ctx.restore();
