@@ -447,21 +447,25 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   ctx.filter = 'none';
   ctx.drawImage(orig, 0, 0, canvas.width, canvas.height);
 
-  // 2. Alignment Overlay (if applicable)
+  // 2. Alignment Overlay (Mouth Region Only)
   if (treatment === "alignment" || treatment === "transformation") {
     ctx.save();
     ctx.beginPath();
+    // Use the anatomical oval for seamless blending
     ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2);
     ctx.filter = `blur(${OVAL_FEATHER_PX}px)`;
     ctx.clip();
     ctx.filter = 'none';
-    ctx.drawImage(proc, 0, 0);
+    // CRITICAL FIX: Draw the mouth-region 'proc' at its specific bounds
+    ctx.drawImage(proc, bounds.x, bounds.y, bounds.width, bounds.height);
     ctx.restore();
   }
 
-  // --- Mandate 2: Overwrite Whitening Pass (Pillar 2) ---
+  // --- Mandate 2: Overwrite Whitening Pass (Clinical Blending) ---
   if (treatment !== "alignment") {
     ctx.save();
+    
+    // BUILD POLYGON (Mandate imperative)
     const enamelPts = landmarks
       ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 2)
       : null;
@@ -475,10 +479,10 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       ctx.filter = 'blur(6px)'; // Soften the gumline boundary
       ctx.clip(); // Contain the white
 
-      ctx.filter = 'none'; // Reset filter so texture isn't blurred
+      ctx.filter = 'none'; // CRITICAL: Reset filter before filling
       ctx.globalCompositeOperation = 'soft-light'; // CRITICAL: Restores 3D shadows
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; // Semi-transparent white
-      ctx.fillRect(0, 0, canvas.width, canvas.height); // Simple full fill
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
+      ctx.fillRect(0, 0, canvas.width, canvas.height); // Fill the clipped area safely
     }
     ctx.restore();
   }
@@ -656,7 +660,7 @@ const SmileSimulatorAI = () => {
         console.log("[14] Applying braces vector overlay");
         setProcessingLog("Placing brackets...");
         try {
-          const bracesUrl = await applyBracesOverlayFixed(mergedUrl, iw, ih);
+          const bracesUrl = await applyBracesOverlayFixed(mergedUrl, iw, ih, landmarks);
           if (bracesUrl !== mergedUrl) safeRevoke(mergedUrl);
           finalUrl = bracesUrl;
           console.log("[15] Braces overlay applied");

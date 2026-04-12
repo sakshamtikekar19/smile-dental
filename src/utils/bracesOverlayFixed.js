@@ -124,17 +124,15 @@ function getSharedCanvases(iw, ih) {
 /**
  * Main entry: apply braces vector overlay onto mergedImageSrc.
  * Mandate 3: Nuclear Overwrite for Invisible Braces.
+ * @param {object} landmarks - Pre-detected landmarks to avoid re-detection failure
  */
-export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih) {
+export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih, landmarks) {
   const img = await loadImage(mergedImageSrc);
-  const { main: canvas, det: detCanvas } = getSharedCanvases(iw, ih);
+  const { main: canvas } = getSharedCanvases(iw, ih);
   const ctx = canvas.getContext('2d');
-  const detCtx = detCanvas.getContext('2d');
   
   ctx.drawImage(img, 0, 0, iw, ih);
-  detCtx.drawImage(img, 0, 0, iw, ih);
 
-  const landmarks = await detectLandmarks(detCanvas);
   if (!landmarks) return mergedImageSrc;
 
   const pack = buildBracesPack(landmarks, iw, ih, null);
