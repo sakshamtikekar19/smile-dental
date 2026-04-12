@@ -682,7 +682,7 @@ async function processWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
 const UPPER_TEETH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
 const LOWER_TEETH_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375];
 
-async function drawBracesOverlay(imageSrc, landmarks) {
+async function placeBrackets(imageSrc, landmarks) {
   const img = await loadImage(imageSrc);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -979,25 +979,11 @@ const SmileSimulatorAI = () => {
       // Step 5: Merge back into full frame
       console.log("[12] Merging AI results back into anatomical frame");
       setProcessingLog("Compositing result...");
-      const mergedUrl = await mergeIntoFullFrame(normalizedUrl, processedTeethCrop, mouthCropBounds, null, landmarks, treatment);
+      finalUrl = await mergeIntoFullFrame(normalizedUrl, processedTeethCrop, mouthCropBounds, null, landmarks, treatment);
       safeRevoke(processedTeethCrop);
       console.log("[13] Merge complete");
 
-      if (!isCurrent()) { safeRevoke(mergedUrl); console.log("[CANCELLED] after merge"); return; }
-
-      // Step 6: Terminal Braces Overlay (Mandate: Post-Merge Priority)
-      if (treatment === "braces" || treatment === "both") {
-        console.log("[14] Applying Terminal Braces Overlay (Upper & Lower)");
-        setProcessingLog("Placing clinical hardware...");
-        const finalSimulationUrl = await drawBracesOverlay(mergedUrl, landmarks);
-        safeRevoke(mergedUrl);
-        finalUrl = finalSimulationUrl;
-        console.log("[15] Braces overlay complete");
-      } else {
-        finalUrl = mergedUrl;
-      }
-
-      if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after braces"); return; }
+      if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after composite"); return; }
 
       // Step 7: Dental Zoom (The 'Focus' Fix)
       console.log("[16] Capturing clinical focus area (Dental Zoom)");
