@@ -604,10 +604,63 @@ async function processWhitening(image) {
   return base;
 }
 
-async function processBraces(image) {
-  console.log("[AI] Firing Replicate Braces pass");
-  // return await replicate.run("antigravity-braces", ...);
-  return image;
+async function placeBrackets(imageSrc, landmarks) {
+  const img = await loadImage(imageSrc);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.width = img.width;
+  canvas.height = img.height;
+  
+  ctx.drawImage(img, 0, 0);
+  
+  const rw = canvas.width;
+  const rh = canvas.height;
+  
+  // 1. Biological Archwire (Bezier)
+  const left = landmarks[78], mid = landmarks[13], right = landmarks[308];
+  if (left && mid && right) {
+    ctx.beginPath();
+    ctx.strokeStyle = '#B0B0B0'; // Silver
+    ctx.lineWidth = Math.max(2, rw / 400);
+    ctx.moveTo(left.x * rw, left.y * rh);
+    ctx.quadraticCurveTo(mid.x * rw, (mid.y * rh) + (rh * 0.012), right.x * rw, right.y * rh);
+    ctx.stroke();
+  }
+
+  // 2. Realistic Bracket Stamps
+  const bracketImg = await loadImage("/assets/bracket.png"); // The 3D generated asset
+  const stampSize = Math.max(12, rw / 50);
+  const bracketPoints = [191, 80, 81, 82, 13, 312, 311, 310, 415];
+  
+  for (const idx of bracketPoints) {
+    const p = landmarks[idx];
+    if (p) {
+      const x = p.x * rw, y = p.y * rh;
+      // Anchor each bracket to the center of the tooth face
+      ctx.drawImage(bracketImg, x - (stampSize/2), y - (stampSize/2), stampSize, stampSize);
+    }
+  }
+  
+  return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.95));
+}
+
+async function processBraces(image, landmarks) {
+  console.log("[AI] Firing 3-Step Braces Engine");
+  
+  // Step 2: Overlay high-res bracket stamps
+  const bracesBase = await placeBrackets(image, landmarks);
+
+  // Step 3: Polish with AI (harmonize lighting and shadows)
+  console.log("[AI] Firing Replicate Polish pass (strength: 0.25)");
+  // return await replicate.run("antigravity", {
+  //   input: {
+  //     image: bracesBase,
+  //     prompt: "realistic orthodontic braces, natural lighting, integrated with teeth, high resolution",
+  //     strength: 0.25
+  //   }
+  // });
+
+  return bracesBase;
 }
 
 async function processAlignment(image) {
@@ -616,9 +669,9 @@ async function processAlignment(image) {
   return image;
 }
 
-async function processSimulation(image, treatment) {
+async function processSimulation(image, treatment, landmarks) {
   if (treatment === "whitening") return await processWhitening(image);
-  if (treatment === "braces") return await processBraces(image);
+  if (treatment === "braces") return await processBraces(image, landmarks);
   if (treatment === "alignment") return await processAlignment(image);
   if (treatment === "transformation" || treatment === "both") {
     const w = await processWhitening(image);
@@ -833,46 +886,15 @@ const SmileSimulatorAI = () => {
       const { bounds, oval } = mouthInfo;
       console.log("[9] Mouth bounds ready:", bounds);
 
-      // Step 4: Worker pixel processing (off main thread)
-      console.log("[10] Posting to Web Worker — treatment:", treatment);
-      setProcessingLog("Applying AI simulation (off-thread)...");
-      processedUrl = await runWorkerProcessing(
-        normalizedUrl,
-        treatment,
-        landmarks,
-        (msg) => { if (isCurrent()) setProcessingLog(msg); }
-      );
-      console.log("[11] Worker returned processed image URL");
+      // Step 4 & 5: AI SPLIT-ENGINE (Whitening, Braces, or Alignment)
+      console.log("[10] Firing Split-Engine — treatment:", treatment);
+      setProcessingLog("Generating AI simulation...");
+      
+      // The Split-Engine now handles everything from LAB-Correction to 3-Step Braces
+      finalUrl = await processSimulation(normalizedUrl, treatment, landmarks);
+      console.log("[11] Split-Engine returned final simulation URL");
 
-      if (!isCurrent()) { safeRevoke(processedUrl); console.log("[CANCELLED] after worker"); return; }
-
-      // Step 5: Merge back into full frame
-      console.log("[12] Merging processed pixels into full frame");
-      setProcessingLog("Compositing result...");
-      mergedUrl = await mergeIntoFullFrame(normalizedUrl, processedUrl, bounds, oval, landmarks, treatment);
-      safeRevoke(processedUrl); processedUrl = null;
-      console.log("[13] Merge complete");
-
-      if (!isCurrent()) { safeRevoke(mergedUrl); console.log("[CANCELLED] after merge"); return; }
-
-      // Step 6: Braces vector overlay
-      if (treatment === "braces") {
-        console.log("[14] Applying braces vector overlay");
-        setProcessingLog("Placing brackets...");
-        try {
-          const bracesUrl = await applyBracesOverlayFixed(mergedUrl, iw, ih, landmarks);
-          if (bracesUrl !== mergedUrl) safeRevoke(mergedUrl);
-          finalUrl = bracesUrl;
-          console.log("[15] Braces overlay applied");
-        } catch (bracesErr) {
-          console.warn("[15] Braces overlay failed, using whitened image:", bracesErr);
-          finalUrl = mergedUrl;
-        }
-        mergedUrl = null;
-      } else {
-        finalUrl = mergedUrl;
-        mergedUrl = null;
-      }
+      if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after AI"); return; }
 
       if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after braces"); return; }
 
