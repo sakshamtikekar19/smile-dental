@@ -479,36 +479,41 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- THE LIP-SAFE CLINICAL ENGINE (Mandate: Teeth Only) ---
+// --- THE FINAL CLINICAL WHITENING ENGINE (Mandate: Zero Stickers, Zero Spots) ---
 const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.save();
   
-  // MANDATE: No global clip, no lip interference. 
-  // We apply 20 individual 'Tooth Stamps' directly.
-  ctx.globalCompositeOperation = 'soft-light'; 
-  
-  const fullArchIndices = [
-    191, 80, 81, 82, 13, 312, 311, 310, 415, // Upper Row
-    14, 87, 178, 88, 95, 324, 318, 402, 317  // Lower Row
-  ];
-  
-  // Tight radius for zero-bleed
-  const radius = Math.max(8, rw / 65);
-
-  fullArchIndices.forEach(idx => {
-    const p = landmarks[idx];
-    if (p) {
-      const x = p.x * rw, y = p.y * rh;
-      // High-precision radial stamp centered on the tooth face
-      const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.7)'); 
-      grad.addColorStop(0.8, 'rgba(255, 255, 255, 0.15)');
-      grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-      
-      ctx.fillStyle = grad;
-      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  // 1. THE SPOT-KILLER: Single Anatomic Boundary Clip
+  ctx.beginPath();
+  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  indices.forEach((idx, i) => {
+    const pt = landmarks[idx];
+    if (pt) {
+      const x = pt.x * rw, y = pt.y * rh;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
   });
+  ctx.closePath();
+  ctx.clip(); 
+
+  // 2. THE STICKER-ERASER: 3-Stage Luminance Processing
+  
+  // Stage A: High-Contrast Texture Redraw
+  ctx.save();
+  ctx.filter = 'brightness(1.1) contrast(1.5) saturate(0.9)';
+  ctx.drawImage(ctx.canvas, 0, 0);
+  ctx.restore();
+
+  // Stage B: Clinical Color Dodge (Shine)
+  ctx.globalCompositeOperation = 'color-dodge';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.fillRect(0, 0, rw, rh);
+
+  // Stage C: Anatomic Multiply (Shadow Lock)
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = 'rgba(225, 225, 225, 1.0)';
+  ctx.fillRect(0, 0, rw, rh);
 
   ctx.restore();
 };
@@ -544,11 +549,12 @@ const drawAnatomicalBraces = (ctx, landmarks, rw, rh) => {
 
 // --- CLINICAL SIMULATION WRAPPER (Mandate: Engine-Linked) ---
 const renderClinicalSimulation = (ctx, canvas, landmarks, treatment, rw, rh) => {
-  if (treatment === "whitening" || treatment === "both") {
-    applyClinicalWhitening(ctx, landmarks, rw, rh);
-  }
+  // Mandate: Braces first, then Whitening last for terminal visibility
   if (treatment === "braces" || treatment === "both") {
     drawAnatomicalBraces(ctx, landmarks, rw, rh);
+  }
+  if (treatment === "whitening" || treatment === "both") {
+    applyClinicalWhitening(ctx, landmarks, rw, rh);
   }
 };
 
