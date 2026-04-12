@@ -531,13 +531,24 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       ctx.globalAlpha = 1.0;
       ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
       ctx.fillRect(0, 0, rw, rh);
-      
       ctx.restore();
     }
     ctx.restore();
   }
 
-  return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.98));
+  // FORCE A SMALL DELAY TO ENSURE GPU FLUSH BEFORE BLOBBING (Mobile Stability Fix)
+  return new Promise(resolve => {
+    // requestAnimationFrame ensures the browser has finished the composite passes
+    requestAnimationFrame(() => {
+        canvas.toBlob(blob => {
+            if (!blob) {
+               console.error("Blob generation failed");
+               return;
+            }
+            resolve(URL.createObjectURL(blob));
+        }, "image/jpeg", 0.95); // 0.95 is safer for mobile memory than 0.98
+    });
+  });
 }
 
 // ── Main Component ───────────────────────────────────────────────────────────
