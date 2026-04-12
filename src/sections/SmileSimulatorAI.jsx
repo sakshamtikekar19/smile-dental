@@ -502,17 +502,32 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // --- LAYER 2: CLINICAL WHITENING (TEXTURE-PRESERVING) ---
+  // --- LAYER 2: CLINICAL WHITENING (THE STICKER KILLER) ---
   if (treatment === "whitening" || treatment === "both") {
     ctx.save();
-    const path = generateTeethPath(landmarks, rw, rh); 
-    if (path) {
-      ctx.clip(path);
-      // USE SOFT-LIGHT: This is the ONLY way to avoid the 'white sticker'
-      ctx.globalCompositeOperation = 'soft-light';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'; 
-      ctx.fillRect(0, 0, rw, rh);
-    }
+    
+    // 1. Force the mask to be ultra-precise using Direct Point Injection
+    ctx.beginPath();
+    const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+    indices.forEach((idx, i) => {
+      const pt = landmarks[idx];
+      if (pt) {
+        const x = pt.x * rw;
+        const y = pt.y * rh;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+    });
+    ctx.closePath();
+    ctx.clip(); 
+
+    // 2. THE NUCLEAR OPTION: High-Pass Luminance Enhancement
+    // This brightens existing enamel details without painting a 'sticker'
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.filter = 'brightness(1.2) contrast(1.1)'; 
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; 
+    ctx.fillRect(0, 0, rw, rh);
+    
     ctx.restore(); 
   }
 
