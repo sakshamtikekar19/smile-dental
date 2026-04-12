@@ -461,30 +461,31 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // --- Mandate 2: Overwrite Whitening Pass (Clinical Blending) ---
+  // --- Mandate 2: Overwrite Whitening Pass (April 5th High-Fidelity Standard) ---
   if (treatment !== "alignment") {
     ctx.save();
     
-    // Mandate imperative: Build strict anatomy-based polygon
     const enamelPts = landmarks
       ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 2)
       : null;
 
     if (enamelPts && enamelPts.length >= 3) {
-      ctx.save(); // Nested save for filter-scoping safety
+      // 1. The Gaussian Feathering Rule (Mandate 2)
+      ctx.save();
+      ctx.filter = 'blur(6px)'; 
       
-      ctx.filter = 'blur(6px)'; // -> Mandate 1: Soften the gumline boundary
       ctx.beginPath();
       ctx.moveTo(enamelPts[0].x, enamelPts[0].y);
       for (let i = 1; i < enamelPts.length; i++) ctx.lineTo(enamelPts[i].x, enamelPts[i].y);
       ctx.closePath();
       
-      ctx.clip(); // -> Mandate 2: Contain the white
-      
-      ctx.filter = 'none'; // -> Mandate 3: Reset filter so texture isn't blurred
-      ctx.globalCompositeOperation = 'soft-light'; // -> Mandate 4: CRITICAL blending mode
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; // -> Mandate 5: Semi-transparent white
-      ctx.fillRect(0, 0, canvas.width, canvas.height); // -> Mandate 6: Simple full fill
+      ctx.clip(); 
+
+      // 2. The Soft-Light Mandate (Mandate 1)
+      ctx.filter = 'none'; // Reset to preserve texture
+      ctx.globalCompositeOperation = 'soft-light'; 
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
+      ctx.fillRect(0, 0, canvas.width, canvas.height); 
       
       ctx.restore();
     }

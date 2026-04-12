@@ -140,13 +140,13 @@ export async function applyBracesOverlayFixed(mergedImageSrc, iw, ih, landmarks)
 
   const { upperAnchors, lowerAnchors, wireSamplesUpper, wireSamplesLower } = pack;
 
-  // --- Mandate 3 Core Overwrite ---
-  ctx.save();
-  ctx.globalCompositeOperation = 'source-over'; // Force draw on top
-
-  // 1. Sort Anchors to fix zigzag
+  // --- Rule 4: Braces Geometry (X-Axis Sorting) ---
   const sortedU = [...upperAnchors].sort((a, b) => a.x - b.x);
   const sortedL = [...lowerAnchors].sort((a, b) => a.x - b.x);
+
+  // --- Rule 3: Braces Rendering Layer (Finality Audit) ---
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over'; // Guarantee visibility draw on top
 
   // 2. Draw Wire (Upper)
   if (sortedU.length >= 2) {
