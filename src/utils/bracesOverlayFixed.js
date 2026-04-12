@@ -116,9 +116,23 @@ let _sharedDetCanvas  = null;
 function getSharedCanvases(iw, ih) {
   if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
   if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
-  _sharedMainCanvas.width  = iw;  _sharedMainCanvas.height = ih;
-  _sharedDetCanvas.width   = iw;  _sharedDetCanvas.height  = ih;
-  return { main: _sharedMainCanvas, det: _sharedDetCanvas };
+  
+  // Rule 1: High-DPI (Retina) Scaling (Mandate 1)
+  const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+  const maxSafeRes = 4096; // Pillar 2: Prevent mobile memory crashes
+  
+  const width = Math.min(iw, maxSafeRes);
+  const height = Math.min(ih, maxSafeRes);
+
+  _sharedMainCanvas.width  = width * dpr;
+  _sharedMainCanvas.height = height * dpr;
+  _sharedDetCanvas.width   = width; // Internal detection stays 1x
+  _sharedDetCanvas.height  = height;
+
+  const ctx = _sharedMainCanvas.getContext('2d');
+  if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Correct scale for subsequent draws
+
+  return { main: _sharedMainCanvas, det: _sharedDetCanvas, dpr };
 }
 
 /**

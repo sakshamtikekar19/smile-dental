@@ -426,6 +426,30 @@ async function cropRegion(imageSrc, rect) {
 
 // ── Shared Engine Canvas (Pillar 2: Anti-Crash) ──────────────────────────────
 let _sharedSimCanvas = null;
+let _sharedMainCanvas = null;
+let _sharedDetCanvas = null;
+
+function getSharedCanvases(iw, ih) {
+  if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
+  if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
+  
+  // Rule 1: High-DPI (Retina) Scaling (Mandate 1)
+  const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+  const maxSafeRes = 4096; // Pillar 2: Prevent mobile memory crashes
+  
+  const width = Math.min(iw, maxSafeRes);
+  const height = Math.min(ih, maxSafeRes);
+
+  _sharedMainCanvas.width  = width * dpr;
+  _sharedMainCanvas.height = height * dpr;
+  _sharedDetCanvas.width   = width; // Internal detection stays 1x
+  _sharedDetCanvas.height  = height;
+
+  const ctx = _sharedMainCanvas.getContext('2d');
+  if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Correct scale for subsequent draws
+
+  return { main: _sharedMainCanvas, det: _sharedDetCanvas, dpr };
+}
 
 /**
  * Merge processed mouth region back onto original full frame.
@@ -433,19 +457,13 @@ let _sharedSimCanvas = null;
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
   const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
   
-  if (!_sharedSimCanvas) _sharedSimCanvas = document.createElement("canvas");
-  const canvas = _sharedSimCanvas;
-  canvas.width  = orig.width;
-  canvas.height = orig.height;
-  const ctx     = canvas.getContext("2d");
+  const { main: canvas, dpr } = getSharedCanvases(orig.width, orig.height);
+  const ctx = canvas.getContext("2d");
 
-  // --- Mandate 1 & 4 Revert: Native Composite Architecture ---
-  // We completely abandon manual pixel loops to ensure maximum quality and zero artifacts.
-  
   // --- Mandate 1: Force High-Res Display (Pillar 1) ---
   ctx.globalCompositeOperation = 'source-over';
   ctx.filter = 'none';
-  ctx.drawImage(orig, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(orig, 0, 0, orig.width, orig.height);
 
   // --- Mandate 1: Step 3: Alignment / Warp Overlay (Mouth Region Only) ---
   if (treatment === "alignment" || treatment === "transformation") {
@@ -469,6 +487,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
 
     if (enamelPts && enamelPts.length >= 3) {
       ctx.save();
+      ctx.globalAlpha = 1.0; // Mandate 2: Wake up GPU / Flush context (Safari Fix)
       ctx.filter = 'blur(6px)'; 
       ctx.beginPath();
       ctx.moveTo(enamelPts[0].x, enamelPts[0].y);
@@ -479,6 +498,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       ctx.filter = 'none'; 
       ctx.globalCompositeOperation = 'soft-light'; 
       ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
+      // Ensure we fill the entire Retina-scaled buffer
       ctx.fillRect(0, 0, canvas.width, canvas.height); 
       ctx.restore();
     }
