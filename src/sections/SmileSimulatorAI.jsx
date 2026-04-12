@@ -505,14 +505,16 @@ const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
-  // Stage B: Clinical Color Dodge (Shine)
+  // Stage B: Clinical Color Dodge (Luminance Sheen)
+  // We reduce opacity to 0.25 to ensure the texture remains sharp
   ctx.globalCompositeOperation = 'color-dodge';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)'; 
   ctx.fillRect(0, 0, rw, rh);
 
-  // Stage C: Anatomic Multiply (Shadow Lock)
+  // Stage C: Anatomic Shadow Stabilization (Multiply)
+  // Tightening the multiply to 0.95 brightness to avoid 'cloudy' film
   ctx.globalCompositeOperation = 'multiply';
-  ctx.fillStyle = 'rgba(225, 225, 225, 1.0)';
+  ctx.fillStyle = 'rgba(242, 242, 242, 1.0)';
   ctx.fillRect(0, 0, rw, rh);
 
   ctx.restore();
