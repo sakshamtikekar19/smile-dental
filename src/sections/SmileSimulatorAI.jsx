@@ -629,43 +629,52 @@ async function processWhitening(imageSrc) {
   return base;
 }
 
-async function placeBrackets(imageSrc, landmarks) {
+// --- DUAL-ARCH BRACES ENGINE (Mandate: Terminal Overlay) ---
+const UPPER_TEETH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
+const LOWER_TEETH_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375];
+
+async function drawBracesOverlay(imageSrc, landmarks) {
   const img = await loadImage(imageSrc);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   canvas.width = img.width;
   canvas.height = img.height;
-  
   ctx.drawImage(img, 0, 0);
   
   const rw = canvas.width;
   const rh = canvas.height;
-  
-  // 1. Biological Archwire (Bezier)
-  const left = landmarks[78], mid = landmarks[13], right = landmarks[308];
-  if (left && mid && right) {
-    ctx.beginPath();
-    ctx.strokeStyle = '#B0B0B0'; // Silver
-    ctx.lineWidth = Math.max(2, rw / 400);
-    ctx.moveTo(left.x * rw, left.y * rh);
-    ctx.quadraticCurveTo(mid.x * rw, (mid.y * rh) + (rh * 0.012), right.x * rw, right.y * rh);
-    ctx.stroke();
-  }
+  const bracketImg = await loadImage("/assets/bracket.png");
+  const stampSize = Math.max(12, rw / 55);
 
-  // 2. Realistic Bracket Stamps
-  const bracketImg = await loadImage("/assets/bracket.png"); // The 3D generated asset
-  const stampSize = Math.max(12, rw / 50);
-  const bracketPoints = [191, 80, 81, 82, 13, 312, 311, 310, 415];
-  
-  for (const idx of bracketPoints) {
-    const p = landmarks[idx];
-    if (p) {
-      const x = p.x * rw, y = p.y * rh;
-      // Anchor each bracket to the center of the tooth face
-      ctx.drawImage(bracketImg, x - (stampSize/2), y - (stampSize/2), stampSize, stampSize);
-    }
-  }
-  
+  const drawArch = (indices, wireOffset) => {
+    // 1. Draw Archwire
+    ctx.beginPath();
+    ctx.strokeStyle = '#B0B0B0'; // Clinical Silver
+    ctx.lineWidth = Math.max(1.8, rw / 450);
+    indices.forEach((idx, i) => {
+      const p = landmarks[idx];
+      if (p) {
+        const x = p.x * rw, y = (p.y * rh) + wireOffset;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+    });
+    ctx.stroke();
+
+    // 2. Place Brackets
+    indices.forEach(idx => {
+      const p = landmarks[idx];
+      if (p) {
+        const x = p.x * rw, y = (p.y * rh) + wireOffset;
+        ctx.drawImage(bracketImg, x - (stampSize/2), y - (stampSize/2), stampSize, stampSize);
+      }
+    });
+  };
+
+  // Process both rows
+  drawArch(UPPER_TEETH_INDICES, rh * 0.005);
+  drawArch(LOWER_TEETH_INDICES, -rh * 0.005);
+
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.95));
 }
 
@@ -919,11 +928,25 @@ const SmileSimulatorAI = () => {
       if (!isCurrent()) { safeRevoke(processedTeethCrop); console.log("[CANCELLED] after AI"); return; }
 
       // Step 5: Merge back into full frame
-      console.log("[12] Merging focus crop back into anatomical frame");
+      console.log("[12] Merging AI results back into anatomical frame");
       setProcessingLog("Compositing result...");
-      finalUrl = await mergeIntoFullFrame(normalizedUrl, processedTeethCrop, mouthCropBounds, null, landmarks, treatment);
+      const mergedUrl = await mergeIntoFullFrame(normalizedUrl, processedTeethCrop, mouthCropBounds, null, landmarks, treatment);
       safeRevoke(processedTeethCrop);
-      console.log("[13] Final composite complete");
+      console.log("[13] Merge complete");
+
+      if (!isCurrent()) { safeRevoke(mergedUrl); console.log("[CANCELLED] after merge"); return; }
+
+      // Step 6: Terminal Braces Overlay (Mandate: Post-Merge Priority)
+      if (treatment === "braces" || treatment === "both") {
+        console.log("[14] Applying Terminal Braces Overlay (Upper & Lower)");
+        setProcessingLog("Placing clinical hardware...");
+        const finalSimulationUrl = await drawBracesOverlay(mergedUrl, landmarks);
+        safeRevoke(mergedUrl);
+        finalUrl = finalSimulationUrl;
+        console.log("[15] Braces overlay complete");
+      } else {
+        finalUrl = mergedUrl;
+      }
 
       if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after braces"); return; }
 
