@@ -479,42 +479,32 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- THE FULL-ARCH CLINICAL ENGINE (Mandate: Upper & Lower) ---
+// --- THE LIP-SAFE CLINICAL ENGINE (Mandate: Teeth Only) ---
 const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.save();
   
-  // 1. TIGHT ANATOMIC CLIP (All visible teeth)
-  ctx.beginPath();
-  const mouthInner = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
-  mouthInner.forEach((idx, i) => {
-    const p = landmarks[idx];
-    if (p) {
-      const x = p.x * rw, y = p.y * rh;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-  });
-  ctx.clip(); 
-
-  // 2. 20-POINT PIXEL-TARGETED WHITENING (Upper & Lower)
-  ctx.globalCompositeOperation = 'overlay'; 
+  // MANDATE: No global clip, no lip interference. 
+  // We apply 20 individual 'Tooth Stamps' directly.
+  ctx.globalCompositeOperation = 'soft-light'; 
   
-  // Upper & Lower dental targets
   const fullArchIndices = [
     191, 80, 81, 82, 13, 312, 311, 310, 415, // Upper Row
-    95, 88, 178, 87, 14, 317, 402, 318, 324  // Lower Row
+    14, 87, 178, 88, 95, 324, 318, 402, 317  // Lower Row
   ];
   
-  const radius = Math.max(12, rw / 50);
+  // Tight radius for zero-bleed
+  const radius = Math.max(8, rw / 65);
 
   fullArchIndices.forEach(idx => {
     const p = landmarks[idx];
     if (p) {
       const x = p.x * rw, y = p.y * rh;
+      // High-precision radial stamp centered on the tooth face
       const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.65)'); 
-      grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.2)');
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.7)'); 
+      grad.addColorStop(0.8, 'rgba(255, 255, 255, 0.15)');
       grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      
       ctx.fillStyle = grad;
       ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
