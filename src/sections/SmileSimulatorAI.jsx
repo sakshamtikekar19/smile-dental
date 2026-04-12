@@ -582,7 +582,11 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   ctx.drawImage(orig, 0, 0, rw, rh);
 
   // 2. Call Clinical Engine (Whitening/Braces)
-  renderClinicalSimulation(ctx, canvas, landmarks, treatment, rw, rh);
+  // MANDATE: ZERO-FILM. Skip if treatment is already baked into the source blob
+  const isBaked = originalSrc && originalSrc.includes("simulated=true");
+  if (!isBaked) {
+    renderClinicalSimulation(ctx, canvas, landmarks, treatment, rw, rh);
+  }
 
   // 3. ALIGNMENT / TRANSFORMATION (Coordinate-Mapped Composite)
   if (treatment === "alignment" || treatment === "transformation") {
@@ -918,7 +922,7 @@ const SmileSimulatorAI = () => {
 
     // 3. Export the processed result
     canvas.toBlob(blob => {
-        const processedUrl = URL.createObjectURL(blob);
+        const processedUrl = URL.createObjectURL(blob) + "#simulated=true";
         setStep("processing");
         setActiveTreatment(selectedTreatment);
         setRawImageUrl(processedUrl); // This now contains the whitening/braces!
