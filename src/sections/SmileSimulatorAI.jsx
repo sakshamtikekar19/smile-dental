@@ -465,24 +465,28 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   if (treatment !== "alignment") {
     ctx.save();
     
-    // BUILD POLYGON (Mandate imperative)
+    // Mandate imperative: Build strict anatomy-based polygon
     const enamelPts = landmarks
       ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 2)
       : null;
 
     if (enamelPts && enamelPts.length >= 3) {
+      ctx.save(); // Nested save for filter-scoping safety
+      
+      ctx.filter = 'blur(6px)'; // -> Mandate 1: Soften the gumline boundary
       ctx.beginPath();
       ctx.moveTo(enamelPts[0].x, enamelPts[0].y);
       for (let i = 1; i < enamelPts.length; i++) ctx.lineTo(enamelPts[i].x, enamelPts[i].y);
       ctx.closePath();
-
-      ctx.filter = 'blur(6px)'; // Soften the gumline boundary
-      ctx.clip(); // Contain the white
-
-      ctx.filter = 'none'; // CRITICAL: Reset filter before filling
-      ctx.globalCompositeOperation = 'soft-light'; // CRITICAL: Restores 3D shadows
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
-      ctx.fillRect(0, 0, canvas.width, canvas.height); // Fill the clipped area safely
+      
+      ctx.clip(); // -> Mandate 2: Contain the white
+      
+      ctx.filter = 'none'; // -> Mandate 3: Reset filter so texture isn't blurred
+      ctx.globalCompositeOperation = 'soft-light'; // -> Mandate 4: CRITICAL blending mode
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; // -> Mandate 5: Semi-transparent white
+      ctx.fillRect(0, 0, canvas.width, canvas.height); // -> Mandate 6: Simple full fill
+      
+      ctx.restore();
     }
     ctx.restore();
   }
