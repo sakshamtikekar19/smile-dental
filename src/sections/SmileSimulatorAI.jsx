@@ -552,6 +552,16 @@ const drawAnatomicalBraces = (ctx, landmarks, rw, rh) => {
   ctx.restore();
 };
 
+// --- CLINICAL SIMULATION WRAPPER (Mandate: Engine-Linked) ---
+const renderClinicalSimulation = (ctx, canvas, landmarks, treatment, rw, rh) => {
+  if (treatment === "whitening" || treatment === "both") {
+    applyClinicalWhitening(ctx, landmarks, rw, rh);
+  }
+  if (treatment === "braces" || treatment === "both") {
+    drawAnatomicalBraces(ctx, landmarks, rw, rh);
+  }
+};
+
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
   const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
   const { main: canvas, rw, rh } = getSharedCanvases(orig.width, orig.height);
@@ -564,7 +574,10 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   // 1. BASE FACE
   ctx.drawImage(orig, 0, 0, rw, rh);
 
-  // 2. ALIGNMENT / TRANSFORMATION (Coordinate-Mapped Composite)
+  // 2. Call Clinical Engine (Whitening/Braces)
+  renderClinicalSimulation(ctx, canvas, landmarks, treatment, rw, rh);
+
+  // 3. ALIGNMENT / TRANSFORMATION (Coordinate-Mapped Composite)
   if (treatment === "alignment" || treatment === "transformation") {
     ctx.save();
     const scaleX = rw / orig.width, scaleY = rh / orig.height;
@@ -616,7 +629,37 @@ const SmileSimulatorAI = () => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
-  const generationRef = useRef(0);    // invalidates stale async ops
+  const generationRef = useRef(0);
+  const latestLandmarksRef = useRef(null);
+  const requestRef = useRef(null);
+
+  // --- REAL-TIME DETECTION LOOP (Pillar: Precision Sync) ---
+  const detectionLoop = useCallback(async () => {
+    if (step !== "camera" || !videoRef.current || !_faceLandmarkerInstance) {
+      if (step === "camera") requestRef.current = requestAnimationFrame(detectionLoop);
+      return;
+    }
+    
+    try {
+      const result = _faceLandmarkerInstance.detectForVideo(videoRef.current, performance.now());
+      if (result.faceLandmarks?.[0]) {
+        latestLandmarksRef.current = result.faceLandmarks[0];
+      }
+    } catch (err) {
+      // Squelch background detection errors
+    }
+    
+    if (step === "camera") requestRef.current = requestAnimationFrame(detectionLoop);
+  }, [step]);
+
+  useEffect(() => {
+    if (step === "camera") {
+      requestRef.current = requestAnimationFrame(detectionLoop);
+    } else {
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+    }
+    return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
+  }, [step, detectionLoop]);
 
   // PERFORMANCE OPTIMAL: Deferred AI Pre-Heating (Mandate 1)
   useEffect(() => {
@@ -834,29 +877,46 @@ const SmileSimulatorAI = () => {
   }, []);
 
 
-  const takePhoto = () => {
-    console.log("[1] Photo taken — zero-math capture handler firing");
+  const takePhoto = async () => {
+    console.log("[1] Photo taken — linking to clinical engine");
     if (!videoRef.current || !canvasRef.current) return;
+    
     const video = videoRef.current;
-    if (!video.videoWidth || !video.videoHeight) return;
-    const scale = video.videoWidth > 4096 ? 4096 / video.videoWidth : 1;
-    const outW = Math.round(video.videoWidth * scale);
-    const outH = Math.round(video.videoHeight * scale);
     const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+
+    // 1. Capture the Raw Frame
+    const outW = video.videoWidth;
+    const outH = video.videoHeight;
     canvas.width = outW;
     canvas.height = outH;
-    canvas.getContext("2d").drawImage(video, 0, 0, outW, outH);
+    ctx.drawImage(video, 0, 0, outW, outH);
+
+    // 2. GET CURRENT LANDMARKS (Crucial Step)
+    if (latestLandmarksRef.current) {
+        console.log("[2] Landmarks found — executing clinical render");
+        
+        // This is the line that was missing!
+        renderClinicalSimulation(
+            ctx, 
+            canvas, 
+            latestLandmarksRef.current, 
+            selectedTreatment, 
+            outW, 
+            outH
+        );
+    }
+
     stopCamera();
+
+    // 3. Export the processed result
     canvas.toBlob(blob => {
-      pendingTreatmentRef.current = selectedTreatment;
-      const rawUrl = URL.createObjectURL(blob);
-      setStep("processing");
-      setError(null);
-      setActiveTreatment(selectedTreatment);
-      setProcessingLog("Preparing image...");
-      setRawImageUrl(rawUrl);
-      setIsProcessing(true);
-    }, "image/jpeg", 0.9);
+        const processedUrl = URL.createObjectURL(blob);
+        setStep("processing");
+        setActiveTreatment(selectedTreatment);
+        setRawImageUrl(processedUrl); // This now contains the whitening/braces!
+        setIsProcessing(true);
+    }, "image/jpeg", 0.95);
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
