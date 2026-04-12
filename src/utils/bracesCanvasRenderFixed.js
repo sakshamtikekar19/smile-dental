@@ -6,49 +6,16 @@
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-function getCatmullRomPoint(p0, p1, p2, p3, t) {
-  const t2 = t * t;
-  const t3 = t2 * t;
-  return {
-    x: 0.5 * (
-      (2 * p1.x) +
-      (-p0.x + p2.x) * t +
-      (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
-      (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
-    ),
-    y: 0.5 * (
-      (2 * p1.y) +
-      (-p0.y + p2.y) * t +
-      (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
-      (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
-    )
-  };
-}
-
 /**
- * Draw intensive archwire using Catmull-Rom splines for professional dental arcs.
+ * Draw robust archwire: dark shadow → silver body → white highlight
  */
-export function drawWire(ctx, pts, lineWidth = 0.8) {
+export function drawWire(ctx, pts, lineWidth = 1.0) {
   if (!pts || pts.length < 2) return;
 
-  const drawSpline = () => {
+  const draw = () => {
     ctx.beginPath();
-    if (pts.length === 2) {
-      ctx.moveTo(pts[0].x, pts[0].y);
-      ctx.lineTo(pts[1].x, pts[1].y);
-    } else {
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i = 0; i < pts.length - 1; i++) {
-        const p0 = pts[Math.max(i - 1, 0)];
-        const p1 = pts[i];
-        const p2 = pts[i + 1];
-        const p3 = pts[Math.min(i + 2, pts.length - 1)];
-        for (let t = 0; t <= 1; t += 0.1) {
-          const p = getCatmullRomPoint(p0, p1, p2, p3, t);
-          ctx.lineTo(p.x, p.y);
-        }
-      }
-    }
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   };
 
   ctx.save();
@@ -56,21 +23,21 @@ export function drawWire(ctx, pts, lineWidth = 0.8) {
   ctx.lineJoin = 'round';
 
   // Ambient Occlusion / Shadow
-  drawSpline();
-  ctx.strokeStyle = 'rgba(15,17,23,0.5)';
+  draw();
+  ctx.strokeStyle = 'rgba(15,17,23,0.6)';
   ctx.lineWidth = lineWidth + 1.2;
   ctx.stroke();
 
   // Silver Core
-  drawSpline();
+  draw();
   ctx.strokeStyle = '#94a3b8'; 
   ctx.lineWidth = lineWidth;
   ctx.stroke();
 
   // Highlight
-  drawSpline();
+  draw();
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = lineWidth * 0.4;
+  ctx.lineWidth = lineWidth * 0.45;
   ctx.stroke();
 
   ctx.restore();

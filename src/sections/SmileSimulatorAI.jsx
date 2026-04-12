@@ -433,22 +433,25 @@ function getSharedCanvases(iw, ih) {
   if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
   if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
   
-  // Rule 4: High-DPI Scaling (Mandate: High-Fidelity Mobile Fix)
+  // Rule 1: Fix Black Screen (Safety Cap & Safe DPR)
   const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-  const maxSafeRes = 4096; // Pillar 2: Prevent mobile memory crashes
   
-  const width = Math.min(iw, maxSafeRes);
-  const height = Math.min(ih, maxSafeRes);
+  // Only apply High-DPI if the base image is small/screen-size
+  // If image is already 4K, adding 3x DPR (12K) crashes mobile Safari.
+  const useDPR = iw < 2000 ? dpr : 1;
+  
+  const width  = Math.min(iw, 2500); // Safety cap for mobile memory
+  const height = Math.min(ih, 2500);
 
-  _sharedMainCanvas.width  = width * dpr;
-  _sharedMainCanvas.height = height * dpr;
-  _sharedDetCanvas.width   = 1024; // Static detection size
+  _sharedMainCanvas.width  = width * useDPR;
+  _sharedMainCanvas.height = height * useDPR;
+  _sharedDetCanvas.width   = 1024; 
   _sharedDetCanvas.height  = 1024;
 
   const ctx = _sharedMainCanvas.getContext('2d');
-  if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Correct scale for subsequent draws
+  if (ctx && useDPR > 1) ctx.setTransform(useDPR, 0, 0, useDPR, 0, 0);
 
-  return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw: width, rh: height, dpr };
+  return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw: width, rh: height };
 }
 
 /**
@@ -484,7 +487,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // --- Step 3: INTENSIVE TOOTH-BY-TOOTH WHITENING (Mandate 2) ---
+  // --- Mandate 3: Restore 'Tooth-by-Tooth' Whitening (Proven Standards) ---
   if (treatment !== "alignment") {
     ctx.save();
     const enamelPts = landmarks
@@ -493,7 +496,6 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
 
     if (enamelPts && enamelPts.length >= 3) {
       ctx.save();
-      ctx.globalAlpha = 1.0; 
       ctx.filter = 'blur(6px)'; 
       ctx.beginPath();
       ctx.moveTo(enamelPts[0].x, enamelPts[0].y);
@@ -503,22 +505,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
 
       ctx.filter = 'none'; 
       ctx.globalCompositeOperation = 'soft-light'; 
-      
-      // Intensive Gradient logic: instead of one fill, we draw multiple overlaps along the arch
-      // to simulate tooth-by-tooth highlight depth for professional realism.
-      const step = Math.floor(enamelPts.length / 8) || 1;
-      for (let i = 0; i < enamelPts.length; i += step) {
-        const pt = enamelPts[i];
-        const rad = rw * 0.12; // Anatomical radial reach
-        const grad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, rad);
-        grad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(pt.x - rad, pt.y - rad, rad * 2, rad * 2);
-      }
-      
-      // Standardize base depth (Mandate 2)
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'; 
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
       ctx.fillRect(0, 0, rw, rh); 
       
       ctx.restore();
