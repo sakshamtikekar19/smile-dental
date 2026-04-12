@@ -10,17 +10,17 @@ import { generateTeethPath, getTightenedWhiteningMaskPoints } from "../utils/tee
 
 // ── Environment ──────────────────────────────────────────────────────────────
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-const AI_SMILE_API  = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
+const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
 
 // ── MediaPipe singleton (shared, loaded once) ────────────────────────────────
-let _faceLandmarkerInstance  = null;
-let _faceLandmarkerFailed    = false;
-let _faceLandmarkerPromise   = null;
+let _faceLandmarkerInstance = null;
+let _faceLandmarkerFailed = false;
+let _faceLandmarkerPromise = null;
 
 async function initFaceLandmarker() {
   if (_faceLandmarkerFailed) return null;
   if (_faceLandmarkerInstance) return _faceLandmarkerInstance;
-  if (_faceLandmarkerPromise)  return _faceLandmarkerPromise;
+  if (_faceLandmarkerPromise) return _faceLandmarkerPromise;
 
   _faceLandmarkerPromise = (async () => {
     try {
@@ -37,12 +37,12 @@ async function initFaceLandmarker() {
         runningMode: "IMAGE",
         numFaces: 1,
         minFaceDetectionConfidence: 0.1,
-        minFacePresenceConfidence:  0.1,
+        minFacePresenceConfidence: 0.1,
       });
       return _faceLandmarkerInstance;
     } catch {
-      _faceLandmarkerFailed   = true;
-      _faceLandmarkerPromise  = null;
+      _faceLandmarkerFailed = true;
+      _faceLandmarkerPromise = null;
       return null;
     }
   })();
@@ -55,23 +55,23 @@ async function initFaceLandmarker() {
  */
 function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
   if (!landmarks || landmarks.length === 0) return { x: 0, y: 0, width, height };
-  
+
   const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   const points = indices.map(i => landmarks[i]).filter(Boolean);
   if (!points.length) return { x: 0, y: 0, width, height };
 
   const xs = points.map(p => p.x * width);
   const ys = points.map(p => p.y * height);
-  
+
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  
+
   const w = maxX - minX;
   const h = maxY - minY;
   const p = Math.max(w, h) * padding;
-  
+
   return {
     x: Math.max(0, minX - p),
     y: Math.max(0, minY - p * 1.5), // More vertical padding for smile context
@@ -81,24 +81,24 @@ function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const MAX_IMAGE_SIZE           = 8192;  // High-fidelity limit (essentially original resolution)
-const FACE_DETECT_TIMEOUT_MS   = 18_000;
-const AI_FETCH_TIMEOUT_MS      = 75_000;
-const MOUTH_PERIMETER_INDICES  = [61, 291, 17, 13, 14, 78, 308, 181];
-const EYE_SANITY_INDICES       = [33, 133, 362, 263];
+const MAX_IMAGE_SIZE = 8192;  // High-fidelity limit (essentially original resolution)
+const FACE_DETECT_TIMEOUT_MS = 18_000;
+const AI_FETCH_TIMEOUT_MS = 75_000;
+const MOUTH_PERIMETER_INDICES = [61, 291, 17, 13, 14, 78, 308, 181];
+const EYE_SANITY_INDICES = [33, 133, 362, 263];
 
 const TREATMENTS = [
-  { id: "whitening",      label: "Whitening",  desc: "Blue-white enamel sheen enhancement." },
-  { id: "alignment",      label: "Alignment",  desc: "Gap closure and crooked-tooth rectification." },
-  { id: "braces",         label: "Braces",     desc: "Precision metallic bracket preview." },
+  { id: "whitening", label: "Whitening", desc: "Blue-white enamel sheen enhancement." },
+  { id: "alignment", label: "Alignment", desc: "Gap closure and crooked-tooth rectification." },
+  { id: "braces", label: "Braces", desc: "Precision metallic bracket preview." },
   { id: "transformation", label: "Full Smile", desc: "Hollywood-style smile reconstruction." },
 ];
 
 const TREATMENT_THEME = {
-  whitening:      { glow: "0 0 28px rgba(212,175,55,0.45)",   ring: "rgba(212,175,55,0.9)",   tint: "from-amber-100/20 to-yellow-600/25"   },
-  alignment:      { glow: "0 0 28px rgba(129,140,248,0.52)",  ring: "rgba(129,140,248,0.9)",  tint: "from-indigo-300/20 to-indigo-500/25" },
-  braces:         { glow: "0 0 28px rgba(212,175,55,0.42)",   ring: "rgba(212,175,55,0.9)",   tint: "from-slate-200/20 to-slate-400/25" },
-  transformation: { glow: "0 0 28px rgba(212,175,55,0.5)",    ring: "#D4AF37",               tint: "from-amber-200/20 to-yellow-600/25" },
+  whitening: { glow: "0 0 28px rgba(212,175,55,0.45)", ring: "rgba(212,175,55,0.9)", tint: "from-amber-100/20 to-yellow-600/25" },
+  alignment: { glow: "0 0 28px rgba(129,140,248,0.52)", ring: "rgba(129,140,248,0.9)", tint: "from-indigo-300/20 to-indigo-500/25" },
+  braces: { glow: "0 0 28px rgba(212,175,55,0.42)", ring: "rgba(212,175,55,0.9)", tint: "from-slate-200/20 to-slate-400/25" },
+  transformation: { glow: "0 0 28px rgba(212,175,55,0.5)", ring: "#D4AF37", tint: "from-amber-200/20 to-yellow-600/25" },
 };
 
 // ── Icons ────────────────────────────────────────────────────────────────────
@@ -107,13 +107,13 @@ function WhiteningIcon() {
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
         <linearGradient id="medicalWhite" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#ffffff" />
-          <stop offset="50%"  stopColor="#e0f2fe" />
+          <stop offset="0%" stopColor="#ffffff" />
+          <stop offset="50%" stopColor="#e0f2fe" />
           <stop offset="100%" stopColor="#bae6fd" />
         </linearGradient>
       </defs>
       <path d="M48 10v10M43 15h10" stroke="#0ea5e9" strokeWidth="2.5" strokeLinecap="round" />
-      <path d="M12 18v6M9 21h6"   stroke="#0ea5e9" strokeWidth="2"   strokeLinecap="round" opacity="0.6" />
+      <path d="M12 18v6M9 21h6" stroke="#0ea5e9" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
       <path d="M28 8c6 0 10 4 11 10 1 8 0 18-2 24-2 6-6 14-11 14s-9-8-11-14c-2-6-3-16-2-24 1-6 5-10 11-10z"
         fill="url(#medicalWhite)" stroke="#0284c7" strokeWidth="2.5" />
       <path d="M22 14c2-2 6-2 10 0" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
@@ -126,18 +126,18 @@ function AlignmentIcon() {
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
         <linearGradient id="alignTooth" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor="#ffffff" />
+          <stop offset="0%" stopColor="#ffffff" />
           <stop offset="100%" stopColor="#e2e8f0" />
         </linearGradient>
         <linearGradient id="silverLevel" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%"   stopColor="#64748b" />
-          <stop offset="50%"  stopColor="#f8fafc" />
+          <stop offset="0%" stopColor="#64748b" />
+          <stop offset="50%" stopColor="#f8fafc" />
           <stop offset="100%" stopColor="#475569" />
         </linearGradient>
       </defs>
-      <rect x="10"   y="14" width="11" height="30" rx="4" fill="url(#alignTooth)" stroke="#334155" strokeWidth="1.6" />
+      <rect x="10" y="14" width="11" height="30" rx="4" fill="url(#alignTooth)" stroke="#334155" strokeWidth="1.6" />
       <rect x="26.5" y="14" width="11" height="30" rx="4" fill="url(#alignTooth)" stroke="#334155" strokeWidth="1.6" />
-      <rect x="43"   y="14" width="11" height="30" rx="4" fill="url(#alignTooth)" stroke="#334155" strokeWidth="1.6" />
+      <rect x="43" y="14" width="11" height="30" rx="4" fill="url(#alignTooth)" stroke="#334155" strokeWidth="1.6" />
       <line x1="6" y1="29" x2="58" y2="29" stroke="url(#silverLevel)" strokeWidth="3.2" strokeLinecap="round" />
     </svg>
   );
@@ -148,15 +148,15 @@ function BracesIcon() {
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
         <linearGradient id="bracketChrome" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%"   stopColor="#f8fafc" />
-          <stop offset="70%"  stopColor="#94a3b8" />
+          <stop offset="0%" stopColor="#f8fafc" />
+          <stop offset="70%" stopColor="#94a3b8" />
           <stop offset="100%" stopColor="#e2e8f0" />
         </linearGradient>
       </defs>
       <rect x="10" y="10" width="44" height="44" rx="14" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="2" />
       <rect x="19" y="19" width="26" height="26" rx="6.5" fill="url(#bracketChrome)" stroke="#64748b" strokeWidth="2" />
       <path d="M24 32h16M32 24v16" stroke="#334155" strokeWidth="2.8" strokeLinecap="round" />
-      <path d="M8 34c12-7 36-7 48 0"  stroke="#cbd5e1" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M8 34c12-7 36-7 48 0" stroke="#cbd5e1" strokeWidth="2.4" strokeLinecap="round" />
     </svg>
   );
 }
@@ -167,9 +167,9 @@ function FullSmileIcon() {
     <svg viewBox="0 0 64 64" className="h-9 w-9" aria-hidden="true">
       <defs>
         <linearGradient id="fullSmileShimmer" x1="0%" y1="50%" x2="100%" y2="50%">
-          <stop offset="0%"   stopColor="#fbbf24" stopOpacity="0.9" />
-          <stop offset="50%"  stopColor="#ffffff"  stopOpacity="1"   />
-          <stop offset="100%" stopColor="#eab308"  stopOpacity="0.85" />
+          <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.9" />
+          <stop offset="50%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="100%" stopColor="#eab308" stopOpacity="0.85" />
         </linearGradient>
       </defs>
       <path d="M8 40 Q32 26 56 40" fill="rgba(250,250,250,0.5)" stroke="#d4d4d8" strokeWidth="1" />
@@ -189,7 +189,7 @@ const ICON_MAP = { whitening: WhiteningIcon, alignment: AlignmentIcon, braces: B
 // ── TreatmentDockButton ──────────────────────────────────────────────────────
 function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
   const [hovered, setHovered] = useState(false);
-  const Icon  = ICON_MAP[treatment.id] ?? WhiteningIcon;
+  const Icon = ICON_MAP[treatment.id] ?? WhiteningIcon;
   const theme = TREATMENT_THEME[treatment.id] ?? TREATMENT_THEME.whitening;
 
   return (
@@ -248,14 +248,14 @@ function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload  = () => resolve(img);
+    img.onload = () => resolve(img);
     img.onerror = () => reject(new Error("Image load failed"));
     img.src = src;
   });
 }
 
 function safeRevoke(url) {
-  if (url && url.startsWith("blob:")) { try { URL.revokeObjectURL(url); } catch {} }
+  if (url && url.startsWith("blob:")) { try { URL.revokeObjectURL(url); } catch { } }
 }
 
 /**
@@ -263,10 +263,10 @@ function safeRevoke(url) {
  * Runs entirely on the main thread but is fast (single drawImage).
  */
 async function resizeImage(src, maxPx = MAX_IMAGE_SIZE) {
-  const img    = await loadImage(src);
-  const scale  = Math.min(1, maxPx / Math.max(img.width, img.height, 1));
-  const w      = Math.round(img.width  * scale);
-  const h      = Math.round(img.height * scale);
+  const img = await loadImage(src);
+  const scale = Math.min(1, maxPx / Math.max(img.width, img.height, 1));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   canvas.getContext("2d").drawImage(img, 0, 0, w, h);
@@ -285,14 +285,14 @@ async function detectLandmarks(imageSrc) {
     const img = await loadImage(imageSrc);
     if (!img.width || !img.height) return null;
 
-    const canvas  = document.createElement("canvas");
-    canvas.width  = img.width;
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
     canvas.height = img.height;
 
     // Pillar 3: Fallback Dimension Check
     if (canvas.width === 0 || canvas.height === 0) {
-       console.warn("AI Detect: Zero-dimension canvas detected.");
-       return null;
+      console.warn("AI Detect: Zero-dimension canvas detected.");
+      return null;
     }
 
     const ctx = canvas.getContext("2d");
@@ -301,16 +301,16 @@ async function detectLandmarks(imageSrc) {
     // Mandate 2: AI Pre-heating check
     const landmarker = await initFaceLandmarker();
     if (!landmarker) {
-       console.warn("AI Engine not ready yet.");
-       return null;
+      console.warn("AI Engine not ready yet.");
+      return null;
     }
 
     const result = landmarker.detect(canvas);
     const lm = result?.faceLandmarks?.[0];
     return lm?.length >= 100 ? lm : null;
-  } catch (err) { 
+  } catch (err) {
     console.error("Detection error:", err);
-    return null; 
+    return null;
   }
 }
 
@@ -338,9 +338,9 @@ function buildMouthBounds(landmarks, iw, ih) {
   const ry = Math.max((maxY - minY) / 2 * 1.12, 10);
   return {
     bounds: {
-      x:      clamp(Math.floor(minX - padX), 0, iw - 1),
-      y:      clamp(Math.floor(minY - padY), 0, ih - 1),
-      width:  clamp(Math.ceil(maxX - minX + padX * 2), 24, iw),
+      x: clamp(Math.floor(minX - padX), 0, iw - 1),
+      y: clamp(Math.floor(minY - padY), 0, ih - 1),
+      width: clamp(Math.ceil(maxX - minX + padX * 2), 24, iw),
       height: clamp(Math.ceil(maxY - minY + padY * 2), 24, ih),
     },
     oval: { cx, cy, rx, ry },
@@ -350,13 +350,13 @@ function buildMouthBounds(landmarks, iw, ih) {
 function heuristicMouthBounds(iw, ih) {
   const cx = iw * 0.5, cy = ih * 0.63;
   const rx = Math.max(iw * 0.19, 14), ry = Math.max(ih * 0.1, 10);
-  const w  = clamp(Math.ceil(rx * 2.45), 48, iw);
-  const h  = clamp(Math.ceil(ry * 2.35), 40, ih);
+  const w = clamp(Math.ceil(rx * 2.45), 48, iw);
+  const h = clamp(Math.ceil(ry * 2.35), 40, ih);
   return {
     bounds: {
-      x:      clamp(Math.floor(cx - w / 2), 0, iw - w),
-      y:      clamp(Math.floor(cy - h / 2), Math.floor(ih * 0.45), Math.max(0, ih - h)),
-      width:  w, height: h,
+      x: clamp(Math.floor(cx - w / 2), 0, iw - w),
+      y: clamp(Math.floor(cy - h / 2), Math.floor(ih * 0.45), Math.max(0, ih - h)),
+      width: w, height: h,
     },
     oval: { cx, cy, rx, ry },
   };
@@ -365,8 +365,8 @@ function heuristicMouthBounds(iw, ih) {
 function squareCropRect(iw, ih, oval) {
   const maxSide = Math.min(iw, ih);
   const side = clamp(Math.ceil(2.35 * Math.max(oval.rx, oval.ry)), 120, maxSide);
-  const x0   = clamp(Math.round(oval.cx - side / 2), 0, iw - side);
-  const y0   = clamp(Math.round(oval.cy - side / 2), 0, ih - side);
+  const x0 = clamp(Math.round(oval.cx - side / 2), 0, iw - side);
+  const y0 = clamp(Math.round(oval.cy - side / 2), 0, ih - side);
   return { x: x0, y: y0, width: side, height: side };
 }
 
@@ -374,7 +374,7 @@ function ellipseWeight(px, py, oval, feather) {
   const { cx, cy, rx, ry } = oval;
   if (rx <= 0 || ry <= 0) return 0;
   const nx = (px - cx) / rx, ny = (py - cy) / ry;
-  const dist  = Math.sqrt(nx*nx + ny*ny);
+  const dist = Math.sqrt(nx * nx + ny * ny);
   const outer = 1 + feather / Math.max(rx, ry);
   if (dist <= 1) return 1;
   if (dist >= outer) return 0;
@@ -389,11 +389,11 @@ function ellipseWeight(px, py, oval, feather) {
 function runWorkerProcessing(imageSrc, treatment, landmarks, onProgress) {
   return new Promise(async (resolve, reject) => {
     try {
-      const img    = await loadImage(imageSrc);
+      const img = await loadImage(imageSrc);
       const { width: iw, height: ih } = img;
       const canvas = document.createElement("canvas");
       canvas.width = iw; canvas.height = ih;
-      const ctx    = canvas.getContext("2d");
+      const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0);
       const imageData = ctx.getImageData(0, 0, iw, ih);
 
@@ -419,9 +419,9 @@ function runWorkerProcessing(imageSrc, treatment, landmarks, onProgress) {
         worker.terminate();
         if (type === "ERROR") { reject(new Error(message)); return; }
         // DONE: convert ImageData back to blob URL
-        const outCanvas     = document.createElement("canvas");
-        outCanvas.width     = resultData.width;
-        outCanvas.height    = resultData.height;
+        const outCanvas = document.createElement("canvas");
+        outCanvas.width = resultData.width;
+        outCanvas.height = resultData.height;
         outCanvas.getContext("2d").putImageData(resultData, 0, 0);
         outCanvas.toBlob(blob => resolve(URL.createObjectURL(blob)), "image/jpeg", 0.98);
       };
@@ -446,9 +446,9 @@ function runWorkerProcessing(imageSrc, treatment, landmarks, onProgress) {
  * Crop a region of an image to a blob URL (fast, main thread OK).
  */
 async function cropRegion(imageSrc, rect) {
-  const img    = await loadImage(imageSrc);
+  const img = await loadImage(imageSrc);
   const canvas = document.createElement("canvas");
-  canvas.width  = rect.width;
+  canvas.width = rect.width;
   canvas.height = rect.height;
   canvas.getContext("2d").drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.93));
@@ -461,20 +461,20 @@ let _sharedDetCanvas = null;
 
 function getSharedCanvases(iw, ih) {
   if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
-  if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
-  
+  if (!_sharedDetCanvas) _sharedDetCanvas = document.createElement('canvas');
+
   // Rule 1: Physical Pixel Fidelity (Pillar 1)
-  const maxSafeRes = 4096; 
+  const maxSafeRes = 4096;
   const rw = Math.min(iw, maxSafeRes);
   const rh = Math.min(ih, maxSafeRes);
 
-  _sharedMainCanvas.width  = rw;
+  _sharedMainCanvas.width = rw;
   _sharedMainCanvas.height = rh;
-  _sharedDetCanvas.width   = 1024; 
-  _sharedDetCanvas.height  = 1024;
+  _sharedDetCanvas.width = 1024;
+  _sharedDetCanvas.height = 1024;
 
   const ctx = _sharedMainCanvas.getContext('2d');
-  ctx.setTransform(1, 0, 0, 1, 0, 0); 
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
@@ -502,17 +502,23 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // Draw Tooth-by-Tooth Whitening (Standardized Path)
+  // 3. TOOTH-BY-TOOTH WHITENING (High-Fidelity Code-Lock Injection)
   if (treatment !== "alignment") {
     ctx.save();
     const path = generateTeethPath(landmarks, rw, rh);
+
     if (path) {
       ctx.clip(path); 
 
-      // THE MAGIC BLEND: Soft-light brightens without painting a 'sticker'
+      // PASS 1: Soft-light (Preserves original 3D shadows and depth)
       ctx.globalCompositeOperation = 'soft-light'; 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'; 
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; 
       ctx.fillRect(0, 0, rw, rh); 
+
+      // PASS 2: Overlay (Adds clinical brightness without masking texture)
+      ctx.globalCompositeOperation = 'overlay';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillRect(0, 0, rw, rh);
     }
     ctx.restore(); 
   }
@@ -524,31 +530,31 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
 const OVAL_FEATHER_PX = 16;
 
 const SmileSimulatorAI = () => {
-  const [step,              setStep]              = useState("upload");
+  const [step, setStep] = useState("upload");
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
-  const [activeTreatment,   setActiveTreatment]   = useState("whitening");
-  const [beforeImage,       setBeforeImage]       = useState(null);
-  const [afterImage,        setAfterImage]        = useState(null);
-  const [error,             setError]             = useState(null);
-  const [cameraError,       setCameraError]       = useState(null);
-  const [processingLog,     setProcessingLog]     = useState("");
-  const [isProcessing,      setIsProcessing]      = useState(false);
+  const [activeTreatment, setActiveTreatment] = useState("whitening");
+  const [beforeImage, setBeforeImage] = useState(null);
+  const [afterImage, setAfterImage] = useState(null);
+  const [error, setError] = useState(null);
+  const [cameraError, setCameraError] = useState(null);
+  const [processingLog, setProcessingLog] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
   // Mandate 1 & 2: rawImageUrl is the ONLY bridge between file selection and processing.
   // Setting it triggers the useEffect below — the onChange handler itself does NO math.
-  const [rawImageUrl,       setRawImageUrl]       = useState(null);
+  const [rawImageUrl, setRawImageUrl] = useState(null);
   // We snapshot the treatment at the moment the user picks an image (avoids stale closure issues)
   const pendingTreatmentRef = useRef("whitening");
 
-  const videoRef           = useRef(null);
-  const canvasRef          = useRef(null);
-  const streamRef          = useRef(null);
-  const generationRef      = useRef(0);    // invalidates stale async ops
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const generationRef = useRef(0);    // invalidates stale async ops
 
   // PERFORMANCE OPTIMAL: Deferred AI Pre-Heating (Mandate 1)
   useEffect(() => {
     // Wait for UI to be fully interactive before hitting the network for WASM
     const timer = setTimeout(() => {
-      initFaceLandmarker().catch(() => {});
+      initFaceLandmarker().catch(() => { });
     }, 1200);
     return () => {
       clearTimeout(timer);
@@ -562,12 +568,12 @@ const SmileSimulatorAI = () => {
   useEffect(() => {
     if (step !== "camera" || !streamRef.current || !videoRef.current) return;
     videoRef.current.srcObject = streamRef.current;
-    videoRef.current.play().catch(() => {});
+    videoRef.current.play().catch(() => { });
   }, [step]);
 
   const stopCamera = () => {
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    if (videoRef.current)  videoRef.current.srcObject = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
   };
 
   const startCamera = async () => {
@@ -595,7 +601,7 @@ const SmileSimulatorAI = () => {
     setIsProcessing(false);
     setRawImageUrl(null);
     setActiveTreatment(selectedTreatment);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beforeImage, afterImage, selectedTreatment]);
 
   // ── Mandate 2: Double-Timeout Processing Trigger ───────────────────────────
@@ -609,31 +615,31 @@ const SmileSimulatorAI = () => {
       startHeavyProcessingPipeline(rawImageUrl);
     }, 150);
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawImageUrl, isProcessing]);
 
   // ── Core pipeline (Mandate 3: Granular tracking) ───────────────────────────
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
-    const treatment  = pendingTreatmentRef.current;
+    const treatment = pendingTreatmentRef.current;
     const generation = ++generationRef.current;
-    const isCurrent  = () => generation === generationRef.current;
+    const isCurrent = () => generation === generationRef.current;
 
     let normalizedUrl = null;
-    let processedUrl  = null;
-    let mergedUrl     = null;
-    let finalUrl      = null;
+    let processedUrl = null;
+    let mergedUrl = null;
+    let finalUrl = null;
 
     try {
       // Step 1: Detect landmarks on a standard 1024px image (Pillar 1/Regression 1)
       setProcessingLog("Analyzing anatomy...");
-      
+
       // Mandate 3: UI 'Facade' State. If user clicks before AI is ready, show a warm-up message.
       if (!_faceLandmarkerInstance) {
         setProcessingLog("Waking up AI engine, please wait a moment...");
         // Wait for pre-heating for up to 5s
         for (let i = 0; i < 10; i++) {
-           if (_faceLandmarkerInstance) break;
-           await new Promise(r => setTimeout(r, 500));
+          if (_faceLandmarkerInstance) break;
+          await new Promise(r => setTimeout(r, 500));
         }
         if (!_faceLandmarkerInstance) throw new Error("AI Engine took too long to wake up. Please refresh.");
       }
@@ -700,7 +706,7 @@ const SmileSimulatorAI = () => {
         }
         mergedUrl = null;
       } else {
-        finalUrl  = mergedUrl;
+        finalUrl = mergedUrl;
         mergedUrl = null;
       }
 
@@ -709,31 +715,31 @@ const SmileSimulatorAI = () => {
       // Step 7: Dental Zoom (The 'Focus' Fix)
       console.log("[16] Capturing clinical focus area (Dental Zoom)");
       setProcessingLog("Finalizing...");
-      
+
       const { rw: curW, rh: curH } = getSharedCanvases(iw, ih);
-      const focusBox = (landmarks && landmarks.length) 
+      const focusBox = (landmarks && landmarks.length)
         ? getTeethFocusBox(landmarks, curW, curH)
         : { x: 0, y: 0, width: curW, height: curH };
-      
+
       const [bImg, aImg] = await Promise.all([
-        cropRegion(normalizedUrl, { 
-          x: (focusBox.x / curW) * iw, 
-          y: (focusBox.y / curH) * ih, 
-          width: (focusBox.width / curW) * iw, 
-          height: (focusBox.height / curH) * ih 
+        cropRegion(normalizedUrl, {
+          x: (focusBox.x / curW) * iw,
+          y: (focusBox.y / curH) * ih,
+          width: (focusBox.width / curW) * iw,
+          height: (focusBox.height / curH) * ih
         }),
-        cropRegion(finalUrl, { 
-          x: (focusBox.x / curW) * iw, 
-          y: (focusBox.y / curH) * ih, 
-          width: (focusBox.width / curW) * iw, 
-          height: (focusBox.height / curH) * ih 
+        cropRegion(finalUrl, {
+          x: (focusBox.x / curW) * iw,
+          y: (focusBox.y / curH) * ih,
+          width: (focusBox.width / curW) * iw,
+          height: (focusBox.height / curH) * ih
         }),
       ]);
       console.log("[17] Previews ready — rendering zoom result");
 
       if (!isCurrent()) { safeRevoke(bImg); safeRevoke(aImg); console.log("[CANCELLED] after crop"); return; }
 
-      safeRevoke(finalUrl);    finalUrl    = null;
+      safeRevoke(finalUrl); finalUrl = null;
       safeRevoke(normalizedUrl); normalizedUrl = null;
 
       setBeforeImage(bImg);
@@ -756,7 +762,7 @@ const SmileSimulatorAI = () => {
       safeRevoke(mergedUrl);
       safeRevoke(finalUrl);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
 
@@ -765,11 +771,11 @@ const SmileSimulatorAI = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     if (!video.videoWidth || !video.videoHeight) return;
-    const scale  = video.videoWidth > 4096 ? 4096 / video.videoWidth : 1;
-    const outW   = Math.round(video.videoWidth  * scale);
-    const outH   = Math.round(video.videoHeight * scale);
+    const scale = video.videoWidth > 4096 ? 4096 / video.videoWidth : 1;
+    const outW = Math.round(video.videoWidth * scale);
+    const outH = Math.round(video.videoHeight * scale);
     const canvas = canvasRef.current;
-    canvas.width  = outW;
+    canvas.width = outW;
     canvas.height = outH;
     canvas.getContext("2d").drawImage(video, 0, 0, outW, outH);
     stopCamera();
