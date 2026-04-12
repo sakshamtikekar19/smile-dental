@@ -479,85 +479,99 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
-  const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
-  const { main: canvas, rw, rh } = getSharedCanvases(orig.width, orig.height);
-  const ctx = canvas.getContext("2d");
+/**
+ * --- THE CLINICAL ENGINE (Mandate: Global Scope) ---
+ * Handles high-fidelity rendering of whitening and braces layers.
+ */
+const renderClinicalSimulation = (ctx, originalImage, landmarks, treatment, rw, rh) => {
+  if (!ctx || !originalImage || !landmarks) return;
 
-  // --- LAYER 0: BASE ---
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, rw, rh);
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.drawImage(orig, 0, 0, rw, rh);
-  ctx.restore();
+  // 1. BASE: Draw the high-res original
+  ctx.drawImage(originalImage, 0, 0, rw, rh);
 
-  // --- LAYER 1: ALIGNMENT / TRANSFORMATION (Coordinate-Mapped) ---
-  if (treatment === "alignment" || treatment === "transformation") {
-    ctx.save();
-    const scaleX = rw / orig.width;
-    const scaleY = rh / orig.height;
-    const dx = bounds.x * scaleX, dy = bounds.y * scaleY, dw = bounds.width * scaleX, dh = bounds.height * scaleY;
-    // MANDATE 3: Explicit Source-to-Destination Mapping
-    ctx.drawImage(proc, 0, 0, proc.width, proc.height, dx, dy, dw, dh);
-    ctx.restore();
-  }
-
-  // --- LAYER 2: CLINICAL WHITENING (LIP-LOCK ISOLATION) ---
+  // 2. WHITENING: Lip-Lock Isolation
   if (treatment === "whitening" || treatment === "both") {
     ctx.save();
     ctx.beginPath();
-    const upper = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
-    const lower = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
-    const pathIndices = [...upper, ...lower];
-    pathIndices.forEach((idx, i) => {
-      const p = landmarks[idx];
-      if (p) {
-        const x = p.x * rw, y = p.y * rh;
+    // Clinical Tooth Landmarks (Inner Lip Boundary)
+    const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+    indices.forEach((idx, i) => {
+      const pt = landmarks[idx];
+      if (pt) {
+        const x = pt.x * rw, y = pt.y * rh;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
     });
     ctx.closePath();
-    ctx.clip(); 
-    ctx.globalCompositeOperation = 'overlay';
-    ctx.filter = 'brightness(1.18) contrast(1.08)'; 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'; 
+    ctx.clip();
+    ctx.globalCompositeOperation = 'overlay'; // Natural texture lock
+    ctx.filter = 'brightness(1.18) contrast(1.08)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
     ctx.fillRect(0, 0, rw, rh);
-    ctx.restore(); 
+    ctx.restore();
   }
 
-  // --- LAYER 3: TERMINAL BRACES (BRACKET-CENTRIC) ---
+  // 3. BRACES: Bracket-Centric Logic
   if (treatment === "braces" || treatment === "both") {
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
+    
+    // Parabolic Archwire (5 core anchor points)
     const wireIndices = [78, 81, 13, 311, 308];
-    const wirePoints = wireIndices.map(i => landmarks[i]).filter(Boolean).sort((a,b)=>a.x-b.x);
+    const wirePoints = wireIndices.map(idx => landmarks[idx]).filter(Boolean).sort((a, b) => a.x - b.x);
+    
     if (wirePoints.length >= 2) {
       ctx.beginPath();
-      ctx.strokeStyle = '#B0B0B0';
-      ctx.lineWidth = Math.max(2, rw / 450);
+      ctx.strokeStyle = '#B0B0B0'; // Clinical Silver
+      ctx.lineWidth = 2.5;
       wirePoints.forEach((pt, i) => {
         const x = pt.x * rw, y = pt.y * rh;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
+
+      // Clinical Bracket Stamps (9 central teeth)
       const bracketIndices = [191, 80, 81, 82, 13, 312, 311, 310, 415];
-      ctx.fillStyle = '#C0C0C0';
+      ctx.fillStyle = '#D3D3D3';
       bracketIndices.forEach(idx => {
         const p = landmarks[idx];
         if (p) {
-          const x = p.x * rw, y = p.y * rh, bSize = Math.max(6, rw / 300);
-          ctx.fillRect(x - bSize/2, y - bSize/2, bSize, bSize); 
+          const x = p.x * rw, y = p.y * rh;
+          ctx.fillRect(x - 4, y - 4, 8, 8); // 8x8 Clinical Stamp
           ctx.fillStyle = 'rgba(255,255,255,0.4)';
-          ctx.fillRect(x - bSize/4, y - bSize/4, bSize/4, bSize/4);
-          ctx.fillStyle = '#C0C0C0';
+          ctx.fillRect(x - 2, y - 2, 2, 2); // Metallic highlight
+          ctx.fillStyle = '#D3D3D3';
         }
       });
     }
     ctx.restore();
   }
+};
+
+async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
+  const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
+  const { main: canvas, rw, rh } = getSharedCanvases(orig.width, orig.height);
+  const ctx = canvas.getContext("2d");
+
+  // Reset and prepare base
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, rw, rh);
+  
+  // Call Clinical Engine
+  renderClinicalSimulation(ctx, orig, landmarks, treatment, rw, rh);
+
+  // Layer Alignment on top if needed
+  if (treatment === "alignment" || treatment === "transformation") {
+    ctx.save();
+    const scaleX = rw / orig.width, scaleY = rh / orig.height;
+    const dx = bounds.x * scaleX, dy = bounds.y * scaleY, dw = bounds.width * scaleX, dh = bounds.height * scaleY;
+    ctx.drawImage(proc, 0, 0, proc.width, proc.height, dx, dy, dw, dh);
+    ctx.restore();
+  }
+  ctx.restore();
 
   // FORCE GPU FLUSH BEFORE BLOB
   return new Promise(resolve => {
