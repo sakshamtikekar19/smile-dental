@@ -433,18 +433,22 @@ function getSharedCanvases(iw, ih) {
   if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
   if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
   
-  // Restore Physical Pixel Correlation (Mandate 1: The Blur Fix)
-  // We use the original high-res dimensions up to a 4096px safety cap
-  const maxSafeRes = 4096; 
+  // Rule 4: High-DPI Scaling (Mandate: High-Fidelity Mobile Fix)
+  const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+  const maxSafeRes = 4096; // Pillar 2: Prevent mobile memory crashes
+  
   const width = Math.min(iw, maxSafeRes);
   const height = Math.min(ih, maxSafeRes);
 
-  _sharedMainCanvas.width  = width;
-  _sharedMainCanvas.height = height;
-  _sharedDetCanvas.width   = 1024; // Standard detection size
+  _sharedMainCanvas.width  = width * dpr;
+  _sharedMainCanvas.height = height * dpr;
+  _sharedDetCanvas.width   = 1024; // Static detection size
   _sharedDetCanvas.height  = 1024;
 
-  return { main: _sharedMainCanvas, det: _sharedDetCanvas };
+  const ctx = _sharedMainCanvas.getContext('2d');
+  if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Correct scale for subsequent draws
+
+  return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw: width, rh: height, dpr };
 }
 
 /**
@@ -480,10 +484,9 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // --- Step 3: Whitening Pass (Clinical Separation from Lips) ---
+  // --- Step 3: INTENSIVE TOOTH-BY-TOOTH WHITENING (Mandate 2) ---
   if (treatment !== "alignment") {
     ctx.save();
-    // Use a strict 4px tightening (Mandate: Fix bleed onto lips)
     const enamelPts = landmarks
       ? getTightenedWhiteningMaskPoints(landmarks, rw, rh, 4)
       : null;
@@ -498,11 +501,26 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
       ctx.closePath();
       ctx.clip(); 
 
-      // 2. Restore 'Tooth-by-Tooth' Whitening (Mandate 2: The Sticker Fix)
       ctx.filter = 'none'; 
       ctx.globalCompositeOperation = 'soft-light'; 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'; 
-      ctx.fillRect(0, 0, canvas.width, canvas.height); 
+      
+      // Intensive Gradient logic: instead of one fill, we draw multiple overlaps along the arch
+      // to simulate tooth-by-tooth highlight depth for professional realism.
+      const step = Math.floor(enamelPts.length / 8) || 1;
+      for (let i = 0; i < enamelPts.length; i += step) {
+        const pt = enamelPts[i];
+        const rad = rw * 0.12; // Anatomical radial reach
+        const grad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, rad);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(pt.x - rad, pt.y - rad, rad * 2, rad * 2);
+      }
+      
+      // Standardize base depth (Mandate 2)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'; 
+      ctx.fillRect(0, 0, rw, rh); 
+      
       ctx.restore();
     }
     ctx.restore();
