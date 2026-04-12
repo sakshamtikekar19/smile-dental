@@ -479,75 +479,70 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-/**
- * --- THE CLINICAL ENGINE (Mandate: Global Scope) ---
- * Handles high-fidelity rendering of whitening and braces layers.
- */
-const renderClinicalSimulation = (ctx, originalImage, landmarks, treatment, rw, rh) => {
-  if (!ctx || !originalImage || !landmarks) return;
-
-  // 1. BASE: Draw the high-res original
-  ctx.drawImage(originalImage, 0, 0, rw, rh);
-
-  // 2. WHITENING: Lip-Lock Isolation
-  if (treatment === "whitening" || treatment === "both") {
-    ctx.save();
-    ctx.beginPath();
-    // Clinical Tooth Landmarks (Inner Lip Boundary)
-    const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-    indices.forEach((idx, i) => {
-      const pt = landmarks[idx];
-      if (pt) {
-        const x = pt.x * rw, y = pt.y * rh;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-    });
-    ctx.closePath();
-    ctx.clip();
-    ctx.globalCompositeOperation = 'overlay'; // Natural texture lock
-    ctx.filter = 'brightness(1.18) contrast(1.08)';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.fillRect(0, 0, rw, rh);
-    ctx.restore();
-  }
-
-  // 3. BRACES: Bracket-Centric Logic
-  if (treatment === "braces" || treatment === "both") {
-    ctx.save();
-    ctx.globalCompositeOperation = 'source-over';
-    
-    // Parabolic Archwire (5 core anchor points)
-    const wireIndices = [78, 81, 13, 311, 308];
-    const wirePoints = wireIndices.map(idx => landmarks[idx]).filter(Boolean).sort((a, b) => a.x - b.x);
-    
-    if (wirePoints.length >= 2) {
-      ctx.beginPath();
-      ctx.strokeStyle = '#B0B0B0'; // Clinical Silver
-      ctx.lineWidth = 2.5;
-      wirePoints.forEach((pt, i) => {
-        const x = pt.x * rw, y = pt.y * rh;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-
-      // Clinical Bracket Stamps (9 central teeth)
-      const bracketIndices = [191, 80, 81, 82, 13, 312, 311, 310, 415];
-      ctx.fillStyle = '#D3D3D3';
-      bracketIndices.forEach(idx => {
-        const p = landmarks[idx];
-        if (p) {
-          const x = p.x * rw, y = p.y * rh;
-          ctx.fillRect(x - 4, y - 4, 8, 8); // 8x8 Clinical Stamp
-          ctx.fillStyle = 'rgba(255,255,255,0.4)';
-          ctx.fillRect(x - 2, y - 2, 2, 2); // Metallic highlight
-          ctx.fillStyle = '#D3D3D3';
-        }
-      });
+// --- THE CLINICAL WHITENING ENGINE (Mandate: High-Fidelity Luminance) ---
+const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
+  ctx.save();
+  ctx.beginPath();
+  const teethIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  teethIndices.forEach((idx, i) => {
+    const pt = landmarks[idx];
+    if (pt) {
+      const x = pt.x * rw, y = pt.y * rh;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
-    ctx.restore();
-  }
+  });
+  ctx.closePath();
+  ctx.clip();
+
+  // STAGE A: LUMINANCE BOOST (Targets Enamel High-Points)
+  ctx.globalCompositeOperation = 'color-dodge';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.fillRect(0, 0, rw, rh);
+
+  // STAGE B: TEXTURE PRESERVATION (Soft-Light Sheen)
+  ctx.globalCompositeOperation = 'soft-light';
+  ctx.filter = 'brightness(1.1) contrast(1.1)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.fillRect(0, 0, rw, rh);
+
+  ctx.restore();
+};
+
+// --- ANATOMICAL BRACES ENGINE (Mandate: Bezier Curve Geometry) ---
+const drawAnatomicalBraces = (ctx, landmarks, rw, rh) => {
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  
+  // 1. ANCHOR THE ARCHWIRE (Left, Center, Right)
+  const left = landmarks[78], mid = landmarks[13], right = landmarks[308];
+  if (!left || !mid || !right) { ctx.restore(); return; }
+  
+  ctx.beginPath();
+  ctx.strokeStyle = '#B0B0B0'; // Clinical Silver
+  ctx.lineWidth = 2.4;
+  ctx.moveTo(left.x * rw, left.y * rh);
+  // Create a natural curve following the dental arch
+  ctx.quadraticCurveTo(mid.x * rw, (mid.y * rh) + 8, right.x * rw, right.y * rh);
+  ctx.stroke();
+
+  // 2. INDIVIDUAL BRACKET STAMPS (9 Specific Tooth Centers)
+  const bracketPoints = [191, 80, 81, 82, 13, 312, 311, 310, 415];
+  bracketPoints.forEach(idx => {
+    const p = landmarks[idx];
+    if (p) {
+      const x = p.x * rw, y = p.y * rh;
+      // The Bracket Body
+      ctx.fillStyle = '#D3D3D3';
+      ctx.fillRect(x - 4, y - 4, 8, 8);
+      // The 3D Metallic Highlight
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.fillRect(x - 2, y - 2, 2, 2);
+      ctx.fillStyle = '#D3D3D3'; // Reset
+    }
+  });
+  
+  ctx.restore();
 };
 
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
@@ -555,15 +550,14 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   const { main: canvas, rw, rh } = getSharedCanvases(orig.width, orig.height);
   const ctx = canvas.getContext("2d");
 
-  // Reset and prepare base
-  ctx.save();
+  // MANDATE 3: CACHE-CONFLICT FIX - FORCE CLEAR
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, rw, rh);
-  
-  // Call Clinical Engine
-  renderClinicalSimulation(ctx, orig, landmarks, treatment, rw, rh);
 
-  // Layer Alignment on top if needed
+  // 1. BASE FACE
+  ctx.drawImage(orig, 0, 0, rw, rh);
+
+  // 2. ALIGNMENT / TRANSFORMATION (Coordinate-Mapped Composite)
   if (treatment === "alignment" || treatment === "transformation") {
     ctx.save();
     const scaleX = rw / orig.width, scaleY = rh / orig.height;
@@ -571,7 +565,16 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.drawImage(proc, 0, 0, proc.width, proc.height, dx, dy, dw, dh);
     ctx.restore();
   }
-  ctx.restore();
+
+  // 3. CLINICAL WHITENING
+  if (treatment === "whitening" || treatment === "both") {
+    applyClinicalWhitening(ctx, landmarks, rw, rh);
+  }
+
+  // 4. ANATOMICAL BRACES
+  if (treatment === "braces" || treatment === "both") {
+    drawAnatomicalBraces(ctx, landmarks, rw, rh);
+  }
 
   // FORCE GPU FLUSH BEFORE BLOB
   return new Promise(resolve => {
