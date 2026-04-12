@@ -597,15 +597,7 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // 3. CLINICAL WHITENING
-  if (treatment === "whitening" || treatment === "both") {
-    applyClinicalWhitening(ctx, landmarks, rw, rh);
-  }
 
-  // 4. ANATOMICAL BRACES
-  if (treatment === "braces" || treatment === "both") {
-    drawAnatomicalBraces(ctx, landmarks, rw, rh);
-  }
 
   // FORCE GPU FLUSH BEFORE BLOB
   return new Promise(resolve => {
