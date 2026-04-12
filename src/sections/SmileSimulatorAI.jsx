@@ -527,35 +527,28 @@ const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
 const drawAnatomicalBraces = (ctx, landmarks, rw, rh) => {
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
-  
-  // 1. ANCHOR THE ARCHWIRE (Left, Center, Right)
   const left = landmarks[78], mid = landmarks[13], right = landmarks[308];
   if (!left || !mid || !right) { ctx.restore(); return; }
   
   ctx.beginPath();
-  ctx.strokeStyle = '#B0B0B0'; // Clinical Silver
+  ctx.strokeStyle = '#B0B0B0'; 
   ctx.lineWidth = 2.4;
   ctx.moveTo(left.x * rw, left.y * rh);
-  // Create a natural curve following the dental arch
   ctx.quadraticCurveTo(mid.x * rw, (mid.y * rh) + 8, right.x * rw, right.y * rh);
   ctx.stroke();
 
-  // 2. INDIVIDUAL BRACKET STAMPS (9 Specific Tooth Centers)
   const bracketPoints = [191, 80, 81, 82, 13, 312, 311, 310, 415];
   bracketPoints.forEach(idx => {
     const p = landmarks[idx];
     if (p) {
       const x = p.x * rw, y = p.y * rh;
-      // The Bracket Body
       ctx.fillStyle = '#D3D3D3';
       ctx.fillRect(x - 4, y - 4, 8, 8);
-      // The 3D Metallic Highlight
       ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
       ctx.fillRect(x - 2, y - 2, 2, 2);
-      ctx.fillStyle = '#D3D3D3'; // Reset
+      ctx.fillStyle = '#D3D3D3';
     }
   });
-  
   ctx.restore();
 };
 
@@ -574,21 +567,15 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   const { main: canvas, rw, rh } = getSharedCanvases(orig.width, orig.height);
   const ctx = canvas.getContext("2d");
 
-  // MANDATE 3: CACHE-CONFLICT FIX - FORCE CLEAR
+  // 1. CLEAR: Start with a fresh slate
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, rw, rh);
+  
+  // 2. THE ONLY ENGINE CALL:
+  // Handles Whitening + Braces in one pass.
+  renderClinicalSimulation(ctx, canvas, landmarks, treatment, rw, rh);
 
-  // 1. BASE FACE
-  ctx.drawImage(orig, 0, 0, rw, rh);
-
-  // 2. Call Clinical Engine (Whitening/Braces)
-  // MANDATE: ZERO-FILM. Skip if treatment is already baked into the source blob
-  const isBaked = originalSrc && originalSrc.includes("simulated=true");
-  if (!isBaked) {
-    renderClinicalSimulation(ctx, canvas, landmarks, treatment, rw, rh);
-  }
-
-  // 3. ALIGNMENT / TRANSFORMATION (Coordinate-Mapped Composite)
+  // 3. ALIGNMENT / TRANSFORMATION
   if (treatment === "alignment" || treatment === "transformation") {
     ctx.save();
     const scaleX = rw / orig.width, scaleY = rh / orig.height;
@@ -597,9 +584,6 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-
-
-  // FORCE GPU FLUSH BEFORE BLOB
   return new Promise(resolve => {
     requestAnimationFrame(() => {
       canvas.toBlob(blob => {
