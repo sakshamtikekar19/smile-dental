@@ -479,14 +479,14 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- THE CLINICAL WHITENING ENGINE (Mandate: High-Fidelity Luminance) ---
+// --- PIXEL-KILL WHITENING ENGINE (Mandate: Zero Stickers) ---
 const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.save();
   ctx.beginPath();
   const teethIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   teethIndices.forEach((idx, i) => {
     const pt = landmarks[idx];
-    if (pt) {
+    if (idx !== undefined && pt) {
       const x = pt.x * rw, y = pt.y * rh;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -495,15 +495,22 @@ const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.closePath();
   ctx.clip();
 
-  // STAGE A: LUMINANCE BOOST (Targets Enamel High-Points)
+  // STEP A: SELF-REDRAW (Texture Magnification)
+  // Instead of painting, we tell the teeth to brighten themselves
+  ctx.save();
+  ctx.filter = 'brightness(1.15) contrast(1.15) saturate(0.9)';
+  ctx.drawImage(ctx.canvas, 0, 0);
+  ctx.restore();
+
+  // STEP B: LUMINANCE DODGE (Clinical Shine)
   ctx.globalCompositeOperation = 'color-dodge';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
   ctx.fillRect(0, 0, rw, rh);
 
-  // STAGE B: TEXTURE PRESERVATION (Soft-Light Sheen)
-  ctx.globalCompositeOperation = 'soft-light';
-  ctx.filter = 'brightness(1.1) contrast(1.1)';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  // STEP C: ANATOMIC MULTIPLY (Shadow Stabilization)
+  // This "sinks" the brightness back into the natural shadows between teeth
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = 'rgba(220, 220, 220, 1.0)';
   ctx.fillRect(0, 0, rw, rh);
 
   ctx.restore();
