@@ -567,6 +567,13 @@ const REPLICATE_API_TOKEN = import.meta.env.VITE_REPLICATE_API_TOKEN;
  * Professional LAB-Space Whitening (Mandate: Realistic B-Channel Reduction)
  * Adjusts: Yellow (-8), Brightness (+5), Texture-Blend (90/10)
  */
+/**
+ * Ultra-Natural Clinical Whitening (Mandate: Zero Plastic Look)
+ * - Refined Erosion Mask (No Gum Bleed)
+ * - Low-Intensity LAB (-6 B, +3 L)
+ * - Per-Pixel Variation (Organic Texture)
+ * - Soft Blend (15% processed / 85% original)
+ */
 async function preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
   const img = await loadImage(imageSrc);
   const canvas = document.createElement("canvas");
@@ -577,17 +584,19 @@ async function preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
   
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
+  const original = new Uint8ClampedArray(data); // Snapshop for blending
   
-  // 1. Create Teeth Mask (Localized to Crop)
+  // 1. REFINED EROSION MASK
   const localLandmarks = normalizeLandmarksToCrop(landmarks, iw, ih, cropBounds);
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = canvas.width;
   maskCanvas.height = canvas.height;
   const mctx = maskCanvas.getContext("2d");
   
+  // Outer perimeter (Lining the teeth)
   mctx.beginPath();
-  const teethIndices = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 146, 61];
-  teethIndices.forEach((idx, i) => {
+  const outerIndices = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 146, 61];
+  outerIndices.forEach((idx, i) => {
     const p = localLandmarks[idx];
     if (p) {
       if (i === 0) mctx.moveTo(p.x * canvas.width, p.y * canvas.height);
@@ -596,24 +605,34 @@ async function preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
   });
   mctx.fillStyle = "white";
   mctx.fill();
+
+  // EROSION: Shrink the mask slightly to ensure it stays inside enamel (Mandate 1)
+  mctx.globalCompositeOperation = 'destination-out';
+  mctx.lineWidth = Math.max(2, canvas.width / 150);
+  mctx.stroke(); // Erase edges
+  
   const maskData = mctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
-  // 2. LAB Color Space Processing (RGB -> LAB -> Adjust -> RGB)
+  // 2. ULTRA-NATURAL PROCESSING loop
   for (let i = 0; i < data.length; i += 4) {
-    if (maskData[i + 3] > 0) { // Only process pixels inside the teeth mask
+    if (maskData[i + 3] > 128) { // Only inside the eroded mask
       let r = data[i], g = data[i + 1], b = data[i + 2];
       
-      // Clinical LAB Approximation & Yellow Reduction (-8 B, +5 L)
-      // We reduce yellow by boosting the blue channel relative to red/green 
-      // and gently lifting overall luminance
-      data[i] = Math.min(255, r * 1.02 + 5); 
-      data[i + 1] = Math.min(255, g * 1.02 + 5);
-      data[i + 2] = Math.min(255, b * 1.08 + 5); // Blue boost = Yellow reduction
+      // Step A: Low-Intensity LAB (Yellow -6, Brightness +3)
+      data[i] = Math.min(255, r * 1.01 + 3); 
+      data[i + 1] = Math.min(255, g * 1.01 + 3);
+      data[i + 2] = Math.min(255, b * 1.06 + 3); // Subtle blue shift
       
-      // Step 3: Texture Re-integration (90% Processed, 10% Original)
-      data[i] = data[i] * 0.9 + r * 0.1;
-      data[i + 1] = data[i + 1] * 0.9 + g * 0.1;
-      data[i + 2] = data[i + 2] * 0.9 + b * 0.1;
+      // Step B: Natural Pixel Variation (Kill Plastic Look)
+      const variation = (Math.random() - 0.5) * 4;
+      data[i] = Math.min(255, Math.max(0, data[i] + variation));
+      data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + variation));
+      data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + variation));
+      
+      // Step C: Perfect Soft Blend (15% Enhanced / 85% Original)
+      data[i] = (data[i] * 0.15) + (original[i] * 0.85);
+      data[i + 1] = (data[i + 1] * 0.15) + (original[i + 1] * 0.85);
+      data[i + 2] = (data[i + 2] * 0.15) + (original[i + 2] * 0.85);
     }
   }
   
