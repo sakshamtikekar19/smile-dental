@@ -479,11 +479,11 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- TOOTH-BY-TOOTH CLINICAL ENGINE (Mandate: Zero Stickers) ---
+// --- THE FULL-ARCH CLINICAL ENGINE (Mandate: Upper & Lower) ---
 const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.save();
   
-  // 1. ANATOMIC LIP-LOCK MASK (Inner Mouth Opening)
+  // 1. TIGHT ANATOMIC CLIP (All visible teeth)
   ctx.beginPath();
   const mouthInner = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
   mouthInner.forEach((idx, i) => {
@@ -496,27 +496,29 @@ const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   });
   ctx.clip(); 
 
-  // 2. TOOTH-BY-TOOTH GRADIENT WHITENING
-  ctx.globalCompositeOperation = 'overlay';
-  const toothIndices = [191, 80, 81, 82, 13, 312, 311, 310, 415];
+  // 2. 20-POINT PIXEL-TARGETED WHITENING (Upper & Lower)
+  ctx.globalCompositeOperation = 'overlay'; 
+  
+  // Upper & Lower dental targets
+  const fullArchIndices = [
+    191, 80, 81, 82, 13, 312, 311, 310, 415, // Upper Row
+    95, 88, 178, 87, 14, 317, 402, 318, 324  // Lower Row
+  ];
+  
   const radius = Math.max(12, rw / 50);
 
-  toothIndices.forEach(idx => {
+  fullArchIndices.forEach(idx => {
     const p = landmarks[idx];
     if (p) {
       const x = p.x * rw, y = p.y * rh;
       const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
-      grad.addColorStop(0, 'rgba(255, 255, 255, 0.7)'); 
-      grad.addColorStop(0.6, 'rgba(255, 255, 255, 0.2)'); 
-      grad.addColorStop(1, 'rgba(255, 255, 255, 0)');    
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.65)'); 
+      grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.2)');
+      grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
       ctx.fillStyle = grad;
       ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     }
   });
-
-  // 3. (STRICT MANDATE) REDUNDANT PASS REMOVED TO PREVENT LIP BLEED
-  // We no longer apply a global fill to the mouth opening. 
-  // Whitening is now 100% constrained to individual tooth landmarks.
 
   ctx.restore();
 };
