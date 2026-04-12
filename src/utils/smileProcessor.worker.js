@@ -188,7 +188,6 @@ function applyAlignmentWarp(srcData, iw, ih, maskPoly, landmarks, treatment) {
       const thetaBase = treatment === "alignment" ? 0.16 : 0.32;
       const theta = -Math.atan(slope) * (1 - depth) * thetaBase;
       const vx = -tdx, vy = cy - top - tdy;
-      const vy = cy - top - tdy;
       const cosT = Math.cos(theta), sinT = Math.sin(theta);
       
       // Mandate 2: Coordinate Clamping & NaN protection (Warp Repair)
