@@ -188,10 +188,18 @@ function applyAlignmentWarp(srcData, iw, ih, maskPoly, landmarks, treatment) {
       const thetaBase = treatment === "alignment" ? 0.16 : 0.32;
       const theta = -Math.atan(slope) * (1 - depth) * thetaBase;
       const vx = -tdx, vy = cy - top - tdy;
+      const vy = cy - top - tdy;
       const cosT = Math.cos(theta), sinT = Math.sin(theta);
-      const sx = Math.round(cx + vx * cosT + vy * sinT);
-      const sy = Math.round(top + (-vx * sinT + vy * cosT));
-      const smp = (sx >= 0 && sx < iw && sy >= 0 && sy < ih && mask[sy * iw + sx])
+      
+      // Mandate 2: Coordinate Clamping & NaN protection (Warp Repair)
+      let sx = Math.round(cx + vx * cosT + vy * sinT);
+      let sy = Math.round(top + (-vx * sinT + vy * cosT));
+      if (isNaN(sx)) sx = cx;
+      if (isNaN(sy)) sy = cy;
+      sx = clamp(sx, 0, iw - 1);
+      sy = clamp(sy, 0, ih - 1);
+
+      const smp = (mask[sy * iw + sx])
         ? sampleRGBA(srcData, iw, ih, sx, sy)
         : sampleRGBA(srcData, iw, ih, cx, cy);
       const isGum = smp[0] > 135 && smp[0] / Math.max(smp[1],1) > 1.22 && smp[0] / Math.max(smp[2],1) > 1.22;

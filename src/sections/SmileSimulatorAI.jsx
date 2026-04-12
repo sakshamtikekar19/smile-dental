@@ -447,46 +447,39 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   ctx.filter = 'none';
   ctx.drawImage(orig, 0, 0, canvas.width, canvas.height);
 
-  // 2. Alignment Overlay (Mouth Region Only)
+  // --- Mandate 1: Step 3: Alignment / Warp Overlay (Mouth Region Only) ---
   if (treatment === "alignment" || treatment === "transformation") {
     ctx.save();
     ctx.beginPath();
-    // Use the anatomical oval for seamless blending
     ctx.ellipse(oval.cx, oval.cy, oval.rx, oval.ry, 0, 0, Math.PI * 2);
     ctx.filter = `blur(${OVAL_FEATHER_PX}px)`;
     ctx.clip();
     ctx.filter = 'none';
-    // CRITICAL FIX: Draw the mouth-region 'proc' at its specific bounds
+    // CRITICAL: Draw the mouth-region 'proc' at its specific bounds
     ctx.drawImage(proc, bounds.x, bounds.y, bounds.width, bounds.height);
     ctx.restore();
   }
 
-  // --- Mandate 2: Overwrite Whitening Pass (April 5th High-Fidelity Standard) ---
+  // --- Mandate 2: Step 4: Whitening Pass (April 5th High-Fidelity Standard) ---
   if (treatment !== "alignment") {
     ctx.save();
-    
     const enamelPts = landmarks
       ? getTightenedWhiteningMaskPoints(landmarks, orig.width, orig.height, 2)
       : null;
 
     if (enamelPts && enamelPts.length >= 3) {
-      // 1. The Gaussian Feathering Rule (Mandate 2)
       ctx.save();
       ctx.filter = 'blur(6px)'; 
-      
       ctx.beginPath();
       ctx.moveTo(enamelPts[0].x, enamelPts[0].y);
       for (let i = 1; i < enamelPts.length; i++) ctx.lineTo(enamelPts[i].x, enamelPts[i].y);
       ctx.closePath();
-      
       ctx.clip(); 
 
-      // 2. The Soft-Light Mandate (Mandate 1)
-      ctx.filter = 'none'; // Reset to preserve texture
+      ctx.filter = 'none'; 
       ctx.globalCompositeOperation = 'soft-light'; 
       ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'; 
       ctx.fillRect(0, 0, canvas.width, canvas.height); 
-      
       ctx.restore();
     }
     ctx.restore();
