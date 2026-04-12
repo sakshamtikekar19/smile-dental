@@ -502,25 +502,39 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // 3. TOOTH-BY-TOOTH WHITENING (High-Fidelity Code-Lock Injection)
+  // 3. ENAMEL-ONLY LUMINANCE MASKING (Pixel-to-Pixel Injection)
   if (treatment !== "alignment") {
     ctx.save();
     const path = generateTeethPath(landmarks, rw, rh);
-
     if (path) {
-      ctx.clip(path); 
+      // 1. Isolation: Create a temp buffer to process ONLY the enamel pixels
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = rw; maskCanvas.height = rh;
+      const mctx = maskCanvas.getContext('2d');
+      
+      mctx.clip(path);
+      mctx.filter = 'contrast(1.2) brightness(1.05)'; // Prep enamel details
+      mctx.drawImage(canvas, 0, 0); // Isolate current teeth view
 
-      // PASS 1: Soft-light (Preserves original 3D shadows and depth)
-      ctx.globalCompositeOperation = 'soft-light'; 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; 
-      ctx.fillRect(0, 0, rw, rh); 
+      // 2. Luminance Blending: Apply color-dodge to target bright pixels (enamel)
+      // while leaving dark gaps (shadows) untouched.
+      ctx.save();
+      ctx.clip(path);
+      
+      // Pass A: Color-Dodge (Targets highlights/enamel)
+      ctx.globalCompositeOperation = 'color-dodge';
+      ctx.globalAlpha = 0.45;
+      ctx.drawImage(maskCanvas, 0, 0);
 
-      // PASS 2: Overlay (Adds clinical brightness without masking texture)
-      ctx.globalCompositeOperation = 'overlay';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      // Pass B: Soft-Light (Clinical baseline sheen)
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = 1.0;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
       ctx.fillRect(0, 0, rw, rh);
+      
+      ctx.restore();
     }
-    ctx.restore(); 
+    ctx.restore();
   }
 
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.98));
