@@ -514,11 +514,9 @@ const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
     }
   });
 
-  // 3. FINAL LUMINANCE SHEEN
-  ctx.globalCompositeOperation = 'soft-light';
-  ctx.filter = 'contrast(1.1) brightness(1.05)';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
-  ctx.fillRect(0, 0, rw, rh);
+  // 3. (STRICT MANDATE) REDUNDANT PASS REMOVED TO PREVENT LIP BLEED
+  // We no longer apply a global fill to the mouth opening. 
+  // Whitening is now 100% constrained to individual tooth landmarks.
 
   ctx.restore();
 };
