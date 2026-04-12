@@ -4,9 +4,8 @@
   --font-serif: "Playfair Display", serif;
   --font-sans: "Inter", sans-serif;
   
-  /* Premium Palette */
-  --color-brand-gold: oklch(0.78 0.15 88);
-  --color-brand-gold-light: oklch(0.92 0.08 92);
+  --color-brand-gold: #D4AF37;
+  --color-brand-gold-light: #F9E5BC;
   --color-brand-beige: oklch(0.98 0.01 80);
   --color-brand-blue: oklch(0.94 0.03 230);
   --color-brand-blue-deep: oklch(0.45 0.12 245);

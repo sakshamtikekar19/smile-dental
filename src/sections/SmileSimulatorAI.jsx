@@ -6,7 +6,7 @@ import PremiumButton from "../components/PremiumButton";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
 import { applyBracesOverlayFixed } from "../utils/bracesOverlayFixed";
-import { getTightenedWhiteningMaskPoints } from "../utils/teethWhitenMaskPath";
+import { generateTeethPath, getTightenedWhiteningMaskPoints } from "../utils/teethWhitenMaskPath";
 
 // ── Environment ──────────────────────────────────────────────────────────────
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -65,10 +65,10 @@ const TREATMENTS = [
 ];
 
 const TREATMENT_THEME = {
-  whitening:      { glow: "0 0 28px rgba(34,211,238,0.55)",   ring: "rgba(34,211,238,0.9)",   tint: "from-cyan-300/20 to-cyan-500/25"   },
+  whitening:      { glow: "0 0 28px rgba(212,175,55,0.45)",   ring: "rgba(212,175,55,0.9)",   tint: "from-amber-100/20 to-yellow-600/25"   },
   alignment:      { glow: "0 0 28px rgba(129,140,248,0.52)",  ring: "rgba(129,140,248,0.9)",  tint: "from-indigo-300/20 to-indigo-500/25" },
-  braces:         { glow: "0 0 28px rgba(203,213,225,0.58)",  ring: "rgba(226,232,240,0.92)", tint: "from-slate-200/20 to-slate-400/25" },
-  transformation: { glow: "0 0 28px rgba(250,204,21,0.5)",    ring: "rgba(250,204,21,0.9)",   tint: "from-amber-300/20 to-yellow-500/25" },
+  braces:         { glow: "0 0 28px rgba(212,175,55,0.42)",   ring: "rgba(212,175,55,0.9)",   tint: "from-slate-200/20 to-slate-400/25" },
+  transformation: { glow: "0 0 28px rgba(212,175,55,0.5)",    ring: "#D4AF37",               tint: "from-amber-200/20 to-yellow-600/25" },
 };
 
 // ── Icons ────────────────────────────────────────────────────────────────────
@@ -433,79 +433,58 @@ function getSharedCanvases(iw, ih) {
   if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
   if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
   
-  const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-  const useDPR = (iw < 2000) ? dpr : 1; // Pillar 2: Safety cap to prevent memory crash
-  
-  const vW = Math.min(iw, 2500); // Virtual Width
-  const vH = Math.min(ih, 2500);
+  // Rule 1: Physical Pixel Fidelity (Pillar 1)
+  const maxSafeRes = 4096; 
+  const rw = Math.min(iw, maxSafeRes);
+  const rh = Math.min(ih, maxSafeRes);
 
-  _sharedMainCanvas.width  = vW * useDPR;
-  _sharedMainCanvas.height = vH * useDPR;
+  _sharedMainCanvas.width  = rw;
+  _sharedMainCanvas.height = rh;
   _sharedDetCanvas.width   = 1024; 
   _sharedDetCanvas.height  = 1024;
 
   const ctx = _sharedMainCanvas.getContext('2d');
-  // Reset transform for a clean state
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (useDPR > 1) ctx.scale(useDPR, useDPR);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); 
 
-  return { main: _sharedMainCanvas, det: _sharedDetCanvas, vW, vH };
+  return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-/**
- * Merge processed mouth region back onto original full frame.
- */
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
   const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
-  
-  // Rule 1: Synchronize all math with the VIRTUAL Canvas Size (Pillar 1)
-  const { main: canvas, vW, vH } = getSharedCanvases(orig.width, orig.height);
+  const { main: canvas, rw, rh } = getSharedCanvases(orig.width, orig.height);
   const ctx = canvas.getContext("2d");
 
-  // 2. DRAW BASE IMAGE (Synchronized Virtual coordinates)
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
-  ctx.filter = 'none';
-  // Use vW/vH because of the ctx.scale(dpr) transform in getSharedCanvases
-  ctx.drawImage(orig, 0, 0, vW, vH);
+  ctx.drawImage(orig, 0, 0, rw, rh);
   ctx.restore();
 
-  // --- Step 2: Alignment Overlay ---
   if (treatment === "alignment" || treatment === "transformation") {
-    const scaleX = vW / orig.width;
-    const scaleY = vH / orig.height;
+    const scaleX = rw / orig.width;
+    const scaleY = rh / orig.height;
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(oval.cx * scaleX, oval.cy * scaleY, oval.rx * scaleX, oval.ry * scaleY, 0, 0, Math.PI * 2);
     ctx.filter = `blur(${OVAL_FEATHER_PX}px)`;
     ctx.clip();
-    ctx.filter = 'none';
-    ctx.drawImage(proc, bounds.x * scaleX, bounds.y * scaleY, bounds.width * scaleX, bounds.height * scaleY);
+    const bx = bounds.x * scaleX, by = bounds.y * scaleY, bw = bounds.width * scaleX, bh = bounds.height * scaleY;
+    ctx.drawImage(proc, bx, by, bw, bh);
     ctx.restore();
   }
 
-  // 3. TOOTH-BY-TOOTH WHITENING (Using vW/vH)
+  // Draw Tooth-by-Tooth Whitening (Standardized Path)
   if (treatment !== "alignment") {
     ctx.save();
-    const enamelPts = landmarks
-      ? getTightenedWhiteningMaskPoints(landmarks, vW, vH, 4)
-      : null;
-
-    if (enamelPts && enamelPts.length >= 3) {
-      ctx.beginPath();
-      enamelPts.forEach((pt, i) => {
-        if (i === 0) ctx.moveTo(pt.x, pt.y);
-        else ctx.lineTo(pt.x, pt.y);
-      });
-      ctx.closePath();
-      ctx.clip(); 
+    const path = generateTeethPath(landmarks, rw, rh);
+    if (path) {
+      ctx.clip(path); 
 
       // THE MAGIC BLEND: Soft-light brightens without painting a 'sticker'
       ctx.globalCompositeOperation = 'soft-light'; 
       ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'; 
-      ctx.fillRect(0, 0, vW, vH); 
+      ctx.fillRect(0, 0, rw, rh); 
     }
-    ctx.restore(); // Exits the clip so braces can draw on top
+    ctx.restore(); 
   }
 
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.98));
@@ -697,15 +676,28 @@ const SmileSimulatorAI = () => {
 
       if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after braces"); return; }
 
-      // Step 7: Crop square before/after previews
-      console.log("[16] Cropping before/after previews");
+      // Step 7: Dental Zoom (The 'Focus' Fix)
+      console.log("[16] Capturing clinical focus area (Dental Zoom)");
       setProcessingLog("Finalizing...");
-      const rect = squareCropRect(iw, ih, oval);
+      
+      const { rw, rh } = getSharedCanvases(iw, ih);
+      const focusBox = getTeethFocusBox(landmarks, rw, rh);
+      
       const [bImg, aImg] = await Promise.all([
-        cropRegion(normalizedUrl, rect),
-        cropRegion(finalUrl, rect),
+        cropRegion(normalizedUrl, { 
+          x: (focusBox.x / rw) * iw, 
+          y: (focusBox.y / rh) * ih, 
+          width: (focusBox.width / rw) * iw, 
+          height: (focusBox.height / rh) * ih 
+        }),
+        cropRegion(finalUrl, { 
+          x: (focusBox.x / rw) * iw, 
+          y: (focusBox.y / rh) * ih, 
+          width: (focusBox.width / rw) * iw, 
+          height: (focusBox.height / rh) * ih 
+        }),
       ]);
-      console.log("[17] Previews ready — rendering result");
+      console.log("[17] Previews ready — rendering zoom result");
 
       if (!isCurrent()) { safeRevoke(bImg); safeRevoke(aImg); console.log("[CANCELLED] after crop"); return; }
 
