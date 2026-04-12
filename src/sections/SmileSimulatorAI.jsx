@@ -503,51 +503,51 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   }
 
   // --- LAYER 2: CLINICAL WHITENING (TEXTURE-PRESERVING) ---
-  if (treatment !== "alignment") {
+  if (treatment === "whitening" || treatment === "both") {
     ctx.save();
-    const path = generateTeethPath(landmarks, rw, rh);
+    const path = generateTeethPath(landmarks, rw, rh); 
     if (path) {
-      ctx.clip(path); 
-      // Pass A: Soft-Light (Clinical foundation)
-      ctx.globalCompositeOperation = 'soft-light'; 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; 
-      ctx.fillRect(0, 0, rw, rh); 
-
-      // Pass B: Overlay (Luminance enhancement)
-      ctx.globalCompositeOperation = 'overlay';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.clip(path);
+      // USE SOFT-LIGHT: This is the ONLY way to avoid the 'white sticker'
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'; 
       ctx.fillRect(0, 0, rw, rh);
     }
-    ctx.restore();
+    ctx.restore(); 
   }
 
   // --- LAYER 3: TERMINAL BRACES (FORCE VISIBILITY) ---
   if (treatment === "braces" || treatment === "both") {
     ctx.save();
-    ctx.globalCompositeOperation = 'source-over'; 
-    const upperIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
-    const wirePoints = upperIndices.map(i => landmarks[i]).filter(Boolean)
+    // FORCE TO TOP: Braces must be drawn with source-over
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // Sort indices to ensure the wire doesn't zigzag
+    const sortedIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95]
+      .map(i => landmarks[i])
+      .filter(Boolean)
       .sort((a, b) => a.x - b.x);
 
-    if (wirePoints.length >= 2) {
+    if (sortedIndices.length >= 2) {
+      // Draw Archwire
       ctx.beginPath();
-      ctx.strokeStyle = '#999999';
-      ctx.lineWidth = Math.max(1.8, rw / 500);
-      wirePoints.forEach((pt, i) => {
+      ctx.strokeStyle = '#B0B0B0';
+      ctx.lineWidth = 2.5;
+      sortedIndices.forEach((pt, i) => {
         const x = pt.x * rw, y = pt.y * rh;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
 
-      ctx.fillStyle = '#CCCCCC';
-      wirePoints.forEach(pt => {
+      // Draw Brackets
+      ctx.fillStyle = '#D3D3D3';
+      sortedIndices.forEach(pt => {
         const x = pt.x * rw, y = pt.y * rh;
-        const bSize = Math.max(5, rw / 200);
-        ctx.fillRect(x - bSize/2, y - bSize/2.5, bSize, bSize * 0.8);
+        ctx.fillRect(x - 4, y - 3, 8, 6);
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(x - bSize/4, y - bSize/4, bSize/4, bSize/4);
-        ctx.fillStyle = '#CCCCCC';
+        ctx.fillRect(x - 2, y - 2, 2, 2); // Highlight
+        ctx.fillStyle = '#D3D3D3';
       });
     }
     ctx.restore();
