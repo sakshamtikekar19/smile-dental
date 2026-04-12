@@ -520,8 +520,6 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.98));
 }
 
-}
-
 // ── Main Component ───────────────────────────────────────────────────────────
 const OVAL_FEATHER_PX = 16;
 
