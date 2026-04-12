@@ -502,41 +502,58 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // 3. ENAMEL-ONLY LUMINANCE MASKING (Pixel-to-Pixel Injection)
+  // --- LAYER 2: CLINICAL WHITENING (TEXTURE-PRESERVING) ---
   if (treatment !== "alignment") {
     ctx.save();
     const path = generateTeethPath(landmarks, rw, rh);
     if (path) {
-      // 1. Isolation: Create a temp buffer to process ONLY the enamel pixels
-      const maskCanvas = document.createElement('canvas');
-      maskCanvas.width = rw; maskCanvas.height = rh;
-      const mctx = maskCanvas.getContext('2d');
-      
-      mctx.clip(path);
-      mctx.filter = 'contrast(1.2) brightness(1.05)'; // Prep enamel details
-      mctx.drawImage(canvas, 0, 0); // Isolate current teeth view
+      ctx.clip(path); 
+      // Pass A: Soft-Light (Clinical foundation)
+      ctx.globalCompositeOperation = 'soft-light'; 
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; 
+      ctx.fillRect(0, 0, rw, rh); 
 
-      // 2. Luminance Blending: Apply color-dodge to target bright pixels (enamel)
-      // while leaving dark gaps (shadows) untouched.
-      ctx.save();
-      ctx.clip(path);
-      
-      // Pass A: Color-Dodge (Targets highlights/enamel)
-      ctx.globalCompositeOperation = 'color-dodge';
-      ctx.globalAlpha = 0.45;
-      ctx.drawImage(maskCanvas, 0, 0);
-
-      // Pass B: Soft-Light (Clinical baseline sheen)
-      ctx.globalCompositeOperation = 'soft-light';
-      ctx.globalAlpha = 1.0;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      // Pass B: Overlay (Luminance enhancement)
+      ctx.globalCompositeOperation = 'overlay';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.fillRect(0, 0, rw, rh);
-      ctx.restore();
     }
     ctx.restore();
   }
 
-  // FORCE A SMALL DELAY TO ENSURE GPU FLUSH BEFORE BLOBBING (Mobile Stability Fix)
+  // --- LAYER 3: TERMINAL BRACES (FORCE VISIBILITY) ---
+  if (treatment === "braces" || treatment === "both") {
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over'; 
+    const upperIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
+    const wirePoints = upperIndices.map(i => landmarks[i]).filter(Boolean)
+      .sort((a, b) => a.x - b.x);
+
+    if (wirePoints.length >= 2) {
+      ctx.beginPath();
+      ctx.strokeStyle = '#999999';
+      ctx.lineWidth = Math.max(1.8, rw / 500);
+      wirePoints.forEach((pt, i) => {
+        const x = pt.x * rw, y = pt.y * rh;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = '#CCCCCC';
+      wirePoints.forEach(pt => {
+        const x = pt.x * rw, y = pt.y * rh;
+        const bSize = Math.max(5, rw / 200);
+        ctx.fillRect(x - bSize/2, y - bSize/2.5, bSize, bSize * 0.8);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(x - bSize/4, y - bSize/4, bSize/4, bSize/4);
+        ctx.fillStyle = '#CCCCCC';
+      });
+    }
+    ctx.restore();
+  }
+
+  // FORCE GPU FLUSH BEFORE BLOB
   return new Promise(resolve => {
     // requestAnimationFrame ensures the browser has finished the composite passes
     requestAnimationFrame(() => {
