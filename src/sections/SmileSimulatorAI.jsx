@@ -433,25 +433,23 @@ function getSharedCanvases(iw, ih) {
   if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
   if (!_sharedDetCanvas)  _sharedDetCanvas  = document.createElement('canvas');
   
-  // Rule 1: Fix Black Screen (Safety Cap & Safe DPR)
   const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+  const useDPR = (iw < 2000) ? dpr : 1; // Pillar 2: Safety cap to prevent memory crash
   
-  // Only apply High-DPI if the base image is small/screen-size
-  // If image is already 4K, adding 3x DPR (12K) crashes mobile Safari.
-  const useDPR = iw < 2000 ? dpr : 1;
-  
-  const width  = Math.min(iw, 2500); // Safety cap for mobile memory
-  const height = Math.min(ih, 2500);
+  const vW = Math.min(iw, 2500); // Virtual Width
+  const vH = Math.min(ih, 2500);
 
-  _sharedMainCanvas.width  = width * useDPR;
-  _sharedMainCanvas.height = height * useDPR;
+  _sharedMainCanvas.width  = vW * useDPR;
+  _sharedMainCanvas.height = vH * useDPR;
   _sharedDetCanvas.width   = 1024; 
   _sharedDetCanvas.height  = 1024;
 
   const ctx = _sharedMainCanvas.getContext('2d');
-  if (ctx && useDPR > 1) ctx.setTransform(useDPR, 0, 0, useDPR, 0, 0);
+  // Reset transform for a clean state
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (useDPR > 1) ctx.scale(useDPR, useDPR);
 
-  return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw: width, rh: height };
+  return { main: _sharedMainCanvas, det: _sharedDetCanvas, vW, vH };
 }
 
 /**
@@ -460,23 +458,22 @@ function getSharedCanvases(iw, ih) {
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
   const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
   
-  // Rule 1: Synchronize all math with the Rendered Canvas Size (Pillar 1)
-  const { main: canvas } = getSharedCanvases(orig.width, orig.height);
-  const rw = canvas.width;  // Rendered Width
-  const rh = canvas.height; // Rendered Height
+  // Rule 1: Synchronize all math with the VIRTUAL Canvas Size (Pillar 1)
+  const { main: canvas, vW, vH } = getSharedCanvases(orig.width, orig.height);
   const ctx = canvas.getContext("2d");
 
-  // Force draw the image to match our clinical 4K limit perfectly
+  // 2. DRAW BASE IMAGE (Synchronized Virtual coordinates)
+  ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   ctx.filter = 'none';
-  ctx.drawImage(orig, 0, 0, rw, rh);
+  // Use vW/vH because of the ctx.scale(dpr) transform in getSharedCanvases
+  ctx.drawImage(orig, 0, 0, vW, vH);
+  ctx.restore();
 
-  // --- Step 2: Alignment Overlay (Render-Scaled coordinates) ---
+  // --- Step 2: Alignment Overlay ---
   if (treatment === "alignment" || treatment === "transformation") {
-    // We must scale the mouth bounds to the current render resolution
-    const scaleX = rw / orig.width;
-    const scaleY = rh / orig.height;
-    
+    const scaleX = vW / orig.width;
+    const scaleY = vH / orig.height;
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(oval.cx * scaleX, oval.cy * scaleY, oval.rx * scaleX, oval.ry * scaleY, 0, 0, Math.PI * 2);
@@ -487,16 +484,15 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
     ctx.restore();
   }
 
-  // 3. TOOTH-BY-TOOTH WHITENING (Soft-Light Method)
+  // 3. TOOTH-BY-TOOTH WHITENING (Using vW/vH)
   if (treatment !== "alignment") {
     ctx.save();
     const enamelPts = landmarks
-      ? getTightenedWhiteningMaskPoints(landmarks, rw, rh, 4)
+      ? getTightenedWhiteningMaskPoints(landmarks, vW, vH, 4)
       : null;
 
     if (enamelPts && enamelPts.length >= 3) {
       ctx.beginPath();
-      // Use user's preferred pathing logic
       enamelPts.forEach((pt, i) => {
         if (i === 0) ctx.moveTo(pt.x, pt.y);
         else ctx.lineTo(pt.x, pt.y);
@@ -506,10 +502,10 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
 
       // THE MAGIC BLEND: Soft-light brightens without painting a 'sticker'
       ctx.globalCompositeOperation = 'soft-light'; 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'; // High-quality clinical white
-      ctx.fillRect(0, 0, rw, rh); 
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)'; 
+      ctx.fillRect(0, 0, vW, vH); 
     }
-    ctx.restore(); // CRITICAL: Exits the clip so braces can draw on top
+    ctx.restore(); // Exits the clip so braces can draw on top
   }
 
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.98));
