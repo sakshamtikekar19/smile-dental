@@ -1168,10 +1168,11 @@ const SmileSimulatorAI = () => {
                     <motion.button
                       type="button"
                       onClick={() => {
-                        console.log("[TEST] Loading yellow teeth asset...");
+                        console.log("[TEST] Loading clinical asset...");
                         setStep("processing");
                         setActiveTreatment("whitening");
-                        setRawImageUrl("/assets/test_teeth.png");
+                        // Use relative path to support sub-directory deployments
+                        setRawImageUrl("assets/test_teeth.png");
                         setIsProcessing(true);
                       }}
                       whileHover={{ scale: 1.02 }}
