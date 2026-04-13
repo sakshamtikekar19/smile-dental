@@ -476,12 +476,8 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- PIXEL-SURGICAL WHITENING ENGINE ---
-function applyWhiteningToCanvas(ctx, canvas, landmarks) {
-  console.log("SURGICAL WHITENING CALLED");
-  
-  // Grab the raw pixels
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+// --- PIXEL-SURGICAL WHITENING ENGINE (Direct ImageData Manipulation) ---
+function applyWhiteningToImageData(imageData, landmarks) {
   const data = imageData.data;
 
   for (let i = 0; i < data.length; i += 4) {
@@ -492,19 +488,19 @@ function applyWhiteningToCanvas(ctx, canvas, landmarks) {
     // 1. TOOTH DETECTION MATH
     // We only target pixels that are bright (enamel) and slightly yellow
     const brightness = (r + g + b) / 3;
-    const isToothColor = brightness > 130 && Math.abs(r - g) < 20 && b < r;
 
-    if (isToothColor) {
-      // 2. THE PIXEL SHIFT (No Film, Just Chemistry)
-      data[i]     = Math.min(255, r + 4); // Boost Red
-      data[i + 1] = Math.min(255, g + 4); // Boost Green
-      data[i + 2] = Math.max(0, b - 6);   // Neutralize Yellow (Subtract Blue)
+    if (
+      brightness > 140 && brightness < 230 &&
+      Math.abs(r - g) < 18 &&
+      Math.abs(r - b) < 18 &&
+      b < r && b < g
+    ) {
+      // ✨ REAL surgical whitening (NO FILM)
+      data[i] = Math.min(255, r + 3);
+      data[i + 1] = Math.min(255, g + 3);
+      data[i + 2] = Math.max(0, b - 5);
     }
   }
-
-  // 3. PUSH PIXELS BACK TO CANVAS
-  ctx.putImageData(imageData, 0, 0);
-  console.log("PIXELS COMMITTED TO CANVAS");
 }
 
 // Load bracket asset once with robust fallbacks
@@ -539,7 +535,7 @@ const getBracketImg = async () => {
 };
 
 // --- ANATOMICAL BRACES ENGINE (Mandate: Professional Bracket Overlay) ---
-const drawAnatomicalBraces = async (ctx, landmarks, rw, rh) => {
+const drawBracesOverlay = async (ctx, landmarks, rw, rh) => {
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   const left = landmarks[78], mid = landmarks[13], right = landmarks[308];
@@ -902,15 +898,14 @@ const SmileSimulatorAI = () => {
 
   // --- REAL-TIME RENDER LOOP (Pillar: Precision UI) ---
   const renderLoop = useCallback(async () => {
-    if (step !== "camera" || !videoRef.current || !canvasRef.current) {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (!video || !canvas) {
       if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
       return;
     }
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    
-    // Ensure canvas resolution matches video for high-fidelity simulation
     if (canvas.width !== video.videoWidth) {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -918,22 +913,32 @@ const SmileSimulatorAI = () => {
 
     const ctx = canvas.getContext("2d");
 
-    // ✅ 1. Draw camera frame FIRST
+    // ✅ STEP 1: draw fresh frame
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // ✅ 2. Apply simulation ON TOP
+    // 🚨 CRITICAL: Immediately get pixels AFTER drawing
+    let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    // ✅ STEP 2: MODIFY PIXELS DIRECTLY
     if (latestLandmarksRef.current) {
-      await renderClinicalSimulation(
-        ctx,
-        canvas,
-        latestLandmarksRef.current,
-        selectedTreatmentRef.current,
-        canvas.width,
-        canvas.height
-      );
+      const treatment = selectedTreatmentRef.current;
+      if (treatment === "whitening" || treatment === "both") {
+        applyWhiteningToImageData(imageData, latestLandmarksRef.current);
+      }
     }
 
-    // ✅ 3. Loop
+    // ✅ STEP 3: PUT BACK MODIFIED FRAME
+    ctx.putImageData(imageData, 0, 0);
+
+    // ✅ STEP 4: DRAW BRACES ON TOP (AFTER PUT)
+    if (latestLandmarksRef.current) {
+      const treatment = selectedTreatmentRef.current;
+      if (treatment === "braces" || treatment === "both") {
+        console.log('BRACES CALLED');
+        await drawBracesOverlay(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
+      }
+    }
+
     if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
   }, [step]);
 
