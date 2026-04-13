@@ -786,13 +786,13 @@ async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landm
   // 1.5 RESTORE BASE IMAGE
   ctx.drawImage(orig, 0, 0, rw, rh);
   
-  // 2. THE ONLY ENGINE CALL (Zero-Latency Core)
-  renderClinicalSimulation(ctx, canvas, landmarks, treatment, rw, rh);
-
-  if (treatment === "alignment" || treatment === "transformation") {
+  // 3. AI SUB-FRAME COMPOSITE
+  if (processedSrc && processedSrc !== originalSrc) {
     ctx.save();
     const scaleX = rw / orig.width, scaleY = rh / orig.height;
     const dx = bounds.x * scaleX, dy = bounds.y * scaleY, dw = bounds.width * scaleX, dh = bounds.height * scaleY;
+    
+    // Composite the ultra-sharp AI dental work back onto the face background
     ctx.drawImage(proc, 0, 0, proc.width, proc.height, dx, dy, dw, dh);
     ctx.restore();
   }
