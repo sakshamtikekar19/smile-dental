@@ -479,11 +479,11 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- THE FINAL CLINICAL WHITENING ENGINE (Mandate: Zero Stickers, Zero Spots) ---
+// --- THE FINAL CLINICAL WHITENING ENGINE (Mandate: Zero Film, Zero Bleed) ---
 const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.save();
   
-  // 1. THE SPOT-KILLER: Single Anatomic Boundary Clip
+  // 1. ANATOMIC BOUNDARY (Strict Teeth Anchor)
   ctx.beginPath();
   const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   indices.forEach((idx, i) => {
@@ -497,25 +497,14 @@ const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
   ctx.closePath();
   ctx.clip(); 
 
-  // 2. THE STICKER-ERASER: 3-Stage Luminance Processing
-  
-  // Stage A: High-Contrast Texture Redraw
-  ctx.save();
-  ctx.filter = 'brightness(1.1) contrast(1.5) saturate(0.9)';
+  // 2. THE PURITY PASS (No Film, Only Lightness)
+  ctx.filter = 'brightness(1.05) contrast(1.1) saturate(0.85)';
   ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
 
-  // Stage B: Clinical Color Dodge (Luminance Sheen)
-  // We reduce opacity to 0.25 to ensure the texture remains sharp
-  ctx.globalCompositeOperation = 'color-dodge';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)'; 
-  ctx.fillRect(0, 0, rw, rh);
-
-  // Stage C: Anatomic Shadow Stabilization (Multiply)
-  // Tightening the multiply to 0.95 brightness to avoid 'cloudy' film
-  ctx.globalCompositeOperation = 'multiply';
-  ctx.fillStyle = 'rgba(242, 242, 242, 1.0)';
-  ctx.fillRect(0, 0, rw, rh);
+  // 3. EROSION BOUNDARY (Prevent edge film)
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.lineWidth = 10; // Approximate 5px erosion
+  ctx.stroke();
 
   ctx.restore();
 };
