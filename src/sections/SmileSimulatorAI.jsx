@@ -1161,17 +1161,36 @@ const SmileSimulatorAI = () => {
                   )}
 
                   {/* Big tap-friendly camera button */}
-                  <motion.button
-                    type="button"
-                    onClick={startCamera}
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.97 }}
-                    className="w-full py-5 rounded-2xl font-bold text-base tracking-wide flex items-center justify-center gap-3 text-white shadow-xl shadow-zinc-900/20"
-                    style={{ background: "linear-gradient(135deg,#18181b,#3f3f46)" }}
-                  >
-                    <Camera size={22} />
-                    Take Photo
-                  </motion.button>
+                  <div className="space-y-3">
+                    <motion.button
+                      type="button"
+                      onClick={startCamera}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.97 }}
+                      className="w-full py-5 rounded-2xl font-bold text-base tracking-wide flex items-center justify-center gap-3 text-white shadow-xl shadow-zinc-900/20"
+                      style={{ background: "linear-gradient(135deg,#18181b,#3f3f46)" }}
+                    >
+                      <Camera size={22} />
+                      Take Live Photo
+                    </motion.button>
+                    
+                    <motion.button
+                      type="button"
+                      onClick={() => {
+                        console.log("[TEST] Loading yellow teeth asset...");
+                        setStep("processing");
+                        setActiveTreatment("whitening");
+                        setRawImageUrl("/assets/test_teeth.png");
+                        setIsProcessing(true);
+                      }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.97 }}
+                      className="w-full py-4 rounded-2xl font-bold text-sm tracking-wide flex items-center justify-center gap-2 text-zinc-600 bg-zinc-100 border border-zinc-200 hover:bg-zinc-200 transition-colors"
+                    >
+                      <Play size={18} className="fill-current" />
+                      Run Test Simulation (Yellow Teeth)
+                    </motion.button>
+                  </div>
 
                   {/* Tips */}
                   <ul className="mt-6 space-y-2.5">
