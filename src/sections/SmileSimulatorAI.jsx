@@ -728,6 +728,7 @@ function getTeethCropBounds(landmarks, iw, ih, padding = 0.2) {
 }
 
 async function processWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
+  console.log("WHITENING TRIGGERED");
   console.log("[AI] Firing Replicate Whitening pass on CROP (strength: 0.28)");
   // At this stage, imageSrc is our high-res mouth crop
   const base = await preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds);
@@ -808,15 +809,26 @@ async function processAlignment(image) {
   return image;
 }
 
-async function processSimulation(croppedImage, treatment, landmarks, iw, ih, cropBounds) {
-  if (treatment === "whitening") return await processWhitening(croppedImage, landmarks, iw, ih, cropBounds);
-  if (treatment === "braces") return await processBraces(croppedImage, landmarks, iw, ih, cropBounds);
-  if (treatment === "alignment") return croppedImage; 
-  if (treatment === "transformation" || treatment === "both") {
-    const w = await processWhitening(croppedImage, landmarks, iw, ih, cropBounds);
-    return w;
+async function processSimulation(image, treatment, landmarks, iw, ih, cropBounds) {
+  console.log("Selected:", treatment);
+
+  if (treatment === "whitening") {
+    return await processWhitening(image, landmarks, iw, ih, cropBounds);
   }
-  return croppedImage;
+
+  if (treatment === "braces") {
+    return await processBraces(image, landmarks, iw, ih, cropBounds);
+  }
+
+  if (treatment === "alignment") {
+    return await processAlignment(image);
+  }
+
+  if (treatment === "transformation" || treatment === "both") {
+    return await processWhitening(image, landmarks, iw, ih, cropBounds);
+  }
+
+  return image; // fallback
 }
 
 async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
