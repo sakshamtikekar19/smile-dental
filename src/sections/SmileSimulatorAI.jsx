@@ -245,11 +245,18 @@ function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 function loadImage(src) {
+  if (src instanceof HTMLImageElement) return Promise.resolve(src);
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    // Only set crossOrigin for external URLs
+    if (typeof src === 'string' && (src.startsWith('http') || src.startsWith('//'))) {
+      img.crossOrigin = "anonymous";
+    }
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Image load failed"));
+    img.onerror = () => {
+      console.error("Failed to load image:", src);
+      reject(new Error("Image load failed"));
+    };
     img.src = src;
   });
 }
@@ -281,12 +288,11 @@ async function resizeImage(src, maxPx = MAX_IMAGE_SIZE) {
  */
 async function detectLandmarks(imageSrc) {
   try {
-    const model = await initFaceLandmarker();
-    if (!model) return null;
+    if (!_faceLandmarkerInstance) await initFaceLandmarker();
     const img = await loadImage(imageSrc);
     
     // Mandate 1: Direct Image Detection (Highest fidelity)
-    const results = model.detect(img);
+    const results = _faceLandmarkerInstance.detect(img);
     if (results.faceLandmarks?.[0]) return results.faceLandmarks[0];
 
     // Clinical Bypass: if standard detection fails on a dental close-up (like our test image)
@@ -470,73 +476,132 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- THE FINAL CLINICAL WHITENING ENGINE (Mandate: Zero Film, Zero Bleed) ---
-const applyClinicalWhitening = (ctx, landmarks, rw, rh) => {
+// --- STRICT-PURITY WHITENING ENGINE (Mandate: No paint, only enamel brightening) ---
+const whitenTeeth = (ctx, landmarks, rw, rh) => {
+  if (!landmarks || landmarks.length === 0) return;
+
   ctx.save();
   
-  // 1. ANATOMIC BOUNDARY (Strict Teeth Anchor)
+  // 1. ANATOMICAL MASKING
   ctx.beginPath();
-  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-  indices.forEach((idx, i) => {
-    const pt = landmarks[idx];
-    if (pt) {
-      const x = pt.x * rw, y = pt.y * rh;
+  const toothIndices = [
+    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, // Upper lip inner
+    308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78, // Lower lip inner
+  ];
+
+  toothIndices.forEach((idx, i) => {
+    const p = landmarks[idx];
+    if (p) {
+      const x = p.x * rw;
+      const y = p.y * rh;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
   });
   ctx.closePath();
+  
+  // 2. THE PURITY PASS
+  // Create a temporary canvas for the brightness adjustment
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = ctx.canvas.width;
+  tempCanvas.height = ctx.canvas.height;
+  const tempCtx = tempCanvas.getContext('2d');
+  
+  // Draw the current canvas to temp canvas with a filter
+  tempCtx.filter = 'brightness(1.15) saturate(0.85) contrast(1.05)';
+  tempCtx.drawImage(ctx.canvas, 0, 0);
+  
+  // Clip the original context and draw the lightened version back
   ctx.clip(); 
+  ctx.drawImage(tempCanvas, 0, 0);
 
-  // 2. THE PURITY PASS (No Film, Only Lightness)
-  ctx.filter = 'brightness(1.05) contrast(1.1) saturate(0.85)';
-  ctx.drawImage(ctx.canvas, 0, 0);
-
-  // 3. EROSION BOUNDARY (Prevent edge film)
+  // 3. EROSION BOUNDARY (Prevent edge halo)
   ctx.globalCompositeOperation = 'destination-out';
-  ctx.lineWidth = 10; // Approximate 5px erosion
+  ctx.lineWidth = 4; 
   ctx.stroke();
 
   ctx.restore();
 };
 
-// --- ANATOMICAL BRACES ENGINE (Mandate: Bezier Curve Geometry) ---
-const drawAnatomicalBraces = (ctx, landmarks, rw, rh) => {
+// Load bracket asset once with robust fallbacks
+let _bracketImg = null;
+const getBracketImg = async () => {
+  if (_bracketImg) return _bracketImg;
+  
+  const base = import.meta.env.BASE_URL || "/";
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  
+  const paths = [
+    `${normalizedBase}assets/bracket.png`.replace(/\/\//g, '/'),
+    "assets/bracket.png",
+    "/smile-dental/assets/bracket.png",
+    "/assets/bracket.png"
+  ];
+  
+  for (const p of paths) {
+    try {
+      _bracketImg = await loadImage(p);
+      if (_bracketImg) {
+        console.log("Successfully loaded bracket from:", p);
+        return _bracketImg;
+      }
+    } catch (e) {
+      console.warn(`Failed to load bracket from ${p}, trying next...`);
+    }
+  }
+  
+  console.error("All bracket loading attempts failed.");
+  return null; 
+};
+
+// --- ANATOMICAL BRACES ENGINE (Mandate: Professional Bracket Overlay) ---
+const drawAnatomicalBraces = async (ctx, landmarks, rw, rh) => {
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   const left = landmarks[78], mid = landmarks[13], right = landmarks[308];
   if (!left || !mid || !right) { ctx.restore(); return; }
   
+  // 1. Precise Archwire
   ctx.beginPath();
-  ctx.strokeStyle = '#B0B0B0'; 
-  ctx.lineWidth = 2.4;
+  ctx.strokeStyle = 'rgba(180, 180, 180, 0.8)'; 
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
   ctx.moveTo(left.x * rw, left.y * rh);
   ctx.quadraticCurveTo(mid.x * rw, (mid.y * rh) + 8, right.x * rw, right.y * rh);
   ctx.stroke();
 
+  // 2. High-Fidelity Brackets
+  const bracketImg = await getBracketImg().catch(() => null);
   const bracketPoints = [191, 80, 81, 82, 13, 312, 311, 310, 415];
-  bracketPoints.forEach(idx => {
+  
+  for (const idx of bracketPoints) {
     const p = landmarks[idx];
     if (p) {
       const x = p.x * rw, y = p.y * rh;
-      ctx.fillStyle = '#D3D3D3';
-      ctx.fillRect(x - 4, y - 4, 8, 8);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-      ctx.fillRect(x - 2, y - 2, 2, 2);
-      ctx.fillStyle = '#D3D3D3';
+      if (bracketImg) {
+        // Draw real bracket asset
+        const sz = rw * 0.025; // Dynamic sizing based on image resolution
+        ctx.drawImage(bracketImg, x - sz/2, y - sz/2, sz, sz);
+      } else {
+        // Fallback to high-quality procedural bracket
+        ctx.fillStyle = '#D3D3D3';
+        ctx.fillRect(x - 4, y - 4, 8, 8);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillRect(x - 2, y - 2, 2, 2);
+      }
     }
-  });
+  }
   ctx.restore();
 };
 
 // --- CLINICAL SIMULATION WRAPPER (Mandate: Engine-Linked) ---
-const renderClinicalSimulation = (ctx, canvas, landmarks, treatment, rw, rh) => {
+const renderClinicalSimulation = async (ctx, canvas, landmarks, treatment, rw, rh) => {
   // Mandate: Braces first, then Whitening last for terminal visibility
   if (treatment === "braces" || treatment === "both") {
-    drawAnatomicalBraces(ctx, landmarks, rw, rh);
+    await drawAnatomicalBraces(ctx, landmarks, rw, rh);
   }
   if (treatment === "whitening" || treatment === "both") {
-    applyClinicalWhitening(ctx, landmarks, rw, rh);
+    whitenTeeth(ctx, landmarks, rw, rh);
   }
 };
 
@@ -684,7 +749,7 @@ async function placeBrackets(imageSrc, landmarks) {
   
   const rw = canvas.width;
   const rh = canvas.height;
-  const bracketImg = await loadImage("/assets/bracket.png");
+  const bracketImg = await getBracketImg();
   const stampSize = Math.max(12, rw / 55);
 
   const drawArch = (indices, wireOffset) => {
