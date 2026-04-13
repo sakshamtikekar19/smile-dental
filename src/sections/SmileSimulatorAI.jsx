@@ -476,10 +476,11 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- PIXEL-SURGICAL WHITENING ENGINE (Mandate: Direct Pixel Manipulation) ---
+// --- PIXEL-SURGICAL WHITENING ENGINE ---
 function applyWhiteningToCanvas(ctx, canvas, landmarks) {
-  console.log("WHITEN CALLED");
   console.log("SURGICAL WHITENING CALLED");
+  
+  // Grab the raw pixels
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
 
@@ -488,23 +489,22 @@ function applyWhiteningToCanvas(ctx, canvas, landmarks) {
     let g = data[i + 1];
     let b = data[i + 2];
 
-    // STRICT TOOTH PIXEL DETECTION
+    // 1. TOOTH DETECTION MATH
+    // We only target pixels that are bright (enamel) and slightly yellow
     const brightness = (r + g + b) / 3;
+    const isToothColor = brightness > 130 && Math.abs(r - g) < 20 && b < r;
 
-    if (
-      brightness > 140 && brightness < 230 &&
-      Math.abs(r - g) < 18 &&
-      Math.abs(r - b) < 18 &&
-      b < r && b < g
-    ) {
-      // ✨ REAL surgical whitening (NO FILM)
-      data[i] = Math.min(255, r + 3);
-      data[i + 1] = Math.min(255, g + 3);
-      data[i + 2] = Math.max(0, b - 5);
+    if (isToothColor) {
+      // 2. THE PIXEL SHIFT (No Film, Just Chemistry)
+      data[i]     = Math.min(255, r + 4); // Boost Red
+      data[i + 1] = Math.min(255, g + 4); // Boost Green
+      data[i + 2] = Math.max(0, b - 6);   // Neutralize Yellow (Subtract Blue)
     }
   }
 
+  // 3. PUSH PIXELS BACK TO CANVAS
   ctx.putImageData(imageData, 0, 0);
+  console.log("PIXELS COMMITTED TO CANVAS");
 }
 
 // Load bracket asset once with robust fallbacks
