@@ -578,15 +578,16 @@ const drawAnatomicalBraces = async (ctx, landmarks, rw, rh) => {
   ctx.restore();
 };
 
-// --- CLINICAL SIMULATION WRAPPER (Mandate: Pixel-Surgical Engine) ---
+// --- CLINICAL SIMULATION WRAPPER ---
 const renderClinicalSimulation = async (ctx, canvas, landmarks, treatment, rw, rh) => {
   console.log("Rendering:", treatment);
 
-  // Mandate: Whitening BEFORE Braces to prevent metallic ghosting
+  // 1. Pixel Surgery First
   if (treatment === "whitening" || treatment === "both") {
     applyWhiteningToCanvas(ctx, canvas, landmarks);
   }
 
+  // 2. Braces on top (MUST await because of bracketImg loading)
   if (treatment === "braces" || treatment === "both") {
     console.log('BRACES CALLED');
     await drawAnatomicalBraces(ctx, landmarks, rw, rh);
