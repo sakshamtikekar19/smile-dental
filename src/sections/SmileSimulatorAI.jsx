@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, X, CheckCircle2, Info, RefreshCw } from "lucide-react";
+import { Camera, X, CheckCircle2, Info, RefreshCw, Play } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import PremiumButton from "../components/PremiumButton";
 import AnimatedSection from "../components/AnimatedSection";
