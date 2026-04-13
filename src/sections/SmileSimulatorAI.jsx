@@ -485,20 +485,19 @@ function applyWhiteningToImageData(imageData, landmarks) {
     let g = data[i + 1];
     let b = data[i + 2];
 
-    // 1. TOOTH DETECTION MATH
-    // We only target pixels that are bright (enamel) and slightly yellow
+    // --- NEW: CLINICAL DETECTION VALUES ---
     const brightness = (r + g + b) / 3;
+    
+    // 1. Find pixels that look like teeth (Bright + Low Saturation)
+    // 2. Math.abs(r - g) < 20 ensures we aren't whitening pink lips
+    // 3. b < r confirms there is a yellow tint to remove
+    const isTooth = brightness > 125 && brightness < 245 && Math.abs(r - g) < 20 && b < r;
 
-    if (
-      brightness > 140 && brightness < 230 &&
-      Math.abs(r - g) < 18 &&
-      Math.abs(r - b) < 18 &&
-      b < r && b < g
-    ) {
-      // ✨ REAL surgical whitening (NO FILM)
-      data[i] = Math.min(255, r + 3);
-      data[i + 1] = Math.min(255, g + 3);
-      data[i + 2] = Math.max(0, b - 5);
+    if (isTooth) {
+      // THE SHIFT: Boost R/G (Brightness) and Drop B (Yellowing)
+      data[i]     = Math.min(255, r + 5); 
+      data[i + 1] = Math.min(255, g + 5); 
+      data[i + 2] = Math.max(0, b - 10); // <--- High-intensity yellow removal
     }
   }
 }
