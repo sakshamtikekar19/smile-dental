@@ -568,12 +568,29 @@ const REPLICATE_API_TOKEN = import.meta.env.VITE_REPLICATE_API_TOKEN;
  * Adjusts: Yellow (-8), Brightness (+5), Texture-Blend (90/10)
  */
 /**
- * Ultra-Natural Clinical Whitening (Mandate: Zero Plastic Look)
- * - Refined Erosion Mask (No Gum Bleed)
- * - Low-Intensity LAB (-6 B, +3 L)
- * - Per-Pixel Variation (Organic Texture)
- * - Soft Blend (15% processed / 85% original)
+ * Strict Clinical Purity Engine (Mandate: Zero Film, Perfect Enamel Anchor)
+ * - Heavy Erosion (7px) to stay strictly inside teeth
+ * - Per-Pixel Chrominance Filtering (isStrictToothPixel)
+ * - Targeted RGB Shift: R+4, G+4, B-6
+ * - Texture Preservation (85% New / 15% Original)
  */
+function isStrictToothPixel(r, g, b) {
+  const brightness = (r + g + b) / 3;
+  // Teeth are bright but NOT pure white/overblown
+  const isBright = brightness > 140 && brightness < 235;
+
+  // Low color variation (Ensures we skip gums/lips)
+  const lowColorDiff =
+    Math.abs(r - g) < 18 &&
+    Math.abs(r - b) < 18 &&
+    Math.abs(g - b) < 18;
+
+  // Slight yellow bias is characteristic of real enamel
+  const slightlyYellow = b < r && b < g;
+
+  return isBright && lowColorDiff && slightlyYellow;
+}
+
 async function preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
   const img = await loadImage(imageSrc);
   const canvas = document.createElement("canvas");
@@ -584,16 +601,14 @@ async function preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
   
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
-  const original = new Uint8ClampedArray(data); // Snapshop for blending
   
-  // 1. REFINED EROSION MASK
+  // 1. REFINED HEAVY EROSION MASK (Stay inside teeth only)
   const localLandmarks = normalizeLandmarksToCrop(landmarks, iw, ih, cropBounds);
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = canvas.width;
   maskCanvas.height = canvas.height;
   const mctx = maskCanvas.getContext("2d");
   
-  // Outer perimeter (Lining the teeth)
   mctx.beginPath();
   const outerIndices = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 146, 61];
   outerIndices.forEach((idx, i) => {
@@ -606,33 +621,30 @@ async function preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
   mctx.fillStyle = "white";
   mctx.fill();
 
-  // EROSION: Shrink the mask slightly to ensure it stays inside enamel (Mandate 1)
+  // HEAVY EROSION: Shrink the mask significantly (7x7 logic)
   mctx.globalCompositeOperation = 'destination-out';
-  mctx.lineWidth = Math.max(2, canvas.width / 150);
-  mctx.stroke(); // Erase edges
+  mctx.lineWidth = 14; // Approximate 7px erosion on both sides
+  mctx.stroke();
   
   const maskData = mctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
-  // 2. ULTRA-NATURAL PROCESSING loop
+  // 2. STRICT PIXEL-EDIT Loop (No Global Blend)
   for (let i = 0; i < data.length; i += 4) {
-    if (maskData[i + 3] > 128) { // Only inside the eroded mask
+    if (maskData[i + 3] > 0) { // Strictly inside mouth region
       let r = data[i], g = data[i + 1], b = data[i + 2];
       
-      // Step A: Low-Intensity LAB (Yellow -6, Brightness +3)
-      data[i] = Math.min(255, r * 1.01 + 3); 
-      data[i + 1] = Math.min(255, g * 1.01 + 3);
-      data[i + 2] = Math.min(255, b * 1.06 + 3); // Subtle blue shift
-      
-      // Step B: Natural Pixel Variation (Kill Plastic Look)
-      const variation = (Math.random() - 0.5) * 4;
-      data[i] = Math.min(255, Math.max(0, data[i] + variation));
-      data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + variation));
-      data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + variation));
-      
-      // Step C: Perfect Soft Blend (15% Enhanced / 85% Original)
-      data[i] = (data[i] * 0.15) + (original[i] * 0.85);
-      data[i + 1] = (data[i + 1] * 0.15) + (original[i + 1] * 0.85);
-      data[i + 2] = (data[i + 2] * 0.15) + (original[i + 2] * 0.85);
+      // Step A: Clinical ENAMEL Filter
+      if (isStrictToothPixel(r, g, b)) {
+        // Step B: Pure Color Shift (No Film)
+        let newR = Math.min(255, r + 4);
+        let newG = Math.min(255, g + 4);
+        let newB = Math.max(0, b - 6);
+        
+        // Step C: Detailed Texture preservation (85% Edited / 15% Original)
+        data[i] = (0.85 * newR) + (0.15 * r);
+        data[i + 1] = (0.85 * newG) + (0.15 * g);
+        data[i + 2] = (0.85 * newB) + (0.15 * b);
+      }
     }
   }
   
