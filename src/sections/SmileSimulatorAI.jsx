@@ -1164,24 +1164,6 @@ const SmileSimulatorAI = () => {
                       <Camera size={22} />
                       Take Live Photo
                     </motion.button>
-                    
-                    <motion.button
-                      type="button"
-                      onClick={() => {
-                        console.log("[TEST] Loading clinical asset...");
-                        setStep("processing");
-                        setActiveTreatment("whitening");
-                        // Use relative path to support sub-directory deployments
-                        setRawImageUrl("assets/test_teeth.png");
-                        setIsProcessing(true);
-                      }}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="w-full py-4 rounded-2xl font-bold text-sm tracking-wide flex items-center justify-center gap-2 text-zinc-600 bg-zinc-100 border border-zinc-200 hover:bg-zinc-200 transition-colors"
-                    >
-                      <Play size={18} className="fill-current" />
-                      Run Test Simulation (Yellow Teeth)
-                    </motion.button>
                   </div>
 
                   {/* Tips */}
