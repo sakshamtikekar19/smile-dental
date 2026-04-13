@@ -476,52 +476,36 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- STRICT-PURITY WHITENING ENGINE (Mandate: No paint, only enamel brightening) ---
-const whitenTeeth = (ctx, landmarks, rw, rh) => {
-  if (!landmarks || landmarks.length === 0) return;
+// --- PIXEL-SURGICAL WHITENING ENGINE (Mandate: Direct Pixel Manipulation) ---
+function applyWhiteningToCanvas(ctx, canvas, landmarks) {
+  console.log("WHITEN CALLED");
+  console.log("SURGICAL WHITENING CALLED");
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
 
-  ctx.save();
-  
-  // 1. ANATOMICAL MASKING
-  ctx.beginPath();
-  const toothIndices = [
-    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, // Upper lip inner
-    308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78, // Lower lip inner
-  ];
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
 
-  toothIndices.forEach((idx, i) => {
-    const p = landmarks[idx];
-    if (p) {
-      const x = p.x * rw;
-      const y = p.y * rh;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    // STRICT TOOTH PIXEL DETECTION
+    const brightness = (r + g + b) / 3;
+
+    if (
+      brightness > 140 && brightness < 230 &&
+      Math.abs(r - g) < 18 &&
+      Math.abs(r - b) < 18 &&
+      b < r && b < g
+    ) {
+      // ✨ REAL surgical whitening (NO FILM)
+      data[i] = Math.min(255, r + 3);
+      data[i + 1] = Math.min(255, g + 3);
+      data[i + 2] = Math.max(0, b - 5);
     }
-  });
-  ctx.closePath();
-  
-  // 2. THE PURITY PASS
-  // Create a temporary canvas for the brightness adjustment
-  const tempCanvas = document.createElement('canvas');
-  tempCanvas.width = ctx.canvas.width;
-  tempCanvas.height = ctx.canvas.height;
-  const tempCtx = tempCanvas.getContext('2d');
-  
-  // Draw the current canvas to temp canvas with a filter
-  tempCtx.filter = 'brightness(1.15) saturate(0.85) contrast(1.05)';
-  tempCtx.drawImage(ctx.canvas, 0, 0);
-  
-  // Clip the original context and draw the lightened version back
-  ctx.clip(); 
-  ctx.drawImage(tempCanvas, 0, 0);
+  }
 
-  // 3. EROSION BOUNDARY (Prevent edge halo)
-  ctx.globalCompositeOperation = 'destination-out';
-  ctx.lineWidth = 4; 
-  ctx.stroke();
-
-  ctx.restore();
-};
+  ctx.putImageData(imageData, 0, 0);
+}
 
 // Load bracket asset once with robust fallbacks
 let _bracketImg = null;
@@ -594,14 +578,18 @@ const drawAnatomicalBraces = async (ctx, landmarks, rw, rh) => {
   ctx.restore();
 };
 
-// --- CLINICAL SIMULATION WRAPPER (Mandate: Engine-Linked) ---
+// --- CLINICAL SIMULATION WRAPPER (Mandate: Pixel-Surgical Engine) ---
 const renderClinicalSimulation = async (ctx, canvas, landmarks, treatment, rw, rh) => {
-  // Mandate: Braces first, then Whitening last for terminal visibility
-  if (treatment === "braces" || treatment === "both") {
-    await drawAnatomicalBraces(ctx, landmarks, rw, rh);
-  }
+  console.log("Rendering:", treatment);
+
+  // Mandate: Whitening BEFORE Braces to prevent metallic ghosting
   if (treatment === "whitening" || treatment === "both") {
-    whitenTeeth(ctx, landmarks, rw, rh);
+    applyWhiteningToCanvas(ctx, canvas, landmarks);
+  }
+
+  if (treatment === "braces" || treatment === "both") {
+    console.log('BRACES CALLED');
+    await drawAnatomicalBraces(ctx, landmarks, rw, rh);
   }
 };
 
