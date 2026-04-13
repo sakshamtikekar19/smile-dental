@@ -878,6 +878,8 @@ const SmileSimulatorAI = () => {
   const generationRef = useRef(0);
   const latestLandmarksRef = useRef(null);
   const requestRef = useRef(null);
+  const renderRequestRef = useRef(null);
+  const selectedTreatmentRef = useRef(selectedTreatment);
 
   // --- REAL-TIME DETECTION LOOP (Pillar: Precision Sync) ---
   const detectionLoop = useCallback(async () => {
@@ -898,14 +900,61 @@ const SmileSimulatorAI = () => {
     if (step === "camera") requestRef.current = requestAnimationFrame(detectionLoop);
   }, [step]);
 
+  // --- REAL-TIME RENDER LOOP (Pillar: Precision UI) ---
+  const renderLoop = useCallback(async () => {
+    if (step !== "camera" || !videoRef.current || !canvasRef.current) {
+      if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    
+    // Ensure canvas resolution matches video for high-fidelity simulation
+    if (canvas.width !== video.videoWidth) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
+
+    const ctx = canvas.getContext("2d");
+
+    // ✅ 1. Draw camera frame FIRST
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // ✅ 2. Apply simulation ON TOP
+    if (latestLandmarksRef.current) {
+      await renderClinicalSimulation(
+        ctx,
+        canvas,
+        latestLandmarksRef.current,
+        selectedTreatmentRef.current,
+        canvas.width,
+        canvas.height
+      );
+    }
+
+    // ✅ 3. Loop
+    if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
+  }, [step]);
+
   useEffect(() => {
     if (step === "camera") {
       requestRef.current = requestAnimationFrame(detectionLoop);
+      renderRequestRef.current = requestAnimationFrame(renderLoop);
     } else {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      if (renderRequestRef.current) cancelAnimationFrame(renderRequestRef.current);
     }
-    return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
-  }, [step, detectionLoop]);
+    return () => { 
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      if (renderRequestRef.current) cancelAnimationFrame(renderRequestRef.current);
+    };
+  }, [step, detectionLoop, renderLoop]);
+
+  // Sync state to ref for high-frequency loops
+  useEffect(() => {
+    selectedTreatmentRef.current = selectedTreatment;
+  }, [selectedTreatment]);
 
   // PERFORMANCE OPTIMAL: Deferred AI Pre-Heating (Mandate 1)
   useEffect(() => {
@@ -1267,7 +1316,11 @@ const SmileSimulatorAI = () => {
               >
                 {/* Video + mask — controls never enter this box */}
                 <div className="relative w-full" style={{ aspectRatio: "3/4" }}>
-                  <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover" />
+                  {/* Background Source (Hidden) */}
+                  <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover opacity-0 pointer-events-none" />
+                  
+                  {/* Live Simulation Canvas */}
+                  <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
 
                   {/* Teeth guide overlay — pointer-events-none so it doesn't block taps */}
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
