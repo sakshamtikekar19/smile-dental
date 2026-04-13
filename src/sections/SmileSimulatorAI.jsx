@@ -901,7 +901,7 @@ const SmileSimulatorAI = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
-    if (!video || !canvas) {
+    if (!video || !canvas || video.videoWidth === 0) {
       if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
       return;
     }
@@ -1371,8 +1371,6 @@ const SmileSimulatorAI = () => {
                     <RefreshCw size={18} />
                   </button>
                 </div>
-
-                <canvas ref={canvasRef} className="hidden" />
               </motion.div>
             )}
 
