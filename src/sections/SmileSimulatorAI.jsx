@@ -541,31 +541,43 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const centerX = (minX + maxX) / 2;
   const boxWidth = maxX - minX;
 
-  // ✅ Bitmask Engine: Pre-render the teeth selection (100x Speedup)
+  // ✅ SDF Masking Engine: Pre-render the teeth selection with hardware-accelerated blur
+  // This replaces millions of distanceToEdge() calls with a single fast lookup map.
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = boxW; maskCanvas.height = boxH;
   const mctx = maskCanvas.getContext("2d");
   mctx.translate(-minX, -minY);
+  
+  // 1. Solid Mask (Base teeth isolation)
   mctx.beginPath();
   points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
   mctx.closePath();
   mctx.fillStyle = "white";
   mctx.fill();
-  const maskData = mctx.getImageData(0, 0, boxW, boxH).data;
+  const maskSolid = mctx.getImageData(0, 0, boxW, boxH).data;
 
-  // 🎯 Turbo Pixel Loop
+  // 2. Blurred SDF Mask (Feathering map)
+  mctx.clearRect(minX, minY, boxW, boxH);
+  mctx.filter = `blur(${Math.round(3.5 * faceScale)}px)`;
+  mctx.beginPath();
+  points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
+  mctx.closePath();
+  mctx.fillStyle = "white";
+  mctx.fill();
+  const maskSDF = mctx.getImageData(0, 0, boxW, boxH).data;
+
+  // 🎯 Turbo Pixel Loop (0-Geometry Pass)
   for (let y = minY; y < maxY; y++) {
     const localY = y - minY;
     for (let x = minX; x < maxX; x++) {
       const localX = x - minX;
       const i = (localY * boxW + localX) * 4;
       
-      // Fast Bitmask Check (replaces isInside)
-      if (maskData[i] < 128) continue; 
+      const mVal = maskSolid[i];
+      if (mVal < 128) continue; // Outside mouth shape
 
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
-      // ✅ 1. Surgical Enamel Lock
       const isTooth = 
         r > 80 && g > 80 && b > 65 && 
         Math.abs(r - g) < 30 && 
@@ -573,18 +585,14 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       
       if (!isTooth) continue;
 
-      // ✅ 2. Fast Geometric Feathering (SDF Approximation)
-      // We use a simpler radial-closeness heuristic for speed
-      const distToCenter = Math.abs(x - centerX) / (boxWidth / 2);
-      const edgeDist = distanceToEdge(x, y, points); // Keep for strict edges, but call less
-      const feather = Math.min(1, edgeDist / (3.2 * faceScale));
+      // ✅ SDF Feathering: Instant lookup instead of distanceToEdge() math
+      const feather = maskSDF[i] / 255;
 
-      // ✅ 3. Balanced Power Lift + Fast Variation
+      // ✅ Math-Lite Effects (Approximations for speed)
       const avg = (r + g + b) / 3;
-      const variation = ((x ^ y) & 255) / 255; // Fast bitwise pseudo-noise
+      const variation = ((x ^ y) & 255) / 255;
       const lift = 0.40 * feather * (0.85 + 0.3 * variation);
       
-      // Fast Quadratic Falloff (replaces Math.exp)
       const d = (x - centerX) / boxWidth;
       const centerFactor = Math.max(0, 1.1 - 4 * d * d);
       const finalLift = lift * (0.85 + 0.3 * centerFactor);
@@ -599,7 +607,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       g += (255 - g) * 0.15 * finalLift;
       b += (255 - b) * 0.48 * finalLift;
 
-      // ✅ 4. Edge Shadow (Fast heuristic)
+      // Edge Shadow
       const shadow = 1 - 0.09 * (1 - feather);
       r *= shadow; g *= shadow; b *= shadow;
 
