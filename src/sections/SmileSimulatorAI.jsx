@@ -903,21 +903,39 @@ const SmileSimulatorAI = () => {
         eraseAboveUpperLip(ctx, landmarks, iw, ih, 20);
       }
 
-      finalUrl = await new Promise(r => canvas.toBlob(blob => {
-          const url = URL.createObjectURL(blob);
-          r(url);
-      }, "image/jpeg", 0.95));
-
-      if (!isCurrent()) { safeRevoke(finalUrl); return; }
+      if (!isCurrent()) return;
 
       // Step 3: Dental Zoom
       setProcessingLog("Finalizing...");
       const focusBox = getTeethFocusBox(landmarks, iw, ih);
 
-      const [bImg, aImg] = await Promise.all([
-        cropRegion(normalizedUrl, focusBox),
-        cropRegion(finalUrl, focusBox),
-      ]);
+      // BEFORE (original)
+      const beforeCanvas = document.createElement("canvas");
+      beforeCanvas.width = focusBox.width;
+      beforeCanvas.height = focusBox.height;
+      const bctx = beforeCanvas.getContext("2d");
+
+      bctx.drawImage(
+        img,
+        focusBox.x, focusBox.y, focusBox.width, focusBox.height,
+        0, 0, focusBox.width, focusBox.height
+      );
+
+      // AFTER (processed)
+      const afterCanvas = document.createElement("canvas");
+      afterCanvas.width = focusBox.width;
+      afterCanvas.height = focusBox.height;
+      const actx = afterCanvas.getContext("2d");
+
+      actx.drawImage(
+        canvas, // 🔥 USE YOUR PROCESSED CANVAS DIRECTLY
+        focusBox.x, focusBox.y, focusBox.width, focusBox.height,
+        0, 0, focusBox.width, focusBox.height
+      );
+
+      // Convert to URL
+      const bImg = beforeCanvas.toDataURL("image/jpeg", 0.95);
+      const aImg = afterCanvas.toDataURL("image/jpeg", 0.95);
 
       if (!isCurrent()) { safeRevoke(bImg); safeRevoke(aImg); return; }
 
