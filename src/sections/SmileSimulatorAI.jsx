@@ -4,6 +4,9 @@ import { Camera, X, CheckCircle2, Info, RefreshCw } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
+import { clipToWhiteningMask, eraseAboveUpperLip } from "../utils/bracesClipFixed";
+import { buildBracesPack } from "../utils/bracesGeometryFixed";
+import { TEETH_WHITEN_MASK_INDICES } from "../utils/teethWhitenMaskIndices";
 
 // ── Environment ──────────────────────────────────────────────────────────────
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -445,31 +448,175 @@ function getMouthBoundingBox(landmarks, w, h) {
   };
 }
 
-// --- PRODUCTION WHITENING OVERLAY (Step 2) ---
-function applyWhiteningOverlay(ctx, landmarks, w, h) {
-  const points = getTeethPoints(landmarks, w, h);
+// --- PRODUCTION WHITENING OVERLAY (Step 2: RealWhitening) ---
+function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
+  console.log("Whitening running"); // DEBUG
 
-  ctx.save();
+  if (!landmarks || landmarks.length === 0) return;
 
-  ctx.globalCompositeOperation = "lighter";
-  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  // Map landmarks → canvas points
+  const points = TEETH_WHITEN_MASK_INDICES.map(idx => ({
+    x: landmarks[idx].x * w,
+    y: landmarks[idx].y * h
+  }));
 
-  ctx.beginPath();
-  points.forEach((pt, i) => {
-    if (i === 0) ctx.moveTo(pt.x, pt.y);
-    else ctx.lineTo(pt.x, pt.y);
-  });
-  ctx.closePath();
-  ctx.fill();
+  // -------------------------------
+  // 🔥 Bounding Box Optimization
+  // -------------------------------
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
 
-  ctx.restore();
+  const minX = Math.max(0, Math.floor(Math.min(...xs)));
+  const maxX = Math.min(w, Math.ceil(Math.max(...xs)));
+  const minY = Math.max(0, Math.floor(Math.min(...ys)));
+  const maxY = Math.min(h, Math.ceil(Math.max(...ys)));
+
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+
+  // -------------------------------
+  // 🧠 Point-in-polygon check
+  // -------------------------------
+  function isInside(x, y, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+
+      const intersect =
+        yi > y !== yj > y &&
+        x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  // -------------------------------
+  // ✨ Edge Feathering (realism)
+  // -------------------------------
+  function distanceToEdge(x, y, poly) {
+    let minDist = Infinity;
+
+    for (let i = 0; i < poly.length; i++) {
+      const p1 = poly[i];
+      const p2 = poly[(i + 1) % poly.length];
+
+      const A = x - p1.x;
+      const B = y - p1.y;
+      const C = p2.x - p1.x;
+      const D = p2.y - p1.y;
+
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      let param = dot / lenSq;
+
+      param = Math.max(0, Math.min(1, param));
+
+      const xx = p1.x + param * C;
+      const yy = p1.y + param * D;
+
+      const dx = x - xx;
+      const dy = y - yy;
+
+      minDist = Math.min(minDist, Math.sqrt(dx * dx + dy * dy));
+    }
+
+    return minDist;
+  }
+
+  // -------------------------------
+  // 🎯 Pixel Whitening Loop (Optimized)
+  // -------------------------------
+  const faceScale = (maxY - minY) / 100;
+
+  for (let y = minY; y < maxY; y += 2) {
+    for (let x = minX; x < maxX; x += 2) {
+
+      if ((x + y) % 4 !== 0) continue; // 🔥 performance boost: checkerboard skip
+
+      if (!isInside(x, y, points)) continue;
+
+      const i = (y * w + x) * 4;
+
+      let r = data[i];
+      let g = data[i + 1];
+      let b = data[i + 2];
+
+      // Dynamic Feather for natural edges
+      const edgeDist = distanceToEdge(x, y, points);
+      const feather = Math.min(1, edgeDist / (4 * faceScale));
+
+      // 🔥 Real whitening (remove yellow)
+      b += (255 - b) * 0.35 * intensity * feather;
+      r += (255 - r) * 0.08 * intensity * feather;
+      g += (255 - g) * 0.08 * intensity * feather;
+
+      // 🧠 Prevent blue tint
+      const avg = (r + g + b) / 3;
+      if (b > avg + 20) b = avg + 20;
+
+      data[i] = Math.min(255, r);
+      data[i + 1] = Math.min(255, g);
+      data[i + 2] = Math.min(255, b);
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
 }
 
 // --- PRODUCTION BRACES OVERLAY (Step 3) ---
 function drawBracesOverlay(ctx, landmarks, w, h, bracesImage) {
   if (!bracesImage || !bracesImage.complete) return;
-  const box = getMouthBoundingBox(landmarks, w, h);
-  ctx.drawImage(bracesImage, box.x, box.y, box.width, box.height);
+  
+  const pack = buildBracesPack(landmarks, w, h);
+  if (!pack) return;
+
+  ctx.save();
+
+  // --- ORDER 1: WIRE FIRST ---
+  ctx.beginPath();
+  ctx.strokeStyle = "rgba(203, 213, 225, 0.85)";
+  ctx.lineWidth = Math.max(1.1, w * 0.0011);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  
+  if (pack.wireSamplesUpper?.length > 1) {
+    ctx.moveTo(pack.wireSamplesUpper[0].x, pack.wireSamplesUpper[0].y);
+    pack.wireSamplesUpper.forEach(p => ctx.lineTo(p.x, p.y));
+  }
+  if (pack.wireSamplesLower?.length > 1) {
+    ctx.moveTo(pack.wireSamplesLower[0].x, pack.wireSamplesLower[0].y);
+    pack.wireSamplesLower.forEach(p => ctx.lineTo(p.x, p.y));
+  }
+  ctx.stroke();
+
+  // --- ORDER 2: BRACKETS (with shadow depth) ---
+  const lipMidY = landmarks[13].y * h;
+  
+  const drawBrackets = (anchors) => {
+    anchors.forEach(a => {
+      // Perspective Scaling based on Horizontal (wMult) AND Vertical (yDist)
+      const yDistFromMid = Math.abs(a.y - lipMidY) / (h * 0.1);
+      const verticalPerspective = clamp(1 - yDistFromMid * 0.15, 0.8, 1.1);
+      const side = pack.baseW * (a.wMult || 1) * verticalPerspective;
+
+      ctx.save();
+      ctx.translate(a.x, a.y);
+      ctx.rotate(a.ang || 0);
+      
+      ctx.shadowBlur = 5;
+      ctx.shadowColor = "rgba(0,0,0,0.42)";
+      
+      ctx.drawImage(bracesImage, -side/2, -side/2, side, side);
+      ctx.restore();
+    });
+  };
+
+  drawBrackets(pack.upperAnchors || []);
+  drawBrackets(pack.lowerAnchors || []);
+
+  ctx.restore();
 }
 
 /**
@@ -567,23 +714,17 @@ const SmileSimulatorAI = () => {
 
     const ctx = canvas.getContext("2d");
 
-    // ✅ 1. Draw video
+    // --- STRICT PIPELINE (drawImage → whitening → braces → occlusion) ---
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // ✅ 2. Apply whitening (NO getImageData)
     if (latestLandmarksRef.current) {
       const treatment = selectedTreatmentRef.current;
-      if (treatment === "whitening" || treatment === "both") {
-        applyWhiteningOverlay(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
+      if (treatment === "whitening" || treatment === "both" || treatment === "transformation") {
+        applyRealWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
       }
-    }
-
-    // ✅ 3. Draw braces (NO await)
-    if (latestLandmarksRef.current) {
-      const treatment = selectedTreatmentRef.current;
       if (treatment === "braces" || treatment === "both") {
-        // console.log('BRACES CALLED');
         drawBracesOverlay(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
+        eraseAboveUpperLip(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 20);
       }
     }
 
@@ -727,14 +868,15 @@ const SmileSimulatorAI = () => {
 
       const { main: canvas } = getSharedCanvases(iw, ih);
       const ctx = canvas.getContext("2d");
-      const img = await loadImage(normalizedUrl);
+      // --- STRICT PIPELINE (drawImage → whitening → braces → occlusion) ---
       ctx.drawImage(img, 0, 0, iw, ih);
 
       if (treatment === "whitening" || treatment === "transformation" || treatment === "both") {
-        applyWhiteningOverlay(ctx, landmarks, iw, ih);
+        applyRealWhitening(ctx, landmarks, iw, ih);
       }
       if (treatment === "braces" || treatment === "both") {
         drawBracesOverlay(ctx, landmarks, iw, ih, bracesImageRef.current);
+        eraseAboveUpperLip(ctx, landmarks, iw, ih, 20);
       }
 
       finalUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.95));
@@ -784,16 +926,16 @@ const SmileSimulatorAI = () => {
     canvas.width = outW;
     canvas.height = outH;
 
-    // 1. Capture Raw Frame
+    // --- STRICT PIPELINE ---
     ctx.drawImage(video, 0, 0, outW, outH);
 
-    // 2. Apply Unified Overlays (Fixed Crash)
     if (latestLandmarksRef.current) {
         if (selectedTreatment === "whitening" || selectedTreatment === "transformation" || selectedTreatment === "both") {
-            applyWhiteningOverlay(ctx, latestLandmarksRef.current, outW, outH);
+            applyRealWhitening(ctx, latestLandmarksRef.current, outW, outH);
         }
         if (selectedTreatment === "braces" || selectedTreatment === "both") {
             drawBracesOverlay(ctx, latestLandmarksRef.current, outW, outH, bracesImageRef.current);
+            eraseAboveUpperLip(ctx, latestLandmarksRef.current, outW, outH, 20);
         }
     }
 
