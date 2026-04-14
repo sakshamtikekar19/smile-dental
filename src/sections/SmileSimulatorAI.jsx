@@ -244,20 +244,16 @@ function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-function loadImage(src) {
-  if (src instanceof HTMLImageElement) return Promise.resolve(src);
+function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    // Only set crossOrigin for external URLs
-    if (typeof src === 'string' && (src.startsWith('http') || src.startsWith('//'))) {
-      img.crossOrigin = "anonymous";
-    }
     img.onload = () => resolve(img);
-    img.onerror = () => {
-      console.error("Failed to load image:", src);
-      reject(new Error("Image load failed"));
+    img.onerror = (err) => {
+      console.error("Image load failed:", url);
+      reject(new Error("Image failed to load"));
     };
-    img.src = src;
+    img.crossOrigin = "anonymous"; // 🔥 important for pixel manipulation
+    img.src = url;
   });
 }
 
@@ -859,7 +855,13 @@ const SmileSimulatorAI = () => {
       const detectTarget = await resizeImage(imageUrl, 1024);
       const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       
-      const img = await loadImage(resized);
+      normalizedUrl = resized;
+      const img = await loadImage(normalizedUrl);
+      
+      // ONLY revoke AFTER image is safely in memory
+      safeRevoke(imageUrl);
+      safeRevoke(detectTarget.url);
+
       // Run detection targeting the high-res context for precision
       const detections = await _faceLandmarkerInstance.detect(img);
       const landmarks = detections?.faceLandmarks?.[0];
