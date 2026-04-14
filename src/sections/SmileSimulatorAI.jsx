@@ -828,18 +828,21 @@ const SmileSimulatorAI = () => {
     if (step === "result" && afterImage && latestLandmarksRef.current && zoomCanvasRef.current) {
       console.log("[ZoomSync] Result mounted, rendering dental detail window");
       
-      // We need a temporary canvas to get the "After" image data back into a pixel-source
-      const offscreen = document.createElement("canvas");
-      const img = new Image();
-      img.onload = () => {
-        offscreen.width = img.width;
-        offscreen.height = img.height;
-        offscreen.getContext("2d").drawImage(img, 0, 0);
-        
-        const focusBox = getTeethFocusBox(latestLandmarksRef.current, img.width, img.height);
-        renderTeethZoom(zoomCanvasRef.current, offscreen, focusBox);
-      };
-      img.src = afterImage;
+      (async () => {
+        try {
+          const img = await loadImage(afterImage);
+          const focusBox = getTeethFocusBox(latestLandmarksRef.current, img.width, img.height);
+          
+          // Ensure DOM has painted the canvas before surgical draw
+          requestAnimationFrame(() => {
+            if (zoomCanvasRef.current) {
+              renderTeethZoom(zoomCanvasRef.current, img, focusBox);
+            }
+          });
+        } catch (err) {
+          console.error("[ZoomSync] Failed to load afterImage for dental zoom:", err);
+        }
+      })();
     }
   }, [step, afterImage]);
 
