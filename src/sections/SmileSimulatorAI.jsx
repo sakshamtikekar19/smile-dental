@@ -541,6 +541,16 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const centerX = (minX + maxX) / 2;
   const boxWidth = maxX - minX;
 
+  // Level 2 Alignment Baseline: Mid- Smile Arc
+  const midY = (points.reduce((sum, p) => sum + p.y, 0)) / points.length;
+  const alignmentIntensity = 0.28; // Balanced Level 2 Power
+  const shiftStrength = 0.1 + 0.2 * alignmentIntensity;
+
+  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
+  const data = imageData.data;
+  // Source buffer for anatomical warping (Unaltered pixels)
+  const sourceData = new Uint8ClampedArray(data);
+
   // ✅ SDF Masking Engine: Pre-render the teeth selection with hardware-accelerated blur
   // This replaces millions of distanceToEdge() calls with a single fast lookup map.
   const maskCanvas = document.createElement("canvas");
@@ -566,17 +576,24 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   mctx.fill();
   const maskSDF = mctx.getImageData(0, 0, boxW, boxH).data;
 
-  // 🎯 Turbo Pixel Loop (0-Geometry Pass)
+  // 🎯 Turbo Pixel Loop (Vertical Alignment + Whitening)
   for (let y = minY; y < maxY; y++) {
     const localY = y - minY;
+    
+    // Calculate vertical alignment shift for this row
+    const dy = (midY - y) * shiftStrength;
+    const sourceLocalY = Math.max(0, Math.min(boxH - 1, Math.round(localY + dy)));
+    
     for (let x = minX; x < maxX; x++) {
       const localX = x - minX;
       const i = (localY * boxW + localX) * 4;
       
       const mVal = maskSolid[i];
-      if (mVal < 128) continue; // Outside mouth shape
+      if (mVal < 128) continue; 
 
-      let r = data[i], g = data[i + 1], b = data[i + 2];
+      // Sample anatomical data from the shifted position (Level 2 Alignment)
+      const srcIdx = (sourceLocalY * boxW + localX) * 4;
+      let r = sourceData[srcIdx], g = sourceData[srcIdx + 1], b = sourceData[srcIdx + 2];
 
       const isTooth = 
         r > 80 && g > 80 && b > 65 && 
@@ -585,7 +602,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       
       if (!isTooth) continue;
 
-      // ✅ SDF Feathering: Instant lookup instead of distanceToEdge() math
+      // ✅ SDF Feathering
       const feather = maskSDF[i] / 255;
 
       // ✅ Math-Lite Effects (Approximations for speed)
@@ -648,7 +665,15 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
 
   ctx.putImageData(imageData, minX, minY);
 
-  // ✨ FINAL SOFT BLEND
+  // ✨ FINAL CLINICAL SMOOTHING & BLEND
+  ctx.save();
+  teethPath();
+  ctx.clip();
+  ctx.globalAlpha = 0.12;
+  ctx.filter = "blur(0.8px)";
+  ctx.drawImage(ctx.canvas, 0, 0);
+  ctx.restore();
+
   ctx.save();
   teethPath();
   ctx.clip();
