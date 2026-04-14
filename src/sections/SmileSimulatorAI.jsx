@@ -261,13 +261,18 @@ function getToothSegments(points, segmentCount = 6) {
 
 function loadImage(url) {
   return new Promise((resolve, reject) => {
+    if (!url) return reject(new Error("No URL provided"));
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = (err) => {
       console.error("Image load failed:", url);
       reject(new Error("Image failed to load"));
     };
-    img.crossOrigin = "anonymous"; // 🔥 important for pixel manipulation
+    // 🔥 CRITICAL FIX: Only apply anonymous CORS for remote URLs. 
+    // Applying it to local 'blob:' origins causes a security error/black screen.
+    if (!url.startsWith("blob:") && !url.startsWith("data:")) {
+      img.crossOrigin = "anonymous";
+    }
     img.src = url;
   });
 }
@@ -906,25 +911,25 @@ const SmileSimulatorAI = () => {
     try {
       setProcessingLog("Analyzing anatomy...");
 
+      // Step 1: Base Load (The ONLY time we load the source image)
+      const sourceImg = await loadImage(imageUrl);
+
       if (!_faceLandmarkerInstance) {
-        setProcessingLog("Waking up AI engine, please wait a moment...");
-        for (let i = 0; i < 10; i++) {
-          if (_faceLandmarkerInstance) break;
-          await new Promise(r => setTimeout(r, 500));
-        }
-        if (!_faceLandmarkerInstance) throw new Error("AI Engine took too long to wake up. Please refresh.");
+        setProcessingLog("Waking up AI engine...");
+        await initFaceLandmarker();
+        if (!_faceLandmarkerInstance) throw new Error("AI Engine failure.");
       }
 
       // Step 2: Detection and High-res Synchronization
       setProcessingLog("Analyzing anatomical depth...");
       
-      // ✅ Optimization 1: Downsample for ultra-fast AI detection (256px micro-target)
-      const detectTarget = await resizeImage(imageUrl, 256);
-      const detections = await _faceLandmarkerInstance.detect(await loadImage(detectTarget.url));
-      const landmarks = detections?.faceLandmarks?.[0];
+      // ✅ Speed Boost: Use an in-memory canvas for detection resize (Zero-Blob lag)
+      const detCanvas = document.createElement("canvas");
+      detCanvas.width = 256; detCanvas.height = 256;
+      detCanvas.getContext("2d").drawImage(sourceImg, 0, 0, 256, 256);
       
-      // Clean up the detection thumb immediately
-      safeRevoke(detectTarget.url);
+      const detections = await _faceLandmarkerInstance.detect(detCanvas);
+      const landmarks = detections?.faceLandmarks?.[0];
 
       if (!landmarks) {
         console.error("❌ No landmarks detected on image");
@@ -935,11 +940,10 @@ const SmileSimulatorAI = () => {
 
       if (!isCurrent()) return;
 
-      // ✅ Optimization 2: Load the high-res target once
-      const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
-      normalizedUrl = resized;
-      const img = await loadImage(normalizedUrl);
-      safeRevoke(imageUrl); // Revoke raw user upload
+      // ✅ Resolution Prep
+      const scale = Math.min(1, MAX_IMAGE_SIZE / Math.max(sourceImg.width, sourceImg.height, 1));
+      const iw = Math.round(sourceImg.width * scale);
+      const ih = Math.round(sourceImg.height * scale);
 
       const { main: canvas } = getSharedCanvases(iw, ih);
       const ctx = canvas.getContext("2d");
@@ -947,9 +951,16 @@ const SmileSimulatorAI = () => {
       canvas.width = iw;
       canvas.height = ih;
 
-      // --- STRICT PIPELINE (drawImage → whitening → braces → occlusion) ---
-      ctx.drawImage(img, 0, 0, iw, ih);
+      // Draw the raw original onto our simulation canvas
+      ctx.drawImage(sourceImg, 0, 0, iw, ih);
+      
+      // Create the normalized "Before" image Blob URL once
+      const normalizedUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.93));
+      
+      // Clean up user raw input immediately (important for mobile RAM)
+      safeRevoke(imageUrl); 
 
+      // --- SIMULATION PIPELINE ---
       if (treatment === "whitening" || treatment === "transformation" || treatment === "both") {
         applyRealWhitening(ctx, landmarks, iw, ih, 0.65);
       }
@@ -960,12 +971,10 @@ const SmileSimulatorAI = () => {
 
       if (!isCurrent()) return;
 
-
       // Step 3: Finalize Visuals
       setProcessingLog("Finalizing dental detail...");
       
-      // ✅ High-End UI touch: Use FULL images for main view comparison
-      // Optimized 0.93 quality for near-instant mobile response
+      // ✅ Export the simulated result
       const resultUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.93));
 
       if (!isCurrent()) return;
