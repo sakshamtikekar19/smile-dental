@@ -854,30 +854,38 @@ const SmileSimulatorAI = () => {
         if (!_faceLandmarkerInstance) throw new Error("AI Engine took too long to wake up. Please refresh.");
       }
 
-      // Step 1: Detect landmarks
-      setProcessingLog("Locating anatomical landmarks...");
+      // Step 2: Detection and High-res Synchronization
+      setProcessingLog("Analyzing anatomical depth...");
       const detectTarget = await resizeImage(imageUrl, 1024);
-      const landmarks = await detectLandmarks(detectTarget.url);
-      safeRevoke(detectTarget.url);
-
-      if (!landmarks) throw new Error("Face not detected. Retake photo with better lighting.");
-
-      // Step 2: High-res Overlay (Production Engine)
-      setProcessingLog("Applying clinical enhancements...");
       const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
-      safeRevoke(imageUrl);
-      normalizedUrl = resized;
+      
+      const img = await loadImage(resized);
+      // Run detection targeting the high-res context for precision
+      const detections = await _faceLandmarkerInstance.detect(img);
+      const landmarks = detections?.faceLandmarks?.[0];
+
+      if (!landmarks) {
+        console.error("❌ No landmarks detected on image");
+        setError("Face not detected. Try a clearer image.");
+        setStep("upload");
+        return;
+      }
 
       if (!isCurrent()) return;
 
       const { main: canvas } = getSharedCanvases(iw, ih);
       const ctx = canvas.getContext("2d");
+      
+      canvas.width = iw;
+      canvas.height = ih;
+
       // --- STRICT PIPELINE (drawImage → whitening → braces → occlusion) ---
-      const img = await loadImage(normalizedUrl);
       ctx.drawImage(img, 0, 0, iw, ih);
 
+      // Landmarks from MediaPipe are already normalized (0-1), which makes them 
+      // resolution-independent. Using them directly on the high-res canvas:
       if (treatment === "whitening" || treatment === "transformation" || treatment === "both") {
-        applyRealWhitening(ctx, landmarks, iw, ih);
+        applyRealWhitening(ctx, landmarks, iw, ih, 0.65);
       }
       if (treatment === "braces" || treatment === "both") {
         drawBracesOverlay(ctx, landmarks, iw, ih, bracesImageRef.current);
