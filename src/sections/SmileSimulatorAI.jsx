@@ -783,7 +783,7 @@ const SmileSimulatorAI = () => {
     // Wait for UI to be fully interactive before hitting the network for WASM
     const timer = setTimeout(() => {
       initFaceLandmarker().catch(() => { });
-    }, 1200);
+    }, 100);
     return () => {
       clearTimeout(timer);
       generationRef.current += 1;
@@ -869,21 +869,14 @@ const SmileSimulatorAI = () => {
 
       // Step 2: Detection and High-res Synchronization
       setProcessingLog("Analyzing anatomical depth...");
-      console.log("🚨 [PIPELINE] Starting treatment:", treatment);
-      const detectTarget = await resizeImage(imageUrl, 1024);
-      const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       
-      normalizedUrl = resized;
-      const img = await loadImage(normalizedUrl);
-      
-      // ONLY revoke AFTER image is safely in memory
-      safeRevoke(imageUrl);
-      safeRevoke(detectTarget.url);
-
-      // Run detection targeting the high-res context for precision
-      const detections = await _faceLandmarkerInstance.detect(img);
+      // ✅ Optimization 1: Downsample for ultra-fast AI detection (256px micro-target)
+      const detectTarget = await resizeImage(imageUrl, 256);
+      const detections = await _faceLandmarkerInstance.detect(await loadImage(detectTarget.url));
       const landmarks = detections?.faceLandmarks?.[0];
-      console.log("🚨 [PIPELINE] Landmarks found:", !!landmarks);
+      
+      // Clean up the detection thumb immediately
+      safeRevoke(detectTarget.url);
 
       if (!landmarks) {
         console.error("❌ No landmarks detected on image");
@@ -893,6 +886,12 @@ const SmileSimulatorAI = () => {
       }
 
       if (!isCurrent()) return;
+
+      // ✅ Optimization 2: Load the high-res target once
+      const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
+      normalizedUrl = resized;
+      const img = await loadImage(normalizedUrl);
+      safeRevoke(imageUrl); // Revoke raw user upload
 
       const { main: canvas } = getSharedCanvases(iw, ih);
       const ctx = canvas.getContext("2d");
@@ -914,7 +913,7 @@ const SmileSimulatorAI = () => {
       if (!isCurrent()) return;
 
       // Step 3: Dental Zoom
-      setProcessingLog("Finalizing...");
+      setProcessingLog("Finalizing result...");
       const focusBox = getTeethFocusBox(landmarks, iw, ih);
 
       // BEFORE (original)
@@ -922,30 +921,20 @@ const SmileSimulatorAI = () => {
       beforeCanvas.width = focusBox.width;
       beforeCanvas.height = focusBox.height;
       const bctx = beforeCanvas.getContext("2d");
-
-      bctx.drawImage(
-        img,
-        focusBox.x, focusBox.y, focusBox.width, focusBox.height,
-        0, 0, focusBox.width, focusBox.height
-      );
+      bctx.drawImage(img, focusBox.x, focusBox.y, focusBox.width, focusBox.height, 0, 0, focusBox.width, focusBox.height);
 
       // AFTER (processed)
       const afterCanvas = document.createElement("canvas");
       afterCanvas.width = focusBox.width;
       afterCanvas.height = focusBox.height;
       const actx = afterCanvas.getContext("2d");
+      actx.drawImage(canvas, focusBox.x, focusBox.y, focusBox.width, focusBox.height, 0, 0, focusBox.width, focusBox.height);
 
-      actx.drawImage(
-        canvas, // 🔥 USE YOUR PROCESSED CANVAS DIRECTLY
-        focusBox.x, focusBox.y, focusBox.width, focusBox.height,
-        0, 0, focusBox.width, focusBox.height
-      );
-
-      // Convert to URL
-      const bImg = beforeCanvas.toDataURL("image/jpeg", 0.95);
-      const aImg = afterCanvas.toDataURL("image/jpeg", 0.95);
-
-      if (!isCurrent()) { safeRevoke(bImg); safeRevoke(aImg); return; }
+      // ✅ Optimization 3: High-speed Blob URLs (Stop using Base64 DataURLs)
+      const [bImg, aImg] = await Promise.all([
+        new Promise(r => beforeCanvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.95)),
+        new Promise(r => afterCanvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.95))
+      ]);
 
       setBeforeImage(bImg);
       setAfterImage(aImg);
@@ -961,7 +950,6 @@ const SmileSimulatorAI = () => {
         setRawImageUrl(null);
       }
       safeRevoke(normalizedUrl);
-      safeRevoke(finalUrl);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
