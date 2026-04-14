@@ -389,13 +389,13 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
  * ENGINE 2: CLINICAL WHITENING (Color Only)
  */
 function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
-  // 🦷 Expanded indices to include full mouth corners and lower teeth arches
-  const indices = [
-    61, 146, 91, 181, 84, 182, 17, 314, 405, 321, 375, 291, // Lower arch & perimeter
-    61, 185, 40, 39, 37, 13, 267, 269, 271, 405, 291,       // Upper arch & perimeter
-    78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95 // Inner teeth
-  ];
-  const points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
+  // 🦷 ANATOMICAL INDICES (Consolidated Visible Map)
+  // We use the inner lip perimeter as the natural dental container
+  const upperArchIdx = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
+  const lowerArchIdx = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
+  const fullMouthIdx = [...upperArchIdx, ...lowerArchIdx];
+  
+  const points = fullMouthIdx.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
   const minX = Math.floor(Math.min(...xs)), maxX = Math.ceil(Math.max(...xs));
   const minY = Math.floor(Math.min(...ys)), maxY = Math.ceil(Math.max(...ys));
@@ -406,35 +406,53 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   const data = imageData.data;
   const faceScale = boxH / 100;
 
+  // 🚀 UNIFIED VISIBLE TEETH MASK (Eliminates Center Bias)
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = boxW; maskCanvas.height = boxH;
   const mctx = maskCanvas.getContext("2d");
   mctx.translate(-minX, -minY);
-  mctx.filter = `blur(${Math.round(3.5 * faceScale)}px)`;
+  
+  // Create a uniform fill mask with a very subtle edge feather
+  mctx.fillStyle = "white";
   mctx.beginPath();
   points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
   mctx.closePath();
-  mctx.fillStyle = "white"; mctx.fill();
-  const sdfData = mctx.getImageData(0, 0, boxW, boxH).data;
+  mctx.fill();
+  
+  // Use a minimal blur (2-4px) to avoid harsh polygon edges, but keep lift uniform
+  mctx.filter = `blur(${Math.max(1, Math.round(1.5 * faceScale))}px)`;
+  mctx.globalCompositeOperation = "copy";
+  mctx.drawImage(maskCanvas, 0, 0);
 
+  const maskData = mctx.getImageData(0, 0, boxW, boxH).data;
+
+  // 🧪 ENGINE CORE: Uniform Reconstruction Lift
   for (let i = 0; i < data.length; i += 4) {
+    const maskValue = maskData[i] / 255;
+    if (maskValue < 0.1) continue;
+
     let r = data[i], g = data[i + 1], b = data[i + 2];
-    const feather = sdfData[i] / 255;
-    if (feather < 0.1) continue;
-    const isTooth = r > 80 && g > 80 && b > 65 && Math.abs(r - g) < 30 && r < g * 1.12;
+    
+    // Stoichiometric Filter (Enamel Detection)
+    const isTooth = r > 70 && g > 70 && b > 55 && Math.abs(r - g) < 35 && r < g * 1.15;
     if (!isTooth) continue;
 
     const avg = (r + g + b) / 3;
-    const lift = 0.40 * feather * (intensity / 0.65);
-    r = r * 0.65 + avg * 0.35; g = g * 0.65 + avg * 0.35; b = b * 0.85 + avg * 0.15;
-    r += (255 - r) * 0.12 * lift; g += (255 - g) * 0.15 * lift; b += (255 - b) * 0.48 * lift;
+    const lift = maskValue * (intensity / 0.65); // Uniform intensity across the whole mask
+    
+    // Clinical Whitening Mix
+    r = r * 0.6 + avg * 0.4; g = g * 0.6 + avg * 0.4; b = b * 0.8 + avg * 0.2;
+    r += (255 - r) * 0.15 * lift; 
+    g += (255 - g) * 0.18 * lift; 
+    b += (255 - b) * 0.52 * lift;
 
-    const isPlaque = r > g && g > b && (r - b) > 25;
-    if (isPlaque && avg < 160) {
-      r = r * 0.85 + avg * 0.15; g = g * 0.88 + avg * 0.12; b = b * 0.95 + avg * 0.05;
-      r += (255 - r) * 0.08; g += (255 - g) * 0.08; b += (255 - b) * 0.12;
+    // Advanced Plaque/Stain Stoichiometry
+    const isStain = r > g && g > b && (r - b) > 20;
+    if (isStain && avg < 170) {
+      r = r * 0.82 + avg * 0.18; g = g * 0.85 + avg * 0.15; b = b * 0.92 + avg * 0.08;
+      r += (255 - r) * 0.1; g += (255 - g) * 0.1; b += (255 - b) * 0.15;
     }
-    if (feather < 0.3) { r *= 0.96; g *= 0.96; b *= 0.96; }
+    
     data[i] = Math.min(255, r); data[i + 1] = Math.min(255, g); data[i + 2] = Math.min(255, b);
   }
   ctx.putImageData(imageData, minX, minY);
