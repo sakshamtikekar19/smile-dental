@@ -317,9 +317,17 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   const data = imageData.data;
   const sourceData = new Uint8ClampedArray(data);
 
+  /**
+   * FIX 1: AUTO TILT CORRECTION
+   * Calculate smile tilt using mouth corners (61 & 291)
+   */
+  const lp = landmarks[61], rp = landmarks[291];
+  const tdx = (rp.x - lp.x) * w, tdy = (rp.y - lp.y) * h;
+  const tiltAngle = Math.atan2(tdy, tdx);
+
   // Parabolic Smile Arc Parameters
   const centerX = boxW / 2;
-  const smileDepth = 10 * strength; // Calibrated Curvature
+  const smileDepth = 10 * strength; 
   const localMidY = midY - minY;
 
   const maskCanvas = document.createElement("canvas");
@@ -339,16 +347,23 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
       const i = (localY * boxW + localX) * 4;
       if (maskData[i] < 128) continue;
 
-      // FIX 1 — SMILE CURVE
-      const dx = (localX - centerX) / (boxW / 2);
-      const targetLocalY = localMidY + smileDepth * (dx * dx);
+      // 🎯 SMILE CURVE + AUTO-TILT
+      const dxRel = (localX - centerX) / (boxW / 2);
+      // Incorporate tilt correction directly into target Y
+      const tiltShift = Math.tan(tiltAngle) * (localX - centerX);
+      const targetLocalY = localMidY + tiltShift + smileDepth * (dxRel * dxRel);
 
       // FIX 3 — DYNAMIC CONTROL (Adaptive Strength)
       const distance = Math.abs(targetLocalY - localY);
       const adaptiveStrength = Math.min(1, distance / 40);
-      const dy = (targetLocalY - localY) * strength * adaptiveStrength;
+      
+      // FIX 2 — TOOTH HEIGHT NORMALIZATION 
+      const verticalBias = 0.15;
+      const primaryDy = (targetLocalY - localY) * strength * adaptiveStrength;
+      const levelingDy = (targetLocalY - localY) * verticalBias;
+      const dy = primaryDy + levelingDy;
 
-      // FIX 2 — INTERPOLATION (Sub-pixel Precision)
+      // INTERPOLATION (Sub-pixel Precision)
       const floatY = localY + dy;
       const y1 = clamp(Math.floor(floatY), 0, boxH - 1);
       const y2 = clamp(y1 + 1, 0, boxH - 1);
@@ -368,6 +383,14 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   ctx.save();
   ctx.globalAlpha = 0.1;
   ctx.filter = "blur(0.6px)";
+  ctx.drawImage(ctx.canvas, 0, 0);
+  ctx.restore();
+
+  // 🦷 EDGE BRIGHTENING (SUBTLE PREMIUM RADIANCE)
+  ctx.save();
+  ctx.globalCompositeOperation = "overlay";
+  ctx.globalAlpha = 0.08;
+  ctx.filter = "blur(1px)";
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 }
