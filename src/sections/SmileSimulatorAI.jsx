@@ -504,7 +504,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
 
   const faceScale = (maxY - minY) / 100;
 
-  // 🎯 Pixel Whitening Loop (Neutral-Lift Engine - Full Coverage)
+  // 🎯 Pixel Whitening Loop (Neutral-Boost Engine - Full Coverage)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
       if (!isInside(x, y, points)) continue;
@@ -512,9 +512,9 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       const i = (y * w + x) * 4;
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
-      // 👉 PREVENT WHITENING INSIDE MOUTH SHADOWS (Luminance Guard)
-      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (luminance < 80) continue; 
+      // ✨ STEP 1: STRICT TEETH MASK
+      const isTooth = r > 120 && g > 120 && b > 100 && Math.abs(r - g) < 40;
+      if (!isTooth) continue;
 
       const segmentIndex = segments.findIndex(s => x >= s.start && x <= s.end);
       if (segmentIndex === -1) continue;
@@ -523,17 +523,17 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       const edgeDist = distanceToEdge(x, y, points);
       const feather = Math.min(1, edgeDist / (4 * faceScale));
 
-      // ✨ STEP 1: REMOVE YELLOW (Pull toward neutral)
+      // ✨ STEP 4: FIX COLOR BALANCE
       const avg = (r + g + b) / 3;
-      r = r * 0.85 + avg * 0.15;
-      g = g * 0.85 + avg * 0.15;
-      b = b * 0.90 + avg * 0.10;
+      r = r * 0.8 + avg * 0.2;
+      g = g * 0.8 + avg * 0.2;
+      b = b * 0.9 + avg * 0.1;
 
-      // ✨ STEP 2: CONTROLLED WHITENING
-      const lift = 0.35 * feather;
-      r += (255 - r) * 0.10 * lift;
-      g += (255 - g) * 0.10 * lift;
-      b += (255 - b) * 0.25 * lift;
+      // ✨ STEP 3: BOOST INTENSITY
+      const lift = 0.55 * feather;
+      r += (255 - r) * 0.12 * lift;
+      g += (255 - g) * 0.12 * lift;
+      b += (255 - b) * 0.35 * lift;
 
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
@@ -543,12 +543,12 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
 
   ctx.putImageData(imageData, 0, 0);
 
-  // ✨ FINAL SMOOTH BLUR (Clipped to enamel)
+  // ✨ FINAL SOFT BLEND (Temp: Blur removed to check raw issues)
   ctx.save();
   teethPath();
   ctx.clip();
   ctx.globalAlpha = 0.12;
-  ctx.filter = "blur(1px)";
+  // ctx.filter = "blur(1px)"; // REMOVED PER REQ
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
