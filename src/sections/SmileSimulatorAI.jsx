@@ -505,12 +505,9 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const faceScale = (maxY - minY) / 100;
   const baseIntensity = intensity;
 
-  // ⚡ Performance optimization: Pixel skipping for mobile previews
-  const skip = IS_MOBILE ? 2 : 1;
-
-  // 🎯 Pixel Whitening Loop (Hollywood Luminance Engine)
-  for (let y = minY; y < maxY; y += skip) {
-    for (let x = minX; x < maxX; x += skip) {
+  // 🎯 Pixel Whitening Loop (Hollywood Luminance Engine - Full Coverage)
+  for (let y = minY; y < maxY; y++) {
+    for (let x = minX; x < maxX; x++) {
       if (!isInside(x, y, points)) continue;
 
       const i = (y * w + x) * 4;
