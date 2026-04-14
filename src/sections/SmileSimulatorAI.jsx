@@ -319,7 +319,7 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
 
   // Parabolic Smile Arc Parameters
   const centerX = boxW / 2;
-  const smileDepth = 12 * strength; // Natural Curvature Multiplier
+  const smileDepth = 10 * strength; // Calibrated Curvature
   const localMidY = midY - minY;
 
   const maskCanvas = document.createElement("canvas");
@@ -339,22 +339,34 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
       const i = (localY * boxW + localX) * 4;
       if (maskData[i] < 128) continue;
 
-      // 🎯 Anatomical Curve: Calculate target Y on the Parabolic Smile Arc
+      // FIX 1 — SMILE CURVE
       const dx = (localX - centerX) / (boxW / 2);
       const targetLocalY = localMidY + smileDepth * (dx * dx);
-      
-      const dy = (targetLocalY - localY) * strength;
-      const srcLocalY = Math.max(0, Math.min(boxH - 1, Math.round(localY + dy)));
-      const srcIdx = (srcLocalY * boxW + localX) * 4;
-      
-      data[i] = sourceData[srcIdx];
-      data[i + 1] = sourceData[srcIdx + 1];
-      data[i + 2] = sourceData[srcIdx + 2];
+
+      // FIX 3 — DYNAMIC CONTROL (Adaptive Strength)
+      const distance = Math.abs(targetLocalY - localY);
+      const adaptiveStrength = Math.min(1, distance / 40);
+      const dy = (targetLocalY - localY) * strength * adaptiveStrength;
+
+      // FIX 2 — INTERPOLATION (Sub-pixel Precision)
+      const floatY = localY + dy;
+      const y1 = clamp(Math.floor(floatY), 0, boxH - 1);
+      const y2 = clamp(y1 + 1, 0, boxH - 1);
+      const t = floatY - y1;
+
+      const idx1 = (y1 * boxW + localX) * 4;
+      const idx2 = (y2 * boxW + localX) * 4;
+
+      data[i]     = sourceData[idx1] * (1 - t) + sourceData[idx2] * t;
+      data[i + 1] = sourceData[idx1 + 1] * (1 - t) + sourceData[idx2 + 1] * t;
+      data[i + 2] = sourceData[idx1 + 2] * (1 - t) + sourceData[idx2 + 2] * t;
     }
   }
   ctx.putImageData(imageData, minX, minY);
+
+  // FINAL TOUCH — ANATOMICAL BLENDING
   ctx.save();
-  ctx.globalAlpha = 0.12;
+  ctx.globalAlpha = 0.1;
   ctx.filter = "blur(0.6px)";
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
