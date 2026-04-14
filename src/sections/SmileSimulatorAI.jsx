@@ -500,7 +500,7 @@ function getSharedCanvas(iw, ih) {
 }
 
 const SmileSimulatorAI = () => {
-  const [step, setStep] = useState("upload");
+  const [step, setStep] = useState("camera"); // 🔥 Live-Only by default
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
   const [activeTreatment, setActiveTreatment] = useState("whitening");
   const [beforeImage, setBeforeImage] = useState(null);
@@ -523,12 +523,20 @@ const SmileSimulatorAI = () => {
   const bracesImageRef = useRef(null);
   const zoomCanvasRef = useRef(null);
 
+  // Auto-start camera on mount for instant simulation
   useEffect(() => {
     const img = new Image();
     const base = import.meta.env.BASE_URL || "/";
     img.src = `${base}assets/bracket.png`.replace(/\/\//g, '/');
     img.onload = () => { bracesImageRef.current = img; };
-    initFaceLandmarker().catch(() => { });
+    
+    initFaceLandmarker().then(() => {
+      startCamera();
+    }).catch(() => {
+      setError("AI Engine failed to initialize. Please check camera permissions.");
+    });
+
+    return () => stopCamera();
   }, []);
 
   const detectionLoop = useCallback(async () => {
@@ -571,10 +579,19 @@ const SmileSimulatorAI = () => {
   const startCamera = async () => {
     setStep("camera");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }, 
+        audio: false 
+      });
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
-    } catch { setStep("upload"); }
+    } catch (err) { 
+      setError("Camera access denied. Please enable camera to use the simulator.");
+    }
   };
 
   const stopCamera = () => {
@@ -582,7 +599,13 @@ const SmileSimulatorAI = () => {
   };
 
   const reset = () => {
-    generationRef.current += 1; stopCamera(); setStep("upload"); setBeforeImage(null); setAfterImage(null); setFinalLandmarks(null); setIsProcessing(false); setRawImageUrl(null);
+    generationRef.current += 1; 
+    setAfterImage(null); 
+    setFinalLandmarks(null); 
+    setIsProcessing(false); 
+    setRawImageUrl(null);
+    setStep("camera");
+    startCamera();
   };
 
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
@@ -613,6 +636,7 @@ const SmileSimulatorAI = () => {
       setBeforeImage(snapshotUrl);
       setFinalLandmarks(landmarks);
       setStep("result");
+      stopCamera();
 
       setZoomLoading(true);
       setTimeout(() => {
@@ -636,66 +660,39 @@ const SmileSimulatorAI = () => {
     return () => clearTimeout(timer);
   }, [rawImageUrl, isProcessing, startHeavyProcessingPipeline]);
 
-  const onFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    pendingTreatmentRef.current = selectedTreatment;
-    setActiveTreatment(selectedTreatment);
-    setRawImageUrl(URL.createObjectURL(file));
-    setIsProcessing(true);
-  };
-
   return (
     <section id="simulator" className="relative py-24 bg-white overflow-hidden">
       <div className="container mx-auto px-4 max-w-6xl">
         <AnimatedSection className="text-center mb-16">
-          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">Smile Simulator</h2>
-          <p className="text-zinc-500 max-w-2xl mx-auto text-lg">Experience your dental potential with our clinical-grade AI simulation.</p>
+          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">Live Smile Preview</h2>
+          <p className="text-zinc-500 max-w-2xl mx-auto text-lg italic">Instant clinical-grade dental simulation.</p>
         </AnimatedSection>
 
-        <div className="max-w-4xl mx-auto rounded-[40px] p-4 md:p-8 flex flex-col justify-center">
+        <div className="max-w-4xl mx-auto rounded-[40px] overflow-hidden flex flex-col justify-center">
           <AnimatePresence mode="wait">
-            {step === "upload" && (
-              <motion.div key="upload" 
-                initial={{ opacity: 0, scale: 0.98 }} 
-                animate={{ opacity: 1, scale: 1 }} 
-                exit={{ opacity: 0, scale: 0.98 }} 
-                className="space-y-6"
-              >
-                <div className="grid grid-cols-1 gap-6">
-                  {/* Live Camera card */}
-                  <motion.button 
-                    onClick={startCamera}
-                    whileTap={{ scale: 0.98 }}
-                    className="group relative h-60 bg-white rounded-[32px] border-2 border-dashed border-zinc-200 transition-all flex flex-col items-center justify-center gap-4"
-                  >
-                    <div className="w-16 h-16 rounded-full bg-zinc-50 flex items-center justify-center group-hover:bg-zinc-100 transition-colors">
-                      <Camera size={32} className="text-zinc-400" />
-                    </div>
-                    <span className="font-medium text-zinc-500 text-lg">Live Camera</span>
-                  </motion.button>
-
-                  {/* Upload card */}
-                  <label className="group relative h-60 bg-white rounded-[32px] border-2 border-dashed border-zinc-200 transition-all cursor-pointer flex flex-col items-center justify-center gap-4">
-                    <input type="file" accept="image/*" onChange={onFileChange} className="hidden" />
-                    <div className="w-16 h-16 rounded-full bg-zinc-50 flex items-center justify-center group-hover:bg-zinc-100 transition-colors">
-                      <Info size={32} className="text-zinc-400" />
-                    </div>
-                    <span className="font-medium text-zinc-500 text-lg">Upload Photo</span>
-                  </label>
-                </div>
-              </motion.div>
-            )}
-
             {step === "camera" && (
-              <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative rounded-3xl overflow-hidden bg-black aspect-[3/4] md:aspect-video shadow-2xl">
+              <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative aspect-[3/4] md:aspect-video bg-black shadow-2xl rounded-[32px] overflow-hidden">
                 <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-                <div className="absolute top-6 left-6 right-6 flex justify-between items-center z-10">
-                  <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/20"><p className="text-white text-xs font-bold uppercase tracking-wider">Live Preview: {selectedTreatment}</p></div>
-                  <button onClick={reset} className="p-3 bg-black/40 backdrop-blur-md text-white rounded-full border border-white/20 hover:bg-white/10 transition-colors"><X size={20} /></button>
+                
+                {/* Real-time Treatment Dock */}
+                <div className="absolute top-6 left-1/2 -translate-x-1/2 z-10 flex gap-4 bg-black/30 backdrop-blur-xl p-2 rounded-full border border-white/10">
+                  {TREATMENTS.map(t => (
+                    <button 
+                      key={t.id} 
+                      onClick={() => setSelectedTreatment(t.id)}
+                      className={cn(
+                        "w-12 h-12 rounded-full flex items-center justify-center transition-all",
+                        selectedTreatment === t.id ? "bg-white scale-110 shadow-lg" : "bg-black/20 text-white/60 hover:bg-black/40"
+                      )}
+                    >
+                      <span className="text-[10px] font-bold uppercase tracking-tighter">{t.label[0]}</span>
+                    </button>
+                  ))}
                 </div>
-                <div className="absolute bottom-10 left-0 right-0 flex justify-center z-10">
+
+                <div className="absolute bottom-10 left-0 right-0 flex flex-col items-center gap-6 z-10">
+                  <p className="text-white/70 text-[10px] uppercase tracking-[0.3em] font-bold drop-shadow-md">Capture Your Future Smile</p>
                   <button onClick={() => {
                     const canvas = canvasRef.current;
                     if (canvas) {
@@ -704,45 +701,60 @@ const SmileSimulatorAI = () => {
                       setRawImageUrl(canvas.toDataURL("image/jpeg", 0.95));
                       setIsProcessing(true);
                     }
-                  }} className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center group active:scale-95 transition-transform"><div className="h-14 w-14 rounded-full bg-white group-hover:bg-brand-gold transition-colors" /></button>
+                  }} className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center group active:scale-95 transition-transform">
+                    <div className="h-14 w-14 rounded-full bg-white group-hover:bg-brand-gold transition-colors" />
+                  </button>
                 </div>
               </motion.div>
             )}
 
             {isProcessing && (
-              <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-white/90 backdrop-blur-lg">
-                <div className="text-center max-w-xs">
-                  <div className="relative w-24 h-24 mx-auto mb-8">
-                    <motion.div className="absolute inset-0 border-4 border-zinc-100 rounded-full" />
-                    <motion.div className="absolute inset-0 border-4 border-brand-gold rounded-full border-t-transparent" animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }} />
-                    <motion.div className="absolute inset-0 flex items-center justify-center" animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 2, repeat: Infinity }}><WhiteningIcon /></motion.div>
-                  </div>
-                  <h3 style={{ fontFamily: "'Playfair Display', serif" }} className="text-2xl mb-2">Designing Your Smile</h3>
-                  <p className="text-zinc-400 text-sm animate-pulse tracking-wide uppercase font-bold">{processingLog || "Analyzing landmarks..."}</p>
+              <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-20 px-8">
+                <div className="w-24 h-24 mx-auto mb-8 relative">
+                   <div className="absolute inset-0 border-4 border-zinc-100 rounded-full" />
+                   <div className="absolute inset-0 border-4 border-brand-gold rounded-full border-t-transparent animate-spin" />
                 </div>
+                <h3 className="text-2xl font-serif text-zinc-900 mb-2">{processingLog}</h3>
+                <p className="text-zinc-400 text-sm">Our clinical AI is reconstructing your smile profile...</p>
               </motion.div>
             )}
 
-            {step === "result" && (
-              <motion.div key="result" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
-                <div className="relative rounded-[32px] overflow-hidden shadow-2xl border-4 border-white bg-zinc-200">
-                  <ReactCompareImage leftImage={beforeImage} rightImage={afterImage} sliderLineColor="#D4AF37" sliderLineWidth={3} handleSize={40} />
+            {step === "result" && afterImage && (
+              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="space-y-8">
+                <div className="relative rounded-[40px] overflow-hidden shadow-2xl bg-white border border-zinc-100">
+                  <ReactCompareImage 
+                    leftImage={beforeImage} 
+                    rightImage={afterImage} 
+                    leftImageLabel="Before" 
+                    rightImageLabel="After"
+                    sliderLineColor="#D4AF37"
+                    handleSize={40}
+                  />
                 </div>
-                <div className="flex flex-col items-center gap-4">
-                  <div className="relative w-64 h-40 rounded-2xl overflow-hidden border-2 border-brand-gold shadow-xl bg-zinc-950">
-                    {zoomLoading && <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/50 backdrop-blur-sm z-10"><RefreshCw className="animate-spin text-brand-gold" /></div>}
-                    <canvas ref={zoomCanvasRef} className="w-full h-full object-cover" />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8">
+                  <div className="bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm">
+                    <h4 className="text-xs uppercase tracking-widest text-zinc-400 font-bold mb-6">Teeth Detail View</h4>
+                    <div className="aspect-square bg-zinc-50 rounded-2xl overflow-hidden relative border border-zinc-100">
+                      {zoomLoading ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-20">
+                          <RefreshCw className="animate-spin text-brand-gold" size={24} />
+                        </div>
+                      ) : null}
+                      <canvas ref={zoomCanvasRef} className="w-full h-full object-cover" />
+                    </div>
                   </div>
-                  <p className="text-[10px] text-zinc-400 font-bold tracking-widest uppercase">Clinical Detail Zoom</p>
-                </div>
-                <div className="bg-white p-8 rounded-[40px] shadow-xl border border-zinc-100 flex flex-col md:flex-row items-center justify-between gap-8">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center text-green-500"><CheckCircle2 size={24} /></div>
-                    <div><h4 className="font-serif text-xl">Simulation Ready</h4><p className="text-zinc-500 text-sm capitalize">{activeTreatment} result complete</p></div>
-                  </div>
-                  <div className="flex gap-4 w-full md:w-auto">
-                    <button onClick={reset} className="flex-1 md:px-8 py-4 rounded-2xl border-2 border-zinc-200 font-bold hover:border-zinc-400 transition-colors">Try Another</button>
-                    <button className="flex-1 md:px-10 py-4 rounded-2xl bg-zinc-950 text-white font-bold shadow-xl shadow-zinc-200 hover:scale-105 transition-transform">Book Consultation</button>
+
+                  <div className="flex flex-col justify-center space-y-6">
+                    <div className="inline-flex items-center gap-3 px-4 py-2 bg-brand-gold/10 text-brand-gold rounded-full w-fit">
+                      <CheckCircle2 size={18} />
+                      <span className="text-xs font-bold uppercase tracking-wider">{activeTreatment} Complete</span>
+                    </div>
+                    <h3 className="text-4xl font-serif text-zinc-900">Professional Grade Results</h3>
+                    <p className="text-zinc-500 leading-relaxed">Our clinical-grade AI has successfully simulated your transformation using anatomical tooth alignment and stoichiometric whitening.</p>
+                    <div className="flex gap-4 pt-4">
+                      <button onClick={reset} className="px-8 py-4 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-black transition-all flex-1">New Simulation</button>
+                    </div>
                   </div>
                 </div>
               </motion.div>
