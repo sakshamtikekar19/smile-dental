@@ -476,131 +476,61 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- FORCED DEBUG WHITENING ENGINE (Step 3) ---
-function applyForcedWhitening(ctx, landmarks, rw, rh) {
-  if (!landmarks || landmarks.length === 0) return;
-  
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  ctx.fillStyle = "rgba(255,255,255,0.4)"; // Forced white brighten
-
-  ctx.beginPath();
-  // Inner lip indices for teeth masking
+// --- PRODUCTION HELPER MAPPING (Pillar: Precision UI) ---
+function getTeethPoints(landmarks) {
   const toothIndices = [
     61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 
     308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78
   ];
+  return toothIndices.map(idx => landmarks[idx]).filter(Boolean);
+}
 
-  toothIndices.forEach((idx, i) => {
-    const p = landmarks[idx];
-    if (p) {
-      const x = p.x * rw, y = p.y * rh;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
+function getMouthBoundingBox(landmarks, w, h) {
+  const pts = getTeethPoints(landmarks);
+  if (pts.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+  
+  let minX = 1, maxX = 0, minY = 1, maxY = 0;
+  pts.forEach(p => {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
   });
+  
+  // Padding to ensure braces cover the anatomy properly
+  const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.1;
+  return {
+    x: (minX - padX) * w,
+    y: (minY - padY) * h,
+    width: (maxX - minX + 2 * padX) * w,
+    height: (maxY - minY + 2 * padY) * h
+  };
+}
 
+// --- PRODUCTION WHITENING OVERLAY (Step 2) ---
+function applyWhiteningOverlay(ctx, landmarks, w, h) {
+  const pts = getTeethPoints(landmarks);
+  if (pts.length === 0) return;
+
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+
+  ctx.beginPath();
+  pts.forEach((pt, i) => {
+    const x = pt.x * w, y = pt.y * h;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
   ctx.closePath();
   ctx.fill();
-  ctx.globalCompositeOperation = "source-over";
   ctx.restore();
 }
 
-// Load bracket asset once with robust fallbacks
-let _bracketImg = null;
-const getBracketImg = async () => {
-  if (_bracketImg) return _bracketImg;
-  
-  const base = import.meta.env.BASE_URL || "/";
-  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-  
-  const paths = [
-    `${normalizedBase}assets/bracket.png`.replace(/\/\//g, '/'),
-    "assets/bracket.png",
-    "/smile-dental/assets/bracket.png",
-    "/assets/bracket.png"
-  ];
-  
-  for (const p of paths) {
-    try {
-      _bracketImg = await loadImage(p);
-      if (_bracketImg) {
-        console.log("Successfully loaded bracket from:", p);
-        return _bracketImg;
-      }
-    } catch (e) {
-      console.warn(`Failed to load bracket from ${p}, trying next...`);
-    }
-  }
-  
-  console.error("All bracket loading attempts failed.");
-  return null; 
-};
-
-// --- ANATOMICAL BRACES ENGINE (Mandate: Professional Bracket Overlay) ---
-const drawBracesOverlay = async (ctx, landmarks, rw, rh) => {
-  ctx.save();
-  ctx.globalCompositeOperation = 'source-over';
-  const left = landmarks[78], mid = landmarks[13], right = landmarks[308];
-  if (!left || !mid || !right) { ctx.restore(); return; }
-  
-  // 1. Precise Archwire
-  ctx.beginPath();
-  ctx.strokeStyle = 'rgba(180, 180, 180, 0.8)'; 
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
-  ctx.moveTo(left.x * rw, left.y * rh);
-  ctx.quadraticCurveTo(mid.x * rw, (mid.y * rh) + 8, right.x * rw, right.y * rh);
-  ctx.stroke();
-
-  // 2. High-Fidelity Brackets
-  const bracketImg = await getBracketImg().catch(() => null);
-  const bracketPoints = [191, 80, 81, 82, 13, 312, 311, 310, 415];
-  
-  for (const idx of bracketPoints) {
-    const p = landmarks[idx];
-    if (p) {
-      const x = p.x * rw, y = p.y * rh;
-      if (bracketImg) {
-        // Draw real bracket asset
-        const sz = rw * 0.025; // Dynamic sizing based on image resolution
-        ctx.drawImage(bracketImg, x - sz/2, y - sz/2, sz, sz);
-      } else {
-        // Fallback to high-quality procedural bracket
-        ctx.fillStyle = '#D3D3D3';
-        ctx.fillRect(x - 4, y - 4, 8, 8);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-        ctx.fillRect(x - 2, y - 2, 2, 2);
-      }
-    }
-  }
-
-  // ✅ STEP 4: Force braces test (Fixed position)
-  if (bracketImg) {
-    ctx.drawImage(bracketImg, 100, 200, 100, 100);
-  } else {
-    ctx.fillStyle = "blue";
-    ctx.fillRect(100, 200, 100, 100);
-  }
-
-  ctx.restore();
-};
-
-// --- CLINICAL SIMULATION WRAPPER ---
-const renderClinicalSimulation = async (ctx, canvas, landmarks, treatment, rw, rh) => {
-  console.log("Rendering:", treatment);
-
-  // 1. Pixel Surgery First
-  if (treatment === "whitening" || treatment === "both") {
-    applyWhiteningToCanvas(ctx, canvas, landmarks);
-  }
-
-  // 2. Braces on top (MUST await because of bracketImg loading)
-  if (treatment === "braces" || treatment === "both") {
-    console.log('BRACES CALLED');
-    await drawAnatomicalBraces(ctx, landmarks, rw, rh);
-  }
-};
+// --- PRODUCTION BRACES OVERLAY (Step 3) ---
+function drawBracesOverlay(ctx, landmarks, w, h, bracesImage) {
+  if (!bracesImage || !bracesImage.complete) return;
+  const box = getMouthBoundingBox(landmarks, w, h);
+  ctx.drawImage(bracesImage, box.x, box.y, box.width, box.height);
+}
 
 // --- AI SPLIT-ENGINE (Mandate: Production-Grade Post-Processing) ---
 const REPLICATE_API_TOKEN = import.meta.env.VITE_REPLICATE_API_TOKEN;
@@ -888,6 +818,7 @@ const SmileSimulatorAI = () => {
   const requestRef = useRef(null);
   const renderRequestRef = useRef(null);
   const selectedTreatmentRef = useRef(selectedTreatment);
+  const bracesImageRef = useRef(null);
 
   // --- REAL-TIME DETECTION LOOP (Pillar: Precision Sync) ---
   const detectionLoop = useCallback(async () => {
@@ -908,8 +839,8 @@ const SmileSimulatorAI = () => {
     if (step === "camera") requestRef.current = requestAnimationFrame(detectionLoop);
   }, [step]);
 
-  // --- REAL-TIME RENDER LOOP (Pillar: Precision UI) ---
-  const renderLoop = useCallback(async () => {
+  // --- PRODUCTION READY RENDER LOOP ---
+  const renderLoop = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
 
@@ -925,32 +856,39 @@ const SmileSimulatorAI = () => {
 
     const ctx = canvas.getContext("2d");
 
-    // ✅ STEP 1: draw fresh frame
+    // ✅ 1. Draw video
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // ✅ DIAGNOSTIC: Confirm canvas is updating
-    ctx.fillStyle = "red";
-    ctx.fillRect(10, 10, 50, 50);
-
-    // ✅ STEP 2 & 3: MODIFY PIXELS / APPLY FORCED WHITENING
+    // ✅ 2. Apply whitening (NO getImageData)
     if (latestLandmarksRef.current) {
       const treatment = selectedTreatmentRef.current;
       if (treatment === "whitening" || treatment === "both") {
-        applyForcedWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
+        applyWhiteningOverlay(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
       }
     }
 
-    // ✅ STEP 4: DRAW BRACES ON TOP
+    // ✅ 3. Draw braces (NO await)
     if (latestLandmarksRef.current) {
       const treatment = selectedTreatmentRef.current;
       if (treatment === "braces" || treatment === "both") {
-        console.log('BRACES CALLED');
-        await drawBracesOverlay(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
+        // console.log('BRACES CALLED');
+        drawBracesOverlay(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
       }
     }
 
-    if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
+    if (step === "camera") {
+      renderRequestRef.current = requestAnimationFrame(renderLoop);
+    }
   }, [step]);
+
+  // Pre-load braces asset for production high-speed loop
+  useEffect(() => {
+    const img = new Image();
+    const base = import.meta.env.BASE_URL || "/";
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+    img.src = `${normalizedBase}assets/bracket.png`.replace(/\/\//g, '/');
+    img.onload = () => { bracesImageRef.current = img; };
+  }, []);
 
   useEffect(() => {
     if (step === "camera") {
