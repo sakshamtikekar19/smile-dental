@@ -82,7 +82,7 @@ function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-const MAX_IMAGE_SIZE = IS_MOBILE ? 2048 : 4096; // ⚡ High-fidelity desktop, high-speed mobile
+const MAX_IMAGE_SIZE = IS_MOBILE ? 1024 : 1600; // ⚡ Turbo-speed performance targets (Zero-Lag)
 const FACE_DETECT_TIMEOUT_MS = 18_000;
 const AI_FETCH_TIMEOUT_MS = 75_000;
 const MOUTH_PERIMETER_INDICES = [61, 291, 17, 13, 14, 78, 308, 181];
@@ -948,7 +948,8 @@ const SmileSimulatorAI = () => {
       renderTeethZoom(zoomCanvasRef.current, canvas, focusBox);
 
       // ✅ High-End UI touch: Use FULL images for main view comparison
-      const finalUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.98));
+      // Optimized 0.93 quality for near-instant mobile response
+      const finalUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.93));
 
       setBeforeImage(normalizedUrl);
       setAfterImage(finalUrl);
