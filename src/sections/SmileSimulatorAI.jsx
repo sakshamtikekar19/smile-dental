@@ -522,36 +522,35 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
-      // ✅ 1. Surgical Enamel Lock (Prevents bleeding onto Lips/Gums)
-      // Teeth are neutral (R≈G); Lips/Gums are reddish (R > G).
+      // ✅ 1. Surgical Enamel Lock (Surgical Pink-Guard)
       const isTooth = 
-        r > 85 && g > 85 && b > 75 && 
-        Math.abs(r - g) < 25 && 
-        r < g * 1.15; 
+        r > 80 && g > 80 && b > 65 && 
+        Math.abs(r - g) < 30 && 
+        r < g * 1.12; // 👄 Strict Gum/Lip Exclusion
       
       if (!isTooth) continue;
 
-      // ✅ 2. Surgical Feathering (No safety at mask edges)
+      // ✅ 2. Surgical Feathering
       const edgeDist = distanceToEdge(x, y, points);
-      const feather = Math.min(1, edgeDist / (3.5 * faceScale));
+      const feather = Math.min(1, edgeDist / (3.2 * faceScale));
 
       // ✅ 3. Balanced Power Lift + Micro Variation + Center Focus
       const avg = (r + g + b) / 3;
       const variation = (Math.sin(x * 0.3 + y * 0.3) + 1) * 0.5;
-      const lift = 0.38 * feather * (0.85 + 0.3 * variation);
+      const lift = 0.40 * feather * (0.85 + 0.3 * variation);
       
       const centerFactor = Math.exp(-Math.pow((x - centerX) / boxWidth, 2));
-      const finalLift = lift * (0.9 + 0.2 * centerFactor);
+      const finalLift = lift * (0.85 + 0.3 * centerFactor);
 
-      // Controlled Neutralization (Aggressive Anti-Yellow)
-      r = r * 0.78 + avg * 0.22;
-      g = g * 0.78 + avg * 0.22;
-      b = b * 0.88 + avg * 0.12;
+      // Hollywood Neutralization (Clinical Anti-Yellow - 35% Pull)
+      r = r * 0.65 + avg * 0.35;
+      g = g * 0.65 + avg * 0.35;
+      b = b * 0.85 + avg * 0.15;
 
-      // Whitening (Blue-Radiance - Toned slightly for safety)
+      // Hollywood Whitening (Max Icy-White Radiance)
       r += (255 - r) * 0.12 * finalLift;
-      g += (255 - g) * 0.12 * finalLift;
-      b += (255 - b) * 0.32 * finalLift;
+      g += (255 - g) * 0.15 * finalLift;
+      b += (255 - b) * 0.48 * finalLift;
 
       // ✅ 4. Edge Depth (High-Definition Definition)
       const edgeFactor = Math.min(1, edgeDist / 10);
@@ -566,19 +565,19 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
 
   ctx.putImageData(imageData, minX, minY);
 
-  // ✨ FINAL SOFT BLEND (Sharpened for High-Definition)
+  // ✨ FINAL SOFT BLEND
   ctx.save();
   teethPath();
   ctx.clip();
-  ctx.globalAlpha = 0.08;
-  ctx.filter = "blur(0.3px)"; 
+  ctx.globalAlpha = 0.06;
+  ctx.filter = "blur(0.2px)"; 
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
-  // ✅ Upgrade 2: Enamel Shine Layer (Premium gloss)
+  // ✅ Upgrade 2: Enamel Shine Layer (Premium Gloss - Boosted)
   ctx.save();
   ctx.globalCompositeOperation = "soft-light";
-  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillStyle = "rgba(255,255,255,0.11)";
   teethPath();
   ctx.fill();
   ctx.restore();
