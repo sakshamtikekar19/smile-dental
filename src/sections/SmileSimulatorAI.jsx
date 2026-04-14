@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, X, CheckCircle2, Info, RefreshCw, Play } from "lucide-react";
+import { Camera, X, CheckCircle2, Info, RefreshCw } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
-import PremiumButton from "../components/PremiumButton";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
-import { applyBracesOverlayFixed } from "../utils/bracesOverlayFixed";
-import { generateTeethPath, getTightenedWhiteningMaskPoints } from "../utils/teethWhitenMaskPath";
 
 // ── Environment ──────────────────────────────────────────────────────────────
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -380,66 +377,6 @@ function ellipseWeight(px, py, oval, feather) {
 }
 
 /**
- * Run the pixel-heavy work in a Web Worker.
- * Returns a promise that resolves to a blob URL of the processed image.
- */
-function runWorkerProcessing(imageSrc, treatment, landmarks, onProgress) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const img = await loadImage(imageSrc);
-      const { width: iw, height: ih } = img;
-      const canvas = document.createElement("canvas");
-      canvas.width = iw; canvas.height = ih;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, iw, ih);
-
-      let worker;
-      try {
-        worker = new Worker(new URL("../utils/smileProcessor.worker.js", import.meta.url), { type: "module" });
-      } catch (workerErr) {
-        // Fallback: resolve with original image if Worker fails to initialize
-        console.warn("Worker init failed, returning original:", workerErr);
-        resolve(imageSrc);
-        return;
-      }
-
-      const timeout = setTimeout(() => {
-        worker.terminate();
-        reject(new Error("Processing timed out. Please try a smaller photo."));
-      }, 60_000);
-
-      worker.onmessage = (e) => {
-        const { type, imageData: resultData, log, message } = e.data;
-        if (type === "PROGRESS") { onProgress?.(log); return; }
-        clearTimeout(timeout);
-        worker.terminate();
-        if (type === "ERROR") { reject(new Error(message)); return; }
-        // DONE: convert ImageData back to blob URL
-        const outCanvas = document.createElement("canvas");
-        outCanvas.width = resultData.width;
-        outCanvas.height = resultData.height;
-        outCanvas.getContext("2d").putImageData(resultData, 0, 0);
-        outCanvas.toBlob(blob => resolve(URL.createObjectURL(blob)), "image/jpeg", 0.98);
-      };
-
-      worker.onerror = (e) => {
-        clearTimeout(timeout);
-        worker.terminate();
-        reject(new Error(e.message || "Worker crashed"));
-      };
-
-      worker.postMessage(
-        { type: "PROCESS", imageData, treatment, landmarks },
-        [imageData.data.buffer]  // transfer buffer (zero-copy)
-      );
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
-/**
  * Crop a region of an image to a blob URL (fast, main thread OK).
  */
 async function cropRegion(imageSrc, rect) {
@@ -477,19 +414,22 @@ function getSharedCanvases(iw, ih) {
 }
 
 // --- PRODUCTION HELPER MAPPING (Pillar: Precision UI) ---
-function getTeethPoints(landmarks) {
-  const toothIndices = [
-    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 
-    308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78
+function getTeethPoints(landmarks, w, h) {
+  const innerMouthIndices = [
+    78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308
   ];
-  return toothIndices.map(idx => landmarks[idx]).filter(Boolean);
+
+  return innerMouthIndices.map(idx => ({
+    x: landmarks[idx].x * w,
+    y: landmarks[idx].y * h
+  }));
 }
 
 function getMouthBoundingBox(landmarks, w, h) {
-  const pts = getTeethPoints(landmarks);
+  const pts = getTeethPoints(landmarks, w, h);
   if (pts.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
   
-  let minX = 1, maxX = 0, minY = 1, maxY = 0;
+  let minX = w, maxX = 0, minY = h, maxY = 0;
   pts.forEach(p => {
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
@@ -498,30 +438,30 @@ function getMouthBoundingBox(landmarks, w, h) {
   // Padding to ensure braces cover the anatomy properly
   const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.1;
   return {
-    x: (minX - padX) * w,
-    y: (minY - padY) * h,
-    width: (maxX - minX + 2 * padX) * w,
-    height: (maxY - minY + 2 * padY) * h
+    x: minX - padX,
+    y: minY - padY,
+    width: (maxX - minX) + 2 * padX,
+    height: (maxY - minY) + 2 * padY
   };
 }
 
 // --- PRODUCTION WHITENING OVERLAY (Step 2) ---
 function applyWhiteningOverlay(ctx, landmarks, w, h) {
-  const pts = getTeethPoints(landmarks);
-  if (pts.length === 0) return;
+  const points = getTeethPoints(landmarks, w, h);
 
   ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
+
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
 
   ctx.beginPath();
-  pts.forEach((pt, i) => {
-    const x = pt.x * w, y = pt.y * h;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  points.forEach((pt, i) => {
+    if (i === 0) ctx.moveTo(pt.x, pt.y);
+    else ctx.lineTo(pt.x, pt.y);
   });
   ctx.closePath();
   ctx.fill();
+
   ctx.restore();
 }
 
@@ -530,98 +470,6 @@ function drawBracesOverlay(ctx, landmarks, w, h, bracesImage) {
   if (!bracesImage || !bracesImage.complete) return;
   const box = getMouthBoundingBox(landmarks, w, h);
   ctx.drawImage(bracesImage, box.x, box.y, box.width, box.height);
-}
-
-// --- AI SPLIT-ENGINE (Mandate: Production-Grade Post-Processing) ---
-const REPLICATE_API_TOKEN = import.meta.env.VITE_REPLICATE_API_TOKEN;
-
-/**
- * Professional LAB-Space Whitening (Mandate: Realistic B-Channel Reduction)
- * Adjusts: Yellow (-8), Brightness (+5), Texture-Blend (90/10)
- */
-/**
- * Strict Clinical Purity Engine (Mandate: Zero Film, Perfect Enamel Anchor)
- * - Heavy Erosion (7px) to stay strictly inside teeth
- * - Per-Pixel Chrominance Filtering (isStrictToothPixel)
- * - Targeted RGB Shift: R+4, G+4, B-6
- * - Texture Preservation (85% New / 15% Original)
- */
-function isStrictToothPixel(r, g, b) {
-  const brightness = (r + g + b) / 3;
-  // Teeth are bright but NOT pure white/overblown
-  const isBright = brightness > 140 && brightness < 235;
-
-  // Low color variation (Ensures we skip gums/lips)
-  const lowColorDiff =
-    Math.abs(r - g) < 18 &&
-    Math.abs(r - b) < 18 &&
-    Math.abs(g - b) < 18;
-
-  // Slight yellow bias is characteristic of real enamel
-  const slightlyYellow = b < r && b < g;
-
-  return isBright && lowColorDiff && slightlyYellow;
-}
-
-async function preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
-  const img = await loadImage(imageSrc);
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  canvas.width = img.width;
-  canvas.height = img.height;
-  ctx.drawImage(img, 0, 0);
-  
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-  
-  // 1. REFINED HEAVY EROSION MASK (Stay inside teeth only)
-  const localLandmarks = normalizeLandmarksToCrop(landmarks, iw, ih, cropBounds);
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = canvas.width;
-  maskCanvas.height = canvas.height;
-  const mctx = maskCanvas.getContext("2d");
-  
-  mctx.beginPath();
-  const outerIndices = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 146, 61];
-  outerIndices.forEach((idx, i) => {
-    const p = localLandmarks[idx];
-    if (p) {
-      if (i === 0) mctx.moveTo(p.x * canvas.width, p.y * canvas.height);
-      else mctx.lineTo(p.x * canvas.width, p.y * canvas.height);
-    }
-  });
-  mctx.fillStyle = "white";
-  mctx.fill();
-
-  // HEAVY EROSION: Shrink the mask significantly (7x7 logic)
-  mctx.globalCompositeOperation = 'destination-out';
-  mctx.lineWidth = 14; // Approximate 7px erosion on both sides
-  mctx.stroke();
-  
-  const maskData = mctx.getImageData(0, 0, canvas.width, canvas.height).data;
-
-  // 2. STRICT PIXEL-EDIT Loop (No Global Blend)
-  for (let i = 0; i < data.length; i += 4) {
-    if (maskData[i + 3] > 0) { // Strictly inside mouth region
-      let r = data[i], g = data[i + 1], b = data[i + 2];
-      
-      // Step A: Clinical ENAMEL Filter
-      if (isStrictToothPixel(r, g, b)) {
-        // Step B: Pure Color Shift (No Film)
-        let newR = Math.min(255, r + 4);
-        let newG = Math.min(255, g + 4);
-        let newB = Math.max(0, b - 6);
-        
-        // Step C: Detailed Texture preservation (85% Edited / 15% Original)
-        data[i] = (0.85 * newR) + (0.15 * r);
-        data[i + 1] = (0.85 * newG) + (0.15 * g);
-        data[i + 2] = (0.85 * newB) + (0.15 * b);
-      }
-    }
-  }
-  
-  ctx.putImageData(imageData, 0, 0);
-  return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.95));
 }
 
 /**
@@ -652,143 +500,6 @@ function getTeethCropBounds(landmarks, iw, ih, padding = 0.2) {
     width: Math.min(iw, (w + 2 * px) * iw),
     height: Math.min(ih, (h + 2 * py) * ih)
   };
-}
-
-async function processWhitening(imageSrc, landmarks, iw, ih, cropBounds) {
-  console.log("WHITENING TRIGGERED");
-  console.log("[AI] Firing Replicate Whitening pass on CROP (strength: 0.28)");
-  // At this stage, imageSrc is our high-res mouth crop
-  const base = await preprocessWhitening(imageSrc, landmarks, iw, ih, cropBounds);
-  // Optional Replicate Polish here
-  return base;
-}
-
-// --- DUAL-ARCH BRACES ENGINE (Mandate: Terminal Overlay) ---
-const UPPER_TEETH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
-const LOWER_TEETH_INDICES = [146, 91, 181, 84, 17, 314, 405, 321, 375];
-
-async function placeBrackets(imageSrc, landmarks) {
-  const img = await loadImage(imageSrc);
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  canvas.width = img.width;
-  canvas.height = img.height;
-  ctx.drawImage(img, 0, 0);
-  
-  const rw = canvas.width;
-  const rh = canvas.height;
-  const bracketImg = await getBracketImg();
-  const stampSize = Math.max(12, rw / 55);
-
-  const drawArch = (indices, wireOffset) => {
-    // 1. Draw Archwire
-    ctx.beginPath();
-    ctx.strokeStyle = '#B0B0B0'; // Clinical Silver
-    ctx.lineWidth = Math.max(1.8, rw / 450);
-    indices.forEach((idx, i) => {
-      const p = landmarks[idx];
-      if (p) {
-        const x = p.x * rw, y = (p.y * rh) + wireOffset;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-    });
-    ctx.stroke();
-
-    // 2. Place Brackets
-    indices.forEach(idx => {
-      const p = landmarks[idx];
-      if (p) {
-        const x = p.x * rw, y = (p.y * rh) + wireOffset;
-        ctx.drawImage(bracketImg, x - (stampSize/2), y - (stampSize/2), stampSize, stampSize);
-      }
-    });
-  };
-
-  // Process both rows
-  drawArch(UPPER_TEETH_INDICES, rh * 0.005);
-  drawArch(LOWER_TEETH_INDICES, -rh * 0.005);
-
-  return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.95));
-}
-
-/**
- * Normalizes landmarks from full-image space [0,1] to crop-local space [0,1].
- */
-function normalizeLandmarksToCrop(landmarks, iw, ih, cropBounds) {
-  return landmarks.map(p => ({
-    x: ((p.x * iw) - cropBounds.x) / cropBounds.width,
-    y: ((p.y * ih) - cropBounds.y) / cropBounds.height
-  }));
-}
-
-async function processBraces(imageSrc, landmarks, iw, ih, cropBounds) {
-  console.log("[AI] Firing 3-Step Braces Engine on CROP");
-  // Adjust landmarks to the crop coordinate system
-  const localLandmarks = normalizeLandmarksToCrop(landmarks, iw, ih, cropBounds);
-  const bracesBase = await placeBrackets(imageSrc, localLandmarks);
-  return bracesBase;
-}
-
-async function processAlignment(image) {
-  console.log("[AI] Firing Replicate Alignment pass");
-  // return await replicate.run("antigravity-alignment", ...);
-  return image;
-}
-
-async function processSimulation(image, treatment, landmarks, iw, ih, cropBounds) {
-  console.log("Selected:", treatment);
-
-  if (treatment === "whitening") {
-    return await processWhitening(image, landmarks, iw, ih, cropBounds);
-  }
-
-  if (treatment === "braces") {
-    return await processBraces(image, landmarks, iw, ih, cropBounds);
-  }
-
-  if (treatment === "alignment") {
-    return await processAlignment(image);
-  }
-
-  if (treatment === "transformation" || treatment === "both") {
-    return await processWhitening(image, landmarks, iw, ih, cropBounds);
-  }
-
-  return image; // fallback
-}
-
-async function mergeIntoFullFrame(originalSrc, processedSrc, bounds, oval, landmarks, treatment) {
-  const [orig, proc] = await Promise.all([loadImage(originalSrc), loadImage(processedSrc)]);
-  const { main: canvas, rw, rh } = getSharedCanvases(orig.width, orig.height);
-  const ctx = canvas.getContext("2d");
-
-  // 1. CLEAR: Start with a fresh slate
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, rw, rh);
-
-  // 1.5 RESTORE BASE IMAGE
-  ctx.drawImage(orig, 0, 0, rw, rh);
-  
-  // 3. AI SUB-FRAME COMPOSITE
-  if (processedSrc && processedSrc !== originalSrc) {
-    ctx.save();
-    const scaleX = rw / orig.width, scaleY = rh / orig.height;
-    const dx = bounds.x * scaleX, dy = bounds.y * scaleY, dw = bounds.width * scaleX, dh = bounds.height * scaleY;
-    
-    // Composite the ultra-sharp AI dental work back onto the face background
-    ctx.drawImage(proc, 0, 0, proc.width, proc.height, dx, dy, dw, dh);
-    ctx.restore();
-  }
-
-  return new Promise(resolve => {
-    requestAnimationFrame(() => {
-      canvas.toBlob(blob => {
-        if (!blob) return;
-        resolve(URL.createObjectURL(blob));
-      }, "image/jpeg", 0.95);
-    });
-  });
 }
 
 // ── Main Component ───────────────────────────────────────────────────────────
@@ -984,18 +695,13 @@ const SmileSimulatorAI = () => {
     const isCurrent = () => generation === generationRef.current;
 
     let normalizedUrl = null;
-    let processedUrl = null;
-    let mergedUrl = null;
     let finalUrl = null;
 
     try {
-      // Step 1: Detect landmarks on a standard 1024px image (Pillar 1/Regression 1)
       setProcessingLog("Analyzing anatomy...");
 
-      // Mandate 3: UI 'Facade' State. If user clicks before AI is ready, show a warm-up message.
       if (!_faceLandmarkerInstance) {
         setProcessingLog("Waking up AI engine, please wait a moment...");
-        // Wait for pre-heating for up to 5s
         for (let i = 0; i < 10; i++) {
           if (_faceLandmarkerInstance) break;
           await new Promise(r => setTimeout(r, 500));
@@ -1003,82 +709,52 @@ const SmileSimulatorAI = () => {
         if (!_faceLandmarkerInstance) throw new Error("AI Engine took too long to wake up. Please refresh.");
       }
 
+      // Step 1: Detect landmarks
       setProcessingLog("Locating anatomical landmarks...");
       const detectTarget = await resizeImage(imageUrl, 1024);
       const landmarks = await detectLandmarks(detectTarget.url);
       safeRevoke(detectTarget.url);
-      console.log("[6] AI Waking Up — running FaceLandmarker on 512px proxy");
 
       if (!landmarks) throw new Error("Face not detected. Retake photo with better lighting.");
 
-      // Step 2: Use the ORIGINAL high-res image for visual rendering
-      console.log("[4] Starting high-res processing");
+      // Step 2: High-res Overlay (Production Engine)
+      setProcessingLog("Applying clinical enhancements...");
       const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       safeRevoke(imageUrl);
       normalizedUrl = resized;
-      console.log(`[5] High-res resize complete — ${iw}×${ih}px`);
 
-      if (!isCurrent()) { console.log("[CANCELLED] after high-res resize"); return; }
+      if (!isCurrent()) return;
 
-      // Step 3: Mouth region & Teeth Focus Crop
-      console.log("[8] Computing mouth focus bounds");
-      const mouthCropBounds = getTeethCropBounds(landmarks, iw, ih);
-      const teethImageRegion = await cropRegion(normalizedUrl, mouthCropBounds);
-      console.log("[9] Mouth focus crop ready for AI");
+      const { main: canvas } = getSharedCanvases(iw, ih);
+      const ctx = canvas.getContext("2d");
+      const img = await loadImage(normalizedUrl);
+      ctx.drawImage(img, 0, 0, iw, ih);
 
-      // Step 4: AI SPLIT-ENGINE (Whitening, Braces, or Alignment on CROP)
-      console.log("[10] Firing Split-Engine on Focus Crop — treatment:", treatment);
-      setProcessingLog("Generating focus-simulation...");
-      
-      // We process the crop, not the full image, passing dimensions for coordinate math
-      const processedTeethCrop = await processSimulation(teethImageRegion, treatment, landmarks, iw, ih, mouthCropBounds);
-      console.log("[11] Split-Engine returned processed teeth crop");
+      if (treatment === "whitening" || treatment === "transformation" || treatment === "both") {
+        applyWhiteningOverlay(ctx, landmarks, iw, ih);
+      }
+      if (treatment === "braces" || treatment === "both") {
+        drawBracesOverlay(ctx, landmarks, iw, ih, bracesImageRef.current);
+      }
 
-      if (!isCurrent()) { safeRevoke(processedTeethCrop); console.log("[CANCELLED] after AI"); return; }
+      finalUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.95));
 
-      // Step 5: Merge back into full frame
-      console.log("[12] Merging AI results back into anatomical frame");
-      setProcessingLog("Compositing result...");
-      finalUrl = await mergeIntoFullFrame(normalizedUrl, processedTeethCrop, mouthCropBounds, null, landmarks, treatment);
-      safeRevoke(processedTeethCrop);
-      console.log("[13] Merge complete");
+      if (!isCurrent()) { safeRevoke(finalUrl); return; }
 
-      if (!isCurrent()) { safeRevoke(finalUrl); console.log("[CANCELLED] after composite"); return; }
-
-      // Step 7: Dental Zoom (The 'Focus' Fix)
-      console.log("[16] Capturing clinical focus area (Dental Zoom)");
+      // Step 3: Dental Zoom
       setProcessingLog("Finalizing...");
-
-      const { rw: curW, rh: curH } = getSharedCanvases(iw, ih);
-      const focusBox = (landmarks && landmarks.length)
-        ? getTeethFocusBox(landmarks, curW, curH)
-        : { x: 0, y: 0, width: curW, height: curH };
+      const focusBox = getTeethFocusBox(landmarks, iw, ih);
 
       const [bImg, aImg] = await Promise.all([
-        cropRegion(normalizedUrl, {
-          x: (focusBox.x / curW) * iw,
-          y: (focusBox.y / curH) * ih,
-          width: (focusBox.width / curW) * iw,
-          height: (focusBox.height / curH) * ih
-        }),
-        cropRegion(finalUrl, {
-          x: (focusBox.x / curW) * iw,
-          y: (focusBox.y / curH) * ih,
-          width: (focusBox.width / curW) * iw,
-          height: (focusBox.height / curH) * ih
-        }),
+        cropRegion(normalizedUrl, focusBox),
+        cropRegion(finalUrl, focusBox),
       ]);
-      console.log("[17] Previews ready — rendering zoom result");
 
-      if (!isCurrent()) { safeRevoke(bImg); safeRevoke(aImg); console.log("[CANCELLED] after crop"); return; }
-
-      safeRevoke(finalUrl); finalUrl = null;
-      safeRevoke(normalizedUrl); normalizedUrl = null;
+      if (!isCurrent()) { safeRevoke(bImg); safeRevoke(aImg); return; }
 
       setBeforeImage(bImg);
       setAfterImage(aImg);
       setStep("result");
-      console.log("[18] ✅ Pipeline complete");
     } catch (err) {
       if (!isCurrent()) return;
       console.error("[ERROR] Pipeline crashed at:", err);
@@ -1089,10 +765,7 @@ const SmileSimulatorAI = () => {
         setIsProcessing(false);
         setRawImageUrl(null);
       }
-      // Cleanup any lingering URLs
       safeRevoke(normalizedUrl);
-      safeRevoke(processedUrl);
-      safeRevoke(mergedUrl);
       safeRevoke(finalUrl);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1100,43 +773,38 @@ const SmileSimulatorAI = () => {
 
 
   const takePhoto = async () => {
-    console.log("[1] Photo taken — linking to clinical engine");
     if (!videoRef.current || !canvasRef.current) return;
     
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
-    // 1. Capture the Raw Frame
     const outW = video.videoWidth;
     const outH = video.videoHeight;
     canvas.width = outW;
     canvas.height = outH;
+
+    // 1. Capture Raw Frame
     ctx.drawImage(video, 0, 0, outW, outH);
 
-    // 2. GET CURRENT LANDMARKS (Crucial Step)
+    // 2. Apply Unified Overlays (Fixed Crash)
     if (latestLandmarksRef.current) {
-        console.log("[2] Landmarks found — executing clinical render");
-        
-        // This is the line that was missing!
-        renderClinicalSimulation(
-            ctx, 
-            canvas, 
-            latestLandmarksRef.current, 
-            selectedTreatment, 
-            outW, 
-            outH
-        );
+        if (selectedTreatment === "whitening" || selectedTreatment === "transformation" || selectedTreatment === "both") {
+            applyWhiteningOverlay(ctx, latestLandmarksRef.current, outW, outH);
+        }
+        if (selectedTreatment === "braces" || selectedTreatment === "both") {
+            drawBracesOverlay(ctx, latestLandmarksRef.current, outW, outH, bracesImageRef.current);
+        }
     }
 
     stopCamera();
 
-    // 3. Export the processed result
+    // 3. Export to result view
     canvas.toBlob(blob => {
-        const processedUrl = URL.createObjectURL(blob) + "#simulated=true";
+        const processedUrl = URL.createObjectURL(blob);
         setStep("processing");
         setActiveTreatment(selectedTreatment);
-        setRawImageUrl(processedUrl); // This now contains the whitening/braces!
+        setRawImageUrl(processedUrl);
         setIsProcessing(true);
     }, "image/jpeg", 0.95);
   };
