@@ -473,7 +473,12 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   ctx.restore();
 
   const segments = getToothSegments(points, 6);
-  const imageData = ctx.getImageData(0, 0, w, h);
+  
+  const boxW = maxX - minX;
+  const boxH = maxY - minY;
+  if (boxW <= 0 || boxH <= 0) return;
+
+  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
 
   function isInside(x, y, poly) {
@@ -504,12 +509,15 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
 
   const faceScale = (maxY - minY) / 100;
 
-  // 🎯 Pixel Whitening Loop (Neutral-Boost Engine - Full Coverage)
+  // 🎯 Pixel Whitening Loop (Regional Bounding-Box Optimized)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
       if (!isInside(x, y, points)) continue;
 
-      const i = (y * w + x) * 4;
+      const localX = x - minX;
+      const localY = y - minY;
+      const i = (localY * boxW + localX) * 4;
+      
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
       // ✨ STEP 1: STRICT TEETH MASK
@@ -541,7 +549,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
     }
   }
 
-  ctx.putImageData(imageData, 0, 0);
+  ctx.putImageData(imageData, minX, minY);
 
   // ✨ FINAL SOFT BLEND (Temp: Blur removed to check raw issues)
   ctx.save();
