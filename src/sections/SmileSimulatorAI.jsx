@@ -726,6 +726,7 @@ const SmileSimulatorAI = () => {
   const [cameraError, setCameraError] = useState(null);
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [zoomLoading, setZoomLoading] = useState(false);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   // Mandate 1 & 2: rawImageUrl is the ONLY bridge between file selection and processing.
   // Setting it triggers the useEffect below — the onChange handler itself does NO math.
@@ -839,28 +840,7 @@ const SmileSimulatorAI = () => {
     };
   }, []);
 
-  // --- DENTAL ZOOM SYNC (Pillar 3: Logic Sync) ---
-  // Guaranteed hook: Re-renders the zoom canvas when result view is MOUNTED.
-  useEffect(() => {
-    if (step === "result" && afterImage && finalLandmarks && zoomCanvasRef.current) {
-      console.log("[ZoomSync] Result mounted, rendering dental detail window");
-      
-      (async () => {
-        try {
-          const img = await loadImage(afterImage);
-          const focusBox = getTeethFocusBox(finalLandmarks, img.width, img.height);
-          
-          requestAnimationFrame(() => {
-            if (zoomCanvasRef.current) {
-              renderTeethZoom(zoomCanvasRef.current, img, focusBox);
-            }
-          });
-        } catch (err) {
-          console.error("[ZoomSync] Failed to load afterImage for dental zoom:", err);
-        }
-      })();
-    }
-  }, [step, afterImage, finalLandmarks]);
+  }, []);
 
   // Camera cleanup
   useEffect(() => () => stopCamera(), []);
@@ -1003,6 +983,20 @@ const SmileSimulatorAI = () => {
       setBeforeImage(normalizedUrl);
       setAfterImage(resultUrl);
       setStep("result");
+
+      // ✅ PHASE 2 — BACKGROUND ZOOM ENHANCEMENT
+      // Deferred heavy zoom work to keep the main UI update instant.
+      setZoomLoading(true);
+      const focusBox = getTeethFocusBox(landmarks, iw, ih);
+
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          if (zoomCanvasRef.current) {
+            renderTeethZoom(zoomCanvasRef.current, canvas, focusBox);
+          }
+          setZoomLoading(false);
+        });
+      }, 300); // 300ms cushion for React mount & paint
     } catch (err) {
       if (!isCurrent()) return;
       console.error("[ERROR] Pipeline crashed at:", err);
@@ -1290,15 +1284,25 @@ const SmileSimulatorAI = () => {
 
                 {/* ✅ STEP 1 — ADD ZOOM CANVAS IN JSX */}
                 <div className="flex flex-col items-center">
-                  <div className="mt-4 flex justify-center">
+                  <div className="mt-4 flex justify-center items-center relative" style={{ width: "240px", height: "160px" }}>
+                    {zoomLoading ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center space-y-3 rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50">
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-brand-gold" />
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 animate-pulse">
+                          Enhancing Detail...
+                        </p>
+                      </div>
+                    ) : null}
+                    
                     <canvas
                       ref={zoomCanvasRef}
-                      className="rounded-xl shadow-lg bg-zinc-950"
+                      className="rounded-xl shadow-lg bg-zinc-950 transition-opacity duration-500"
                       style={{
                         width: "240px",
                         height: "160px",
                         border: "2px solid #D4AF37",
-                        objectFit: "cover"
+                        objectFit: "cover",
+                        opacity: zoomLoading ? 0 : 1
                       }}
                     />
                   </div>
