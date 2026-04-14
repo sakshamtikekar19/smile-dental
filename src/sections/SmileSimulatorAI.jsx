@@ -389,7 +389,12 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
  * ENGINE 2: CLINICAL WHITENING (Color Only)
  */
 function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
-  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  // 🦷 Expanded indices to include full mouth corners and lower teeth arches
+  const indices = [
+    61, 146, 91, 181, 84, 182, 17, 314, 405, 321, 375, 291, // Lower arch & perimeter
+    61, 185, 40, 39, 37, 13, 267, 269, 271, 405, 291,       // Upper arch & perimeter
+    78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95 // Inner teeth
+  ];
   const points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
   const minX = Math.floor(Math.min(...xs)), maxX = Math.ceil(Math.max(...xs));
@@ -639,38 +644,39 @@ const SmileSimulatorAI = () => {
 
   // 🔥 Robust Zoom Engine: Triggers drawing when result view mounts
   useEffect(() => {
-    if (step === "result" && finalLandmarks && beforeImage) {
+    if (step === "result" && finalLandmarks && afterImage) {
       setZoomLoading(true);
       const timer = setTimeout(async () => {
         const canvas = zoomCanvasRef.current;
         if (!canvas) return;
         
         try {
-          // Use shared canvas which holds the processed result
-          const sourceCanvas = _sharedMainCanvas;
-          if (!sourceCanvas) return;
-
-          const focus = getTeethFocusBox(finalLandmarks, sourceCanvas.width, sourceCanvas.height);
-          const scale = 3;
-          canvas.width = focus.width * scale;
-          canvas.height = focus.height * scale;
-          
-          const zctx = canvas.getContext("2d");
-          zctx.imageSmoothingEnabled = true;
-          zctx.imageSmoothingQuality = "high";
-          zctx.drawImage(
-            sourceCanvas, 
-            focus.x, focus.y, focus.width, focus.height, 
-            0, 0, canvas.width, canvas.height
-          );
-          setZoomLoading(false);
+          const img = new Image();
+          img.onload = () => {
+            const focus = getTeethFocusBox(finalLandmarks, img.width, img.height);
+            const scale = 3;
+            canvas.width = focus.width * scale;
+            canvas.height = focus.height * scale;
+            
+            const zctx = canvas.getContext("2d");
+            zctx.imageSmoothingEnabled = true;
+            zctx.imageSmoothingQuality = "high";
+            zctx.drawImage(
+              img, 
+              focus.x, focus.y, focus.width, focus.height, 
+              0, 0, canvas.width, canvas.height
+            );
+            setZoomLoading(false);
+          };
+          img.src = afterImage;
         } catch (err) {
           console.error("Zoom draw failed:", err);
+          setZoomLoading(false);
         }
-      }, 300); // ⚡ Allow DOM mounting & React rendering to settle
+      }, 400); // ⚡ Allow DOM mounting & React rendering to settle
       return () => clearTimeout(timer);
     }
-  }, [step, finalLandmarks, beforeImage]);
+  }, [step, finalLandmarks, afterImage]);
 
   return (
     <section id="simulator" className="relative py-12 md:py-24 bg-white overflow-hidden">
@@ -735,13 +741,13 @@ const SmileSimulatorAI = () => {
 
             {step === "camera" && (
               <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
-                <div className="relative aspect-[3/4] md:aspect-video bg-black shadow-2xl rounded-[24px] md:rounded-[32px] overflow-hidden">
+                <div className="relative aspect-square md:aspect-video bg-black shadow-2xl rounded-[24px] md:rounded-[32px] overflow-hidden">
                   <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
                   <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
                   
-                  {/* 🦷 Teeth Placement Guidance Oval */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                    <div className="relative w-[75%] md:w-[60%] aspect-[1.8/1] border-[3px] border-dashed border-white/50 rounded-[500px] flex items-center justify-center">
+                  {/* 🦷 Teeth Placement Guidance Oval (Lowered & Normalized) */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 translate-y-4 md:translate-y-6">
+                    <div className="relative w-[70%] md:w-[50%] aspect-[1.6/1] border-[3px] border-dashed border-white/50 rounded-[500px] flex items-center justify-center">
                       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full border border-white/20 rounded-[500px] animate-pulse" />
                       <span className="text-white/60 text-[9px] md:text-[10px] uppercase tracking-[0.3em] font-bold mt-28 md:mt-32">Align Teeth Here</span>
                     </div>
