@@ -522,9 +522,11 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
-      // ✨ STEP 1: RELAXED TEETH MASK
-      const isTooth = r > 90 && g > 90 && b > 80 && Math.abs(r - g) < 40;
-      if (!isTooth) continue;
+      // ✨ STEP 1: CONTINUOUS TOOTH CONFIDENCE (Smooth-Loop)
+      // Replaces binary 'continue' with a 0..1 multiplier to eliminate 'blocky' islands
+      const brightnessScore = Math.min(1, (Math.min(r, g, b) - 60) / 40);
+      const colorScore = Math.max(0, 1 - Math.abs(r - g) / 30);
+      const toothConfidence = Math.max(0, Math.min(1, brightnessScore * colorScore));
 
       const segmentIndex = segments.findIndex(s => x >= s.start && x <= s.end);
       if (segmentIndex === -1) continue;
@@ -533,14 +535,19 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       const edgeDist = distanceToEdge(x, y, points);
       const feather = Math.min(1, edgeDist / (4 * faceScale));
 
-      // ✨ STEP 2: SUBTLE NEUTRALIZATION (Not full gray)
+      // ✨ STEP 2: SUBTLE NEUTRALIZATION
       const avg = (r + g + b) / 3;
-      r = r * 0.9 + avg * 0.1;
-      g = g * 0.9 + avg * 0.1;
-      b = b * 0.95 + avg * 0.05;
+      const neutR = r * 0.9 + avg * 0.1;
+      const neutG = g * 0.9 + avg * 0.1;
+      const neutB = b * 0.95 + avg * 0.05;
+
+      // Apply neutralization based on tooth confidence
+      r += (neutR - r) * toothConfidence;
+      g += (neutG - g) * toothConfidence;
+      b += (neutB - b) * toothConfidence;
 
       // ✨ STEP 3: GENTLE WHITENING + CENTER BOOST
-      const lift = 0.25 * feather;
+      const lift = 0.25 * feather * toothConfidence;
       const centerFactor = Math.exp(-Math.pow((x - centerX) / boxWidth, 2));
       const finalLift = lift * (0.9 + 0.2 * centerFactor);
 
@@ -564,12 +571,12 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
 
   ctx.putImageData(imageData, minX, minY);
 
-  // ✨ FINAL SOFT BLEND (Temp: Blur removed to check raw issues)
+  // ✨ FINAL SOFT BLEND (Restored to remove pixel harshness)
   ctx.save();
   teethPath();
   ctx.clip();
   ctx.globalAlpha = 0.12;
-  // ctx.filter = "blur(1px)"; // REMOVED PER REQ
+  ctx.filter = "blur(1px)"; 
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
@@ -945,8 +952,8 @@ const SmileSimulatorAI = () => {
 
       // ✅ Optimization 3: High-speed Blob URLs (Stop using Base64 DataURLs)
       const [bImg, aImg] = await Promise.all([
-        new Promise(r => beforeCanvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.95)),
-        new Promise(r => afterCanvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.95))
+        new Promise(r => beforeCanvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.98)),
+        new Promise(r => afterCanvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.98))
       ]);
 
       setBeforeImage(bImg);
