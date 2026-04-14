@@ -817,6 +817,27 @@ const SmileSimulatorAI = () => {
     };
   }, []);
 
+  // --- DENTAL ZOOM SYNC (Pillar 3: Logic Sync) ---
+  // Guaranteed hook: Re-renders the zoom canvas when result view is MOUNTED.
+  useEffect(() => {
+    if (step === "result" && afterImage && latestLandmarksRef.current && zoomCanvasRef.current) {
+      console.log("[ZoomSync] Result mounted, rendering dental detail window");
+      
+      // We need a temporary canvas to get the "After" image data back into a pixel-source
+      const offscreen = document.createElement("canvas");
+      const img = new Image();
+      img.onload = () => {
+        offscreen.width = img.width;
+        offscreen.height = img.height;
+        offscreen.getContext("2d").drawImage(img, 0, 0);
+        
+        const focusBox = getTeethFocusBox(latestLandmarksRef.current, img.width, img.height);
+        renderTeethZoom(zoomCanvasRef.current, offscreen, focusBox);
+      };
+      img.src = afterImage;
+    }
+  }, [step, afterImage]);
+
   // Camera cleanup
   useEffect(() => () => stopCamera(), []);
 
@@ -942,17 +963,15 @@ const SmileSimulatorAI = () => {
 
       // Step 3: Finalize Visuals
       setProcessingLog("Finalizing dental detail...");
-      const focusBox = getTeethFocusBox(landmarks, iw, ih);
-
-      // Render the Surgical Dental Zoom
-      renderTeethZoom(zoomCanvasRef.current, canvas, focusBox);
-
+      
       // ✅ High-End UI touch: Use FULL images for main view comparison
       // Optimized 0.93 quality for near-instant mobile response
-      const finalUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.93));
+      const resultUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.93));
+
+      if (!isCurrent()) return;
 
       setBeforeImage(normalizedUrl);
-      setAfterImage(finalUrl);
+      setAfterImage(resultUrl);
       setStep("result");
     } catch (err) {
       if (!isCurrent()) return;
@@ -982,18 +1001,8 @@ const SmileSimulatorAI = () => {
     canvas.width = outW;
     canvas.height = outH;
 
-    // --- STRICT PIPELINE ---
+    // --- RAW SNAPSHOT ONLY ---
     ctx.drawImage(video, 0, 0, outW, outH);
-
-    if (latestLandmarksRef.current) {
-        if (selectedTreatment === "whitening" || selectedTreatment === "transformation" || selectedTreatment === "both") {
-            applyRealWhitening(ctx, latestLandmarksRef.current, outW, outH);
-        }
-        if (selectedTreatment === "braces" || selectedTreatment === "both") {
-            drawBracesOverlay(ctx, latestLandmarksRef.current, outW, outH, bracesImageRef.current);
-            eraseAboveUpperLip(ctx, latestLandmarksRef.current, outW, outH, 20);
-        }
-    }
 
     stopCamera();
 
