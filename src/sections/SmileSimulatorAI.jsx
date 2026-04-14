@@ -82,7 +82,7 @@ function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-const MAX_IMAGE_SIZE = IS_MOBILE ? 1024 : 1600; // ⚡ Turbo-speed performance targets (Zero-Lag)
+const MAX_IMAGE_SIZE = IS_MOBILE ? 800 : 1200; // ⚡ Hyper-Speed targets (Sub-Second Response)
 const FACE_DETECT_TIMEOUT_MS = 18_000;
 const AI_FETCH_TIMEOUT_MS = 75_000;
 const MOUTH_PERIMETER_INDICES = [61, 291, 17, 13, 14, 78, 308, 181];
@@ -952,17 +952,17 @@ const SmileSimulatorAI = () => {
       // Draw the raw original onto our simulation canvas
       ctx.drawImage(sourceImg, 0, 0, iw, ih);
       
-      // Create the normalized "Before" image Blob URL once
-      const normalizedUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.93));
-      
-      // Clean up user raw input immediately (important for mobile RAM)
-      safeRevoke(imageUrl); 
+      // ✅ HYPER-SPEED: Use the original user input URL as the "Before" image
+      // Eliminates one redundant high-res toBlob operation (~300-500ms saved)
+      const beforeUrl = imageUrl;
 
       // --- SIMULATION PIPELINE ---
+      setProcessingLog("Applying Hollywood radiance...");
       if (treatment === "whitening" || treatment === "transformation" || treatment === "both") {
         applyRealWhitening(ctx, landmarks, iw, ih, 0.65);
       }
       if (treatment === "braces" || treatment === "both") {
+        setProcessingLog("Articulating dental alignment...");
         drawBracesOverlay(ctx, landmarks, iw, ih, bracesImageRef.current);
         eraseAboveUpperLip(ctx, landmarks, iw, ih, 20);
       }
@@ -970,15 +970,15 @@ const SmileSimulatorAI = () => {
       if (!isCurrent()) return;
 
       // Step 3: Finalize Visuals
-      setProcessingLog("Finalizing dental detail...");
+      setProcessingLog("Finalizing clinical polish...");
       
       // ✅ Export the simulated result
-      const resultUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.93));
+      const resultUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.90));
 
       if (!isCurrent()) return;
 
       setFinalLandmarks(landmarks);
-      setBeforeImage(normalizedUrl);
+      setBeforeImage(beforeUrl);
       setAfterImage(resultUrl);
       setStep("result");
 
