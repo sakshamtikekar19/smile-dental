@@ -659,9 +659,41 @@ const SmileSimulatorAI = () => {
   return (
     <section id="simulator" className="relative py-24 bg-white overflow-hidden">
       <div className="container mx-auto px-4 max-w-6xl">
-        <AnimatedSection className="text-center mb-16">
+        <AnimatedSection className="text-center mb-8">
           <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">AI Smile Simulation</h2>
-          <p className="text-zinc-500 max-w-2xl mx-auto text-lg italic">Take a photo live — AI whitening, alignment, and precise bracket placement in seconds.</p>
+          <p className="text-zinc-500 max-w-2xl mx-auto text-lg italic mb-10">Take a photo live — AI whitening, alignment, and precise bracket placement in seconds.</p>
+          
+          {/* 🚀 GLOBAL PREMIUM TREATMENT DOCK (BELOW HEADING) */}
+          <div className="flex flex-col items-center gap-6 mt-4 mb-12">
+            <div className="bg-zinc-900/95 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
+              {TREATMENTS.map(t => (
+                <TreatmentDockButton 
+                  key={t.id} 
+                  treatment={t} 
+                  active={selectedTreatment === t.id} 
+                  onSelect={() => {
+                    setSelectedTreatment(t.id);
+                    // If we are in results view, trigger a re-simulation
+                    if (step === "result" && t.id !== activeTreatment) {
+                      pendingTreatmentRef.current = t.id;
+                      setActiveTreatment(t.id);
+                      setIsProcessing(true);
+                    }
+                  }} 
+                />
+              ))}
+            </div>
+            
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="flex items-center gap-2 bg-zinc-50 px-4 py-1.5 rounded-full border border-zinc-100"
+            >
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.3)]" />
+              <span className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold">
+                {TREATMENTS.find(t => t.id === (step === "result" ? activeTreatment : selectedTreatment))?.label} Ready to Preview
+              </span>
+            </motion.div>
+          </div>
         </AnimatedSection>
 
         <div className="max-w-4xl mx-auto rounded-[40px] flex flex-col justify-center min-h-[500px]">
@@ -709,30 +741,6 @@ const SmileSimulatorAI = () => {
                     </button>
                   </div>
                 </div>
-
-                {/* 🚀 PREMIUM TREATMENT DOCK (POSITIONED BELOW) */}
-                <div className="flex flex-col items-center gap-4">
-                  <div className="bg-zinc-900/90 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
-                    {TREATMENTS.map(t => (
-                      <TreatmentDockButton 
-                        key={t.id} 
-                        treatment={t} 
-                        active={selectedTreatment === t.id} 
-                        onSelect={() => setSelectedTreatment(t.id)} 
-                      />
-                    ))}
-                  </div>
-                  
-                  <motion.div 
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="flex items-center gap-2 bg-zinc-50 px-4 py-1.5 rounded-full border border-zinc-100"
-                  >
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.3)]" />
-                    <span className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold">
-                      {TREATMENTS.find(t => t.id === selectedTreatment)?.label} Ready to Preview
-                    </span>
-                  </motion.div>
-                </div>
               </motion.div>
             )}
 
@@ -760,36 +768,46 @@ const SmileSimulatorAI = () => {
                   />
                 </div>
 
-                {/* 🚀 PREMIUM TREATMENT DOCK (POSITIONED BELOW) */}
-                <div className="flex flex-col items-center gap-4">
-                  <div className="bg-zinc-900/90 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
-                    {TREATMENTS.map(t => (
-                      <TreatmentDockButton 
-                        key={t.id} 
-                        treatment={t} 
-                        active={selectedTreatment === t.id} 
-                        onSelect={() => {
-                          if (t.id !== activeTreatment) {
-                            pendingTreatmentRef.current = t.id;
-                            setSelectedTreatment(t.id);
-                            setActiveTreatment(t.id);
-                            setIsProcessing(true);
-                          }
-                        }} 
-                      />
-                    ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
+                  <div className="bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm transition-all hover:border-zinc-200">
+                    <div className="flex items-center justify-between mb-6">
+                      <h4 className="text-xs uppercase tracking-widest text-zinc-400 font-bold">Clinical Detail Zoom</h4>
+                      <div className="px-3 py-1 bg-zinc-50 rounded-full border border-zinc-100">
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter">3.0x Magnification</span>
+                      </div>
+                    </div>
+                    <div className="aspect-square bg-zinc-50 rounded-3xl overflow-hidden relative border border-zinc-100 shadow-inner group">
+                      {zoomLoading ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-20">
+                          <RefreshCw className="animate-spin text-brand-gold" size={24} />
+                        </div>
+                      ) : null}
+                      <canvas ref={zoomCanvasRef} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                    </div>
                   </div>
-                  
-                  <motion.div 
-                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="flex items-center gap-2 bg-zinc-50 px-4 py-1.5 rounded-full border border-zinc-100"
-                  >
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.3)]" />
-                    <span className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold">
-                      {TREATMENTS.find(t => t.id === activeTreatment)?.label} Simulation Applied
-                    </span>
-                  </motion.div>
+
+                  <div className="flex flex-col justify-center space-y-6">
+                    <div className="inline-flex items-center gap-3 px-6 py-2.5 bg-brand-gold/10 text-brand-gold rounded-full w-fit border border-brand-gold/20 shadow-sm shadow-brand-gold/10">
+                      <CheckCircle2 size={20} className="drop-shadow-sm" />
+                      <span className="text-xs font-bold uppercase tracking-[0.15em]">{activeTreatment} Reconstruction Complete</span>
+                    </div>
+                    <h3 className="text-4xl md:text-5xl font-serif text-zinc-900 leading-tight">Professional Grade Results</h3>
+                    <p className="text-lg text-zinc-500 leading-relaxed font-light">
+                      Our clinical-grade AI has successfully simulated your transformation using anatomical tooth alignment and stoichiometric radiance enhancement.
+                    </p>
+                    <div className="flex gap-4 pt-4">
+                      <button 
+                        onClick={reset} 
+                        className="group py-5 bg-zinc-950 text-white rounded-2xl font-bold hover:bg-black transition-all flex-1 shadow-xl shadow-zinc-200 flex items-center justify-center gap-3 active:scale-[0.98]"
+                      >
+                        <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-500" />
+                        <span>New Simulation</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              </motion.div>
+            )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
                   <div className="bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm transition-all hover:border-zinc-200">
