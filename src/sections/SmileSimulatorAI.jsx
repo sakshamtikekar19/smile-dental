@@ -539,19 +539,19 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       const centerFactor = Math.exp(-Math.pow((x - centerX) / boxWidth, 2));
       const finalLift = lift * (0.9 + 0.2 * centerFactor);
 
-      // Controlled Neutralization
-      r = r * 0.88 + avg * 0.12;
-      g = g * 0.88 + avg * 0.12;
-      b = b * 0.92 + avg * 0.08;
+      // Controlled Neutralization (Aggressive Anti-Yellow)
+      r = r * 0.78 + avg * 0.22;
+      g = g * 0.78 + avg * 0.22;
+      b = b * 0.88 + avg * 0.12;
 
-      // Whitening
+      // Whitening (Blue-Radiance Boost)
       r += (255 - r) * 0.12 * finalLift;
       g += (255 - g) * 0.12 * finalLift;
-      b += (255 - b) * 0.28 * finalLift;
+      b += (255 - b) * 0.38 * finalLift;
 
-      // ✅ 4. Edge Depth (Smooth, not lines)
+      // ✅ 4. Edge Depth (High-Definition Definition)
       const edgeFactor = Math.min(1, edgeDist / 10);
-      const shadow = 1 - 0.06 * (1 - edgeFactor);
+      const shadow = 1 - 0.09 * (1 - edgeFactor);
       r *= shadow; g *= shadow; b *= shadow;
 
       data[i] = Math.min(255, r);
@@ -562,12 +562,12 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
 
   ctx.putImageData(imageData, minX, minY);
 
-  // ✨ FINAL SOFT BLEND (Restored to remove pixel harshness)
+  // ✨ FINAL SOFT BLEND (Sharpened for High-Definition)
   ctx.save();
   teethPath();
   ctx.clip();
-  ctx.globalAlpha = 0.12;
-  ctx.filter = "blur(0.8px)"; 
+  ctx.globalAlpha = 0.08;
+  ctx.filter = "blur(0.4px)"; 
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
