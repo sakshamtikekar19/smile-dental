@@ -529,11 +529,11 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       g = g * 0.8 + avg * 0.2;
       b = b * 0.9 + avg * 0.1;
 
-      // ✨ STEP 3: BOOST INTENSITY
+      // ✨ STEP 3: FORCED STRONG WHITENING
       const lift = 0.55 * feather;
-      r += (255 - r) * 0.12 * lift;
-      g += (255 - g) * 0.12 * lift;
-      b += (255 - b) * 0.35 * lift;
+      r += (255 - r) * 0.4 * lift;
+      g += (255 - g) * 0.4 * lift;
+      b += (255 - b) * 0.6 * lift;
 
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
