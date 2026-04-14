@@ -440,11 +440,11 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     const avg = (r + g + b) / 3;
     const lift = maskValue * (intensity / 0.65); // Uniform intensity across the whole mask
     
-    // Clinical Whitening Mix
-    r = r * 0.6 + avg * 0.4; g = g * 0.6 + avg * 0.4; b = b * 0.8 + avg * 0.2;
-    r += (255 - r) * 0.15 * lift; 
-    g += (255 - g) * 0.18 * lift; 
-    b += (255 - b) * 0.52 * lift;
+    // Clinical Whitening Mix (Enhanced for Laptop Visibility)
+    r = r * 0.5 + avg * 0.5; g = g * 0.5 + avg * 0.5; b = b * 0.7 + avg * 0.3;
+    r += (255 - r) * 0.22 * lift; 
+    g += (255 - g) * 0.26 * lift; 
+    b += (255 - b) * 0.65 * lift;
 
     // Advanced Plaque/Stain Stoichiometry
     const isStain = r > g && g > b && (r - b) > 20;
@@ -639,10 +639,10 @@ const SmileSimulatorAI = () => {
 
       setProcessingLog("Engineering modular simulation...");
       switch (treatment) {
-        case "whitening": applyWhitening(ctx, landmarks, iw, ih, 0.7); break;
-        case "alignment": applyAlignment(ctx, landmarks, iw, ih, 0.22); applyWhitening(ctx, landmarks, iw, ih, 0.15); break;
+        case "whitening": applyWhitening(ctx, landmarks, iw, ih, 0.82); break;
+        case "alignment": applyAlignment(ctx, landmarks, iw, ih, 0.22); applyWhitening(ctx, landmarks, iw, ih, 0.2); break;
         case "braces": applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
-        case "transformation": applyAlignment(ctx, landmarks, iw, ih, 0.25); applyWhitening(ctx, landmarks, iw, ih, 0.75); applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
+        case "transformation": applyAlignment(ctx, landmarks, iw, ih, 0.25); applyWhitening(ctx, landmarks, iw, ih, 0.85); applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
       }
 
       const finalUrl = canvas.toDataURL("image/jpeg", 0.93);
