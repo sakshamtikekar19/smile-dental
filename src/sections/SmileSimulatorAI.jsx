@@ -450,6 +450,9 @@ function getMouthBoundingBox(landmarks, w, h) {
 
 // --- PRODUCTION WHITENING OVERLAY (Step 2: RealWhitening) ---
 function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
+  // ✅ Upgrade 4: Smart Guard (Skip if intensity is negligible)
+  if (intensity < 0.05) return;
+
   console.log("Whitening running"); // DEBUG
 
   if (!landmarks || landmarks.length === 0) return;
@@ -471,88 +474,81 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const minY = Math.max(0, Math.floor(Math.min(...ys)));
   const maxY = Math.min(h, Math.ceil(Math.max(...ys)));
 
+  // Path helper for aesthetic layers
+  const teethPath = () => {
+    ctx.beginPath();
+    points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.closePath();
+  };
+
+  // ✅ Upgrade 3: Gum Shadow Gradient (Anatomical depth)
+  ctx.save();
+  teethPath();
+  const grad = ctx.createLinearGradient(0, minY, 0, maxY);
+  grad.addColorStop(0, "rgba(0,0,0,0.08)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.restore();
+
+  // -------------------------------
+  // 🎯 Pixel Whitening Loop (Optimized)
+  // -------------------------------
   const imageData = ctx.getImageData(0, 0, w, h);
   const data = imageData.data;
 
-  // -------------------------------
   // 🧠 Point-in-polygon check
-  // -------------------------------
   function isInside(x, y, poly) {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
       const xi = poly[i].x, yi = poly[i].y;
       const xj = poly[j].x, yj = poly[j].y;
-
-      const intersect =
-        yi > y !== yj > y &&
-        x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-
+      const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
       if (intersect) inside = !inside;
     }
     return inside;
   }
 
-  // -------------------------------
-  // ✨ Edge Feathering (realism)
-  // -------------------------------
+  // ✨ Edge Feathering helper
   function distanceToEdge(x, y, poly) {
     let minDist = Infinity;
-
     for (let i = 0; i < poly.length; i++) {
       const p1 = poly[i];
       const p2 = poly[(i + 1) % poly.length];
-
-      const A = x - p1.x;
-      const B = y - p1.y;
-      const C = p2.x - p1.x;
-      const D = p2.y - p1.y;
-
-      const dot = A * C + B * D;
-      const lenSq = C * C + D * D;
+      const A = x - p1.x, B = y - p1.y, C = p2.x - p1.x, D = p2.y - p1.y;
+      const dot = A * C + B * D, lenSq = C * C + D * D;
       let param = dot / lenSq;
-
       param = Math.max(0, Math.min(1, param));
-
-      const xx = p1.x + param * C;
-      const yy = p1.y + param * D;
-
-      const dx = x - xx;
-      const dy = y - yy;
-
+      const xx = p1.x + param * C, yy = p1.y + param * D;
+      const dx = x - xx, dy = y - yy;
       minDist = Math.min(minDist, Math.sqrt(dx * dx + dy * dy));
     }
-
     return minDist;
   }
 
-  // -------------------------------
-  // 🎯 Pixel Whitening Loop (Optimized)
-  // -------------------------------
   const faceScale = (maxY - minY) / 100;
 
   for (let y = minY; y < maxY; y += 2) {
     for (let x = minX; x < maxX; x += 2) {
-
-      if ((x + y) % 4 !== 0) continue; // 🔥 performance boost: checkerboard skip
-
+      if ((x + y) % 4 !== 0) continue; // Checkerboard skip
       if (!isInside(x, y, points)) continue;
 
       const i = (y * w + x) * 4;
+      let r = data[i], g = data[i + 1], b = data[i + 2];
 
-      let r = data[i];
-      let g = data[i + 1];
-      let b = data[i + 2];
-
-      // Dynamic Feather for natural edges
       const edgeDist = distanceToEdge(x, y, points);
       const feather = Math.min(1, edgeDist / (4 * faceScale));
 
-      // 🔥 Real whitening (remove yellow)
-      b += (255 - b) * 0.35 * intensity * feather;
-      r += (255 - r) * 0.08 * intensity * feather;
-      g += (255 - g) * 0.08 * intensity * feather;
+      // ✅ Upgrade 1: Subtle Variation (Natural enamel texture)
+      const variation = 0.9 + 0.2 * Math.sin(x * 0.05 + y * 0.05);
+      const finalIntensity = intensity * variation;
 
-      // 🧠 Prevent blue tint
+      // 🔥 Real whitening (remove yellow)
+      b += (255 - b) * 0.35 * finalIntensity * feather;
+      r += (255 - r) * 0.08 * finalIntensity * feather;
+      g += (255 - g) * 0.08 * finalIntensity * feather;
+
+      // Prevent artificial blue tint
       const avg = (r + g + b) / 3;
       if (b > avg + 20) b = avg + 20;
 
@@ -563,6 +559,14 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   }
 
   ctx.putImageData(imageData, 0, 0);
+
+  // ✅ Upgrade 2: Enamel Shine Layer (Premium gloss)
+  ctx.save();
+  ctx.globalCompositeOperation = "soft-light";
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  teethPath();
+  ctx.fill();
+  ctx.restore();
 }
 
 // --- PRODUCTION BRACES OVERLAY (Step 3) ---
