@@ -690,24 +690,36 @@ const SmileSimulatorAI = () => {
                 <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
                 
-                {/* Real-time Treatment Dock */}
-                <div className="absolute top-6 left-1/2 -translate-x-1/2 z-10 flex gap-4 bg-black/30 backdrop-blur-xl p-2 rounded-full border border-white/10">
-                  {TREATMENTS.map(t => (
-                    <button 
-                      key={t.id} 
-                      onClick={() => setSelectedTreatment(t.id)}
-                      className={cn(
-                        "w-12 h-12 rounded-full flex items-center justify-center transition-all",
-                        selectedTreatment === t.id ? "bg-white scale-110 shadow-lg" : "bg-black/20 text-white/60 hover:bg-black/40"
-                      )}
-                    >
-                      <span className="text-[10px] font-bold uppercase tracking-tighter">{t.label[0]}</span>
-                    </button>
-                  ))}
+                {/* 🚀 PREMIUM FLOATING TREATMENT DOCK */}
+                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4">
+                  <div className="bg-black/45 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
+                    {TREATMENTS.map(t => (
+                      <TreatmentDockButton 
+                        key={t.id} 
+                        treatment={t} 
+                        active={selectedTreatment === t.id} 
+                        onSelect={() => setSelectedTreatment(t.id)} 
+                      />
+                    ))}
+                  </div>
+                  
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1 rounded-full border border-white/5"
+                  >
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-[10px] text-white/80 uppercase tracking-widest font-bold">
+                      {TREATMENTS.find(t => t.id === selectedTreatment)?.label} Preview Ready
+                    </span>
+                  </motion.div>
                 </div>
 
-                <div className="absolute bottom-10 left-0 right-0 flex flex-col items-center gap-6 z-10">
-                  <p className="text-white/70 text-[10px] uppercase tracking-[0.3em] font-bold drop-shadow-md">Capture Your Future Smile</p>
+                <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-6 z-10 pointer-events-none">
+                  <p className="text-white/70 text-[10px] uppercase tracking-[0.3em] font-bold drop-shadow-md">Live AI Simulation</p>
+                </div>
+
+                <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-10">
                   <button onClick={() => {
                     const canvas = canvasRef.current;
                     if (canvas) {
@@ -735,8 +747,8 @@ const SmileSimulatorAI = () => {
             )}
 
             {step === "result" && afterImage && (
-              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="space-y-8">
-                <div className="relative rounded-[40px] overflow-hidden shadow-2xl bg-white border border-zinc-100">
+              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="space-y-8 relative">
+                <div className="relative rounded-[40px] overflow-hidden shadow-2xl bg-white border border-zinc-100 min-h-[500px]">
                   <ReactCompareImage 
                     leftImage={beforeImage} 
                     rightImage={afterImage} 
@@ -745,30 +757,76 @@ const SmileSimulatorAI = () => {
                     sliderLineColor="#D4AF37"
                     handleSize={40}
                   />
+
+                  {/* 🚀 PREMIUM FLOATING DOCK (Result Overlay) */}
+                  <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4 w-full px-4">
+                    <div className="bg-black/60 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
+                      {TREATMENTS.map(t => (
+                        <TreatmentDockButton 
+                          key={t.id} 
+                          treatment={t} 
+                          active={selectedTreatment === t.id} 
+                          onSelect={() => {
+                            // If user clicks a different treatment in result view, we re-process
+                            if (t.id !== activeTreatment) {
+                              pendingTreatmentRef.current = t.id;
+                              setSelectedTreatment(t.id);
+                              setActiveTreatment(t.id);
+                              setIsProcessing(true);
+                            }
+                          }} 
+                        />
+                      ))}
+                    </div>
+                    
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10"
+                    >
+                      <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.6)]" />
+                      <span className="text-[10px] text-white/90 uppercase tracking-[0.2em] font-bold">
+                        {TREATMENTS.find(t => t.id === activeTreatment)?.label} Preview Ready
+                      </span>
+                    </motion.div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8">
-                  <div className="bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm">
-                    <h4 className="text-xs uppercase tracking-widest text-zinc-400 font-bold mb-6">Teeth Detail View</h4>
-                    <div className="aspect-square bg-zinc-50 rounded-2xl overflow-hidden relative border border-zinc-100">
+                  <div className="bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm transition-all hover:border-zinc-200">
+                    <div className="flex items-center justify-between mb-6">
+                      <h4 className="text-xs uppercase tracking-widest text-zinc-400 font-bold">Clinical Detail Zoom</h4>
+                      <div className="px-3 py-1 bg-zinc-50 rounded-full border border-zinc-100">
+                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter">3.0x Magnification</span>
+                      </div>
+                    </div>
+                    <div className="aspect-square bg-zinc-50 rounded-3xl overflow-hidden relative border border-zinc-100 shadow-inner group">
                       {zoomLoading ? (
                         <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-20">
                           <RefreshCw className="animate-spin text-brand-gold" size={24} />
                         </div>
                       ) : null}
-                      <canvas ref={zoomCanvasRef} className="w-full h-full object-cover" />
+                      <canvas ref={zoomCanvasRef} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
                     </div>
                   </div>
 
                   <div className="flex flex-col justify-center space-y-6">
-                    <div className="inline-flex items-center gap-3 px-4 py-2 bg-brand-gold/10 text-brand-gold rounded-full w-fit">
-                      <CheckCircle2 size={18} />
-                      <span className="text-xs font-bold uppercase tracking-wider">{activeTreatment} Complete</span>
+                    <div className="inline-flex items-center gap-3 px-6 py-2.5 bg-brand-gold/10 text-brand-gold rounded-full w-fit border border-brand-gold/20 shadow-sm shadow-brand-gold/10">
+                      <CheckCircle2 size={20} className="drop-shadow-sm" />
+                      <span className="text-xs font-bold uppercase tracking-[0.15em]">{activeTreatment} Reconstruction Complete</span>
                     </div>
-                    <h3 className="text-4xl font-serif text-zinc-900">Professional Grade Results</h3>
-                    <p className="text-zinc-500 leading-relaxed">Our clinical-grade AI has successfully simulated your transformation using anatomical tooth alignment and stoichiometric whitening.</p>
+                    <h3 className="text-4xl md:text-5xl font-serif text-zinc-900 leading-tight">Professional Grade Results</h3>
+                    <p className="text-lg text-zinc-500 leading-relaxed font-light">
+                      Our clinical-grade AI has successfully simulated your transformation using anatomical tooth alignment and stoichiometric radiance enhancement.
+                    </p>
                     <div className="flex gap-4 pt-4">
-                      <button onClick={reset} className="px-8 py-4 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-black transition-all flex-1">New Simulation</button>
+                      <button 
+                        onClick={reset} 
+                        className="group py-5 bg-zinc-950 text-white rounded-2xl font-bold hover:bg-black transition-all flex-1 shadow-xl shadow-zinc-200 flex items-center justify-center gap-3 active:scale-[0.98]"
+                      >
+                        <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-500" />
+                        <span>New Simulation</span>
+                      </button>
                     </div>
                   </div>
                 </div>
