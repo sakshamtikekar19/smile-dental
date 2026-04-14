@@ -531,10 +531,13 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       const feather = Math.min(1, edgeDist / (4 * faceScale));
       const featherSafe = Math.max(0.3, feather);
 
-      // ✅ 3. Balanced Power Lift
+      // ✅ 3. Balanced Power Lift + Micro Variation + Center Focus
       const avg = (r + g + b) / 3;
+      const variation = (Math.sin(x * 0.3 + y * 0.3) + 1) * 0.5;
+      const lift = 0.38 * featherSafe * (0.85 + 0.3 * variation);
+      
       const centerFactor = Math.exp(-Math.pow((x - centerX) / boxWidth, 2));
-      const lift = 0.38 * featherSafe * (0.9 + 0.2 * centerFactor);
+      const finalLift = lift * (0.9 + 0.2 * centerFactor);
 
       // Controlled Neutralization
       r = r * 0.88 + avg * 0.12;
@@ -542,9 +545,9 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       b = b * 0.92 + avg * 0.08;
 
       // Whitening
-      r += (255 - r) * 0.12 * lift;
-      g += (255 - g) * 0.12 * lift;
-      b += (255 - b) * 0.28 * lift;
+      r += (255 - r) * 0.12 * finalLift;
+      g += (255 - g) * 0.12 * finalLift;
+      b += (255 - b) * 0.28 * finalLift;
 
       // ✅ 4. Edge Depth (Smooth, not lines)
       const edgeFactor = Math.min(1, edgeDist / 10);
@@ -564,14 +567,14 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   teethPath();
   ctx.clip();
   ctx.globalAlpha = 0.12;
-  ctx.filter = "blur(1px)"; 
+  ctx.filter = "blur(0.8px)"; 
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
   // ✅ Upgrade 2: Enamel Shine Layer (Premium gloss)
   ctx.save();
   ctx.globalCompositeOperation = "soft-light";
-  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
   teethPath();
   ctx.fill();
   ctx.restore();
