@@ -503,13 +503,9 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   ctx.restore();
 
   const segments = getToothSegments(points, 6);
-  
   const boxW = maxX - minX;
   const boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
-
-  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
-  const data = imageData.data;
 
   function isInside(x, y, poly) {
     let inside = false;
@@ -537,14 +533,18 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
     return minDist;
   }
 
+  // 📝 Feature Configuration
+  const isAlignmentMode = mode === "alignment" || mode === "transformation";
+  const isWhiteningMode = mode === "whitening" || mode === "transformation";
+
   const faceScale = (maxY - minY) / 100;
   const centerX = (minX + maxX) / 2;
   const boxWidth = maxX - minX;
 
   // Level 2 Alignment Baseline: Mid- Smile Arc
   const midY = (points.reduce((sum, p) => sum + p.y, 0)) / points.length;
-  const alignmentIntensity = 0.28; // Balanced Level 2 Power
-  const shiftStrength = 0.1 + 0.2 * alignmentIntensity;
+  // Shift strictly gated to Alignment or Transformation modes
+  const shiftStrength = isAlignmentMode ? (0.1 + 0.2 * 0.28) : 0;
 
   const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
@@ -619,10 +619,14 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       g = g * 0.65 + avg * 0.35;
       b = b * 0.85 + avg * 0.15;
 
-      // Hollywood Whitening
-      r += (255 - r) * 0.12 * finalLift;
-      g += (255 - g) * 0.15 * finalLift;
-      b += (255 - b) * 0.48 * finalLift;
+      // Hollywood Whitening (Throttled based on mode)
+      const bWhiten = isWhiteningMode ? 0.48 : 0.08;
+      const gWhiten = isWhiteningMode ? 0.15 : 0.04;
+      const rWhiten = isWhiteningMode ? 0.12 : 0.03;
+
+      r += (255 - r) * rWhiten * finalLift;
+      g += (255 - g) * gWhiten * finalLift;
+      b += (255 - b) * bWhiten * finalLift;
 
       // --- INTERPROXIMAL PLAQUE CLEANING & STAIN REMOVAL ---
       // detect yellow/brown tones (plaque/stain)
@@ -1018,12 +1022,19 @@ const SmileSimulatorAI = () => {
       // Eliminates one redundant high-res toBlob operation (~300-500ms saved)
       const beforeUrl = imageUrl;
 
-      // --- SIMULATION PIPELINE ---
+      // --- SIMULATION PIPELINE (4 FEATURE ISOLATION) ---
       setProcessingLog("Applying Hollywood radiance...");
-      if (treatment === "whitening" || treatment === "transformation" || treatment === "both") {
-        applyRealWhitening(ctx, landmarks, iw, ih, 0.65);
+      
+      const isWhiteningRequested = treatment === "whitening" || treatment === "transformation";
+      const isAlignmentRequested = treatment === "alignment" || treatment === "transformation";
+      const isBracesRequested = treatment === "braces";
+
+      if (isWhiteningRequested || isAlignmentRequested) {
+        // Pass treatment as mode to applyRealWhitening for logical branching
+        applyRealWhitening(ctx, landmarks, iw, ih, treatment);
       }
-      if (treatment === "braces" || treatment === "both") {
+      
+      if (isBracesRequested) {
         setProcessingLog("Articulating dental alignment...");
         drawBracesOverlay(ctx, landmarks, iw, ih, bracesImageRef.current);
         eraseAboveUpperLip(ctx, landmarks, iw, ih, 20);
