@@ -393,6 +393,7 @@ function ellipseWeight(px, py, oval, feather) {
  * Crop a region of an image to a blob URL (fast, main thread OK).
  */
 async function cropRegion(imageSrc, rect) {
+  console.log("🚨 [PIPELINE] cropRegion called for source:", imageSrc.substring(0, 40));
   const img = await loadImage(imageSrc);
   const canvas = document.createElement("canvas");
   canvas.width = rect.width;
@@ -439,14 +440,15 @@ function getTeethPoints(landmarks, w, h) {
 }
 
 function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
-  if (intensity < 0.05) return;
-
-  if (!landmarks || landmarks.length === 0) return;
+  console.log("🚨 [ENGINE] applyRealWhitening started. Intensity:", intensity, "Dimensions:", w, "x", h);
+  if (intensity < 0.05) { console.warn("🚨 [ENGINE] Aborting: intensity too low"); return; }
+  if (!landmarks || landmarks.length === 0) { console.warn("🚨 [ENGINE] Aborting: no landmarks"); return; }
 
   const points = TEETH_WHITEN_MASK_INDICES.map(idx => ({
     x: landmarks[idx].x * w,
     y: landmarks[idx].y * h
   }));
+  console.log("🚨 [ENGINE] Mask points:", points.length);
 
   const xs = points.map(p => p.x);
   const ys = points.map(p => p.y);
@@ -454,6 +456,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const maxX = Math.min(w, Math.ceil(Math.max(...xs)));
   const minY = Math.max(0, Math.floor(Math.min(...ys)));
   const maxY = Math.min(h, Math.ceil(Math.max(...ys)));
+  console.log("🚨 [ENGINE] Bounding Box:", { minX, maxX, minY, maxY });
 
   const teethPath = () => {
     ctx.beginPath();
@@ -474,6 +477,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const segments = getToothSegments(points, 6);
   const imageData = ctx.getImageData(0, 0, w, h);
   const data = imageData.data;
+  console.log("🚨 [ENGINE] ImageData captured. Buffer length:", data.length);
 
   function isInside(x, y, poly) {
     let inside = false;
@@ -503,6 +507,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
 
   const faceScale = (maxY - minY) / 100;
   const baseIntensity = intensity;
+  let pixelsModified = 0;
 
   // 🎯 Pixel Whitening Loop (Anatomically-Segmented)
   for (let y = minY; y < maxY; y++) {
@@ -510,6 +515,15 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       if (!isInside(x, y, points)) continue;
 
       const i = (y * w + x) * 4;
+      
+      // 🔥 DIAGNOSTIC OVERRIDE (MAGENTA TEST)
+      // Every 10th pixel turns bright magenta to confirm engine connection
+      if ((x + y) % 10 === 0) {
+        data[i] = 255; data[i+1] = 0; data[i+2] = 255;
+        pixelsModified++;
+        continue;
+      }
+
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
       const segmentIndex = segments.findIndex(s => x >= s.start && x <= s.end);
@@ -533,9 +547,11 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
       data[i + 2] = Math.min(255, b);
+      pixelsModified++;
     }
   }
 
+  console.log("🚨 [ENGINE] Loop finished. Pixels modified:", pixelsModified);
   ctx.putImageData(imageData, 0, 0);
 
   // 🔥 Separation Shadows (Interproximal depth)
@@ -847,6 +863,7 @@ const SmileSimulatorAI = () => {
 
       // Step 2: Detection and High-res Synchronization
       setProcessingLog("Analyzing anatomical depth...");
+      console.log("🚨 [PIPELINE] Starting treatment:", treatment);
       const detectTarget = await resizeImage(imageUrl, 1024);
       const { url: resized, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       
@@ -860,6 +877,7 @@ const SmileSimulatorAI = () => {
       // Run detection targeting the high-res context for precision
       const detections = await _faceLandmarkerInstance.detect(img);
       const landmarks = detections?.faceLandmarks?.[0];
+      console.log("🚨 [PIPELINE] Landmarks found:", !!landmarks);
 
       if (!landmarks) {
         console.error("❌ No landmarks detected on image");
@@ -879,9 +897,8 @@ const SmileSimulatorAI = () => {
       // --- STRICT PIPELINE (drawImage → whitening → braces → occlusion) ---
       ctx.drawImage(img, 0, 0, iw, ih);
 
-      // Landmarks from MediaPipe are already normalized (0-1), which makes them 
-      // resolution-independent. Using them directly on the high-res canvas:
       if (treatment === "whitening" || treatment === "transformation" || treatment === "both") {
+        console.log("🚨 [PIPELINE] Triggering applyRealWhitening");
         applyRealWhitening(ctx, landmarks, iw, ih, 0.65);
       }
       if (treatment === "braces" || treatment === "both") {
@@ -889,7 +906,11 @@ const SmileSimulatorAI = () => {
         eraseAboveUpperLip(ctx, landmarks, iw, ih, 20);
       }
 
-      finalUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.95));
+      finalUrl = await new Promise(r => canvas.toBlob(blob => {
+          const url = URL.createObjectURL(blob);
+          console.log("🚨 [PIPELINE] finalUrl created:", url);
+          r(url);
+      }, "image/jpeg", 0.95));
 
       if (!isCurrent()) { safeRevoke(finalUrl); return; }
 
