@@ -838,7 +838,4 @@ const SmileSimulatorAI = () => {
   );
 };
 
-  );
-};
-
 export default SmileSimulatorAI;
