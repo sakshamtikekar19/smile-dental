@@ -653,24 +653,35 @@ const SmileSimulatorAI = () => {
           <p className="text-zinc-500 max-w-2xl mx-auto text-lg">Experience your dental potential with our clinical-grade AI simulation.</p>
         </AnimatedSection>
 
-        <div className="max-w-4xl mx-auto bg-zinc-50 rounded-[40px] p-4 md:p-8 shadow-2xl border border-zinc-100 min-h-[600px] flex flex-col justify-center">
+        <div className="max-w-4xl mx-auto rounded-[40px] p-4 md:p-8 flex flex-col justify-center">
           <AnimatePresence mode="wait">
             {step === "upload" && (
-              <motion.div key="upload" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="text-center">
-                <div className="flex justify-center gap-6 mb-12">
-                  {TREATMENTS.map(t => (
-                    <TreatmentDockButton key={t.id} treatment={t} active={selectedTreatment === t.id} onSelect={() => setSelectedTreatment(t.id)} />
-                  ))}
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <button onClick={startCamera} className="group relative h-64 bg-white rounded-3xl border-2 border-dashed border-zinc-200 hover:border-brand-gold transition-all overflow-hidden flex flex-col items-center justify-center gap-4">
-                    <div className="w-16 h-16 rounded-full bg-zinc-50 flex items-center justify-center group-hover:scale-110 transition-transform"><Camera size={32} className="text-zinc-400 group-hover:text-brand-gold" /></div>
-                    <span className="font-bold text-zinc-500">Live Camera</span>
-                  </button>
-                  <label className="group relative h-64 bg-white rounded-3xl border-2 border-dashed border-zinc-200 hover:border-brand-gold transition-all cursor-pointer flex flex-col items-center justify-center gap-4">
+              <motion.div key="upload" 
+                initial={{ opacity: 0, scale: 0.98 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0, scale: 0.98 }} 
+                className="space-y-6"
+              >
+                <div className="grid grid-cols-1 gap-6">
+                  {/* Live Camera card */}
+                  <motion.button 
+                    onClick={startCamera}
+                    whileTap={{ scale: 0.98 }}
+                    className="group relative h-60 bg-white rounded-[32px] border-2 border-dashed border-zinc-200 transition-all flex flex-col items-center justify-center gap-4"
+                  >
+                    <div className="w-16 h-16 rounded-full bg-zinc-50 flex items-center justify-center group-hover:bg-zinc-100 transition-colors">
+                      <Camera size={32} className="text-zinc-400" />
+                    </div>
+                    <span className="font-medium text-zinc-500 text-lg">Live Camera</span>
+                  </motion.button>
+
+                  {/* Upload card */}
+                  <label className="group relative h-60 bg-white rounded-[32px] border-2 border-dashed border-zinc-200 transition-all cursor-pointer flex flex-col items-center justify-center gap-4">
                     <input type="file" accept="image/*" onChange={onFileChange} className="hidden" />
-                    <div className="w-16 h-16 rounded-full bg-zinc-50 flex items-center justify-center group-hover:scale-110 transition-transform"><Info size={32} className="text-zinc-400 group-hover:text-brand-gold" /></div>
-                    <span className="font-bold text-zinc-500">Upload Photo</span>
+                    <div className="w-16 h-16 rounded-full bg-zinc-50 flex items-center justify-center group-hover:bg-zinc-100 transition-colors">
+                      <Info size={32} className="text-zinc-400" />
+                    </div>
+                    <span className="font-medium text-zinc-500 text-lg">Upload Photo</span>
                   </label>
                 </div>
               </motion.div>
