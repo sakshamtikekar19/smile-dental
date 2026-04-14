@@ -840,8 +840,6 @@ const SmileSimulatorAI = () => {
     };
   }, []);
 
-  }, []);
-
   // Camera cleanup
   useEffect(() => () => stopCamera(), []);
 
