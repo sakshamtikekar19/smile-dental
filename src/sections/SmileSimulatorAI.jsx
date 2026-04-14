@@ -710,6 +710,7 @@ const SmileSimulatorAI = () => {
   const [cameraError, setCameraError] = useState(null);
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [finalLandmarks, setFinalLandmarks] = useState(null);
   // Mandate 1 & 2: rawImageUrl is the ONLY bridge between file selection and processing.
   // Setting it triggers the useEffect below — the onChange handler itself does NO math.
   const [rawImageUrl, setRawImageUrl] = useState(null);
@@ -825,15 +826,14 @@ const SmileSimulatorAI = () => {
   // --- DENTAL ZOOM SYNC (Pillar 3: Logic Sync) ---
   // Guaranteed hook: Re-renders the zoom canvas when result view is MOUNTED.
   useEffect(() => {
-    if (step === "result" && afterImage && latestLandmarksRef.current && zoomCanvasRef.current) {
+    if (step === "result" && afterImage && finalLandmarks && zoomCanvasRef.current) {
       console.log("[ZoomSync] Result mounted, rendering dental detail window");
       
       (async () => {
         try {
           const img = await loadImage(afterImage);
-          const focusBox = getTeethFocusBox(latestLandmarksRef.current, img.width, img.height);
+          const focusBox = getTeethFocusBox(finalLandmarks, img.width, img.height);
           
-          // Ensure DOM has painted the canvas before surgical draw
           requestAnimationFrame(() => {
             if (zoomCanvasRef.current) {
               renderTeethZoom(zoomCanvasRef.current, img, focusBox);
@@ -844,7 +844,7 @@ const SmileSimulatorAI = () => {
         }
       })();
     }
-  }, [step, afterImage]);
+  }, [step, afterImage, finalLandmarks]);
 
   // Camera cleanup
   useEffect(() => () => stopCamera(), []);
@@ -880,6 +880,7 @@ const SmileSimulatorAI = () => {
     safeRevoke(afterImage);
     setBeforeImage(null);
     setAfterImage(null);
+    setFinalLandmarks(null);
     setError(null);
     setCameraError(null);
     setIsProcessing(false);
@@ -982,6 +983,7 @@ const SmileSimulatorAI = () => {
 
       if (!isCurrent()) return;
 
+      setFinalLandmarks(landmarks);
       setBeforeImage(normalizedUrl);
       setAfterImage(resultUrl);
       setStep("result");
