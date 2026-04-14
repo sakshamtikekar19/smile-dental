@@ -245,20 +245,6 @@ function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-function getToothSegments(points, segmentCount = 6) {
-  const xs = points.map(p => p.x);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const width = maxX - minX;
-  const segments = [];
-  for (let i = 0; i < segmentCount; i++) {
-    const start = minX + (i / segmentCount) * width;
-    const end = minX + ((i + 1) / segmentCount) * width;
-    segments.push({ start, end });
-  }
-  return segments;
-}
-
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     if (!url) return reject(new Error("No URL provided"));
@@ -268,8 +254,6 @@ function loadImage(url) {
       console.error("Image load failed:", url);
       reject(new Error("Image failed to load"));
     };
-    // 🔥 CRITICAL FIX: Only apply anonymous CORS for remote URLs. 
-    // Applying it to local 'blob:' origins causes a security error/black screen.
     if (!url.startsWith("blob:") && !url.startsWith("data:")) {
       img.crossOrigin = "anonymous";
     }
@@ -281,10 +265,6 @@ function safeRevoke(url) {
   if (url && url.startsWith("blob:")) { try { URL.revokeObjectURL(url); } catch { } }
 }
 
-/**
- * Resize image to maxPx on longest side and return a blob URL.
- * Runs entirely on the main thread but is fast (single drawImage).
- */
 async function resizeImage(src, maxPx = MAX_IMAGE_SIZE) {
   const img = await loadImage(src);
   const scale = Math.min(1, maxPx / Math.max(img.width, img.height, 1));
@@ -298,23 +278,15 @@ async function resizeImage(src, maxPx = MAX_IMAGE_SIZE) {
   );
 }
 
-/**
- * Detect face landmarks using the singleton FaceLandmarker.
- * Returns landmark array or null.
- */
 async function detectLandmarks(imageSrc) {
   try {
     if (!_faceLandmarkerInstance) await initFaceLandmarker();
     const img = await loadImage(imageSrc);
-    
-    // Mandate 1: Direct Image Detection (Highest fidelity)
     const results = _faceLandmarkerInstance.detect(img);
     if (results.faceLandmarks?.[0]) return results.faceLandmarks[0];
 
-    // Clinical Bypass: if standard detection fails on a dental close-up (like our test image)
     if (imageSrc.includes("test_teeth") || imageSrc.includes("simulated=true")) {
       console.warn("[AI] Standard face detection failed on close-up. Injecting mock anchors for simulation validation.");
-      // Return a set of mock landmarks that centered on the image
       return Array(478).fill(0).map((_, i) => ({
         x: 0.5 + Math.cos((i / 478) * Math.PI * 2) * 0.15,
         y: 0.55 + Math.sin((i / 478) * Math.PI * 2) * 0.08
@@ -328,186 +300,7 @@ async function detectLandmarks(imageSrc) {
 }
 
 /**
- * Build conservative mouth bounding box from landmarks.
- */
-function buildMouthBounds(landmarks, iw, ih) {
-  const indices = MOUTH_PERIMETER_INDICES;
-  for (const i of indices) {
-    const p = landmarks[i];
-    if (!p || typeof p.x !== "number") return null;
-  }
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  indices.forEach(i => {
-    const p = landmarks[i];
-    const x = p.x * iw, y = p.y * ih;
-    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-  });
-  if (!(maxX > minX && maxY > minY)) return null;
-  const padX = (maxX - minX) * 0.14 + 6;
-  const padY = (maxY - minY) * 0.18 + 8;
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const rx = Math.max((maxX - minX) / 2 * 1.08, 12);
-  const ry = Math.max((maxY - minY) / 2 * 1.12, 10);
-  return {
-    bounds: {
-      x: clamp(Math.floor(minX - padX), 0, iw - 1),
-      y: clamp(Math.floor(minY - padY), 0, ih - 1),
-      width: clamp(Math.ceil(maxX - minX + padX * 2), 24, iw),
-      height: clamp(Math.ceil(maxY - minY + padY * 2), 24, ih),
-    },
-    oval: { cx, cy, rx, ry },
-  };
-}
-
-function heuristicMouthBounds(iw, ih) {
-  const cx = iw * 0.5, cy = ih * 0.63;
-  const rx = Math.max(iw * 0.19, 14), ry = Math.max(ih * 0.1, 10);
-  const w = clamp(Math.ceil(rx * 2.45), 48, iw);
-  const h = clamp(Math.ceil(ry * 2.35), 40, ih);
-  return {
-    bounds: {
-      x: clamp(Math.floor(cx - w / 2), 0, iw - w),
-      y: clamp(Math.floor(cy - h / 2), Math.floor(ih * 0.45), Math.max(0, ih - h)),
-      width: w, height: h,
-    },
-    oval: { cx, cy, rx, ry },
-  };
-}
-
-function squareCropRect(iw, ih, oval) {
-  const maxSide = Math.min(iw, ih);
-  const side = clamp(Math.ceil(2.35 * Math.max(oval.rx, oval.ry)), 120, maxSide);
-  const x0 = clamp(Math.round(oval.cx - side / 2), 0, iw - side);
-  const y0 = clamp(Math.round(oval.cy - side / 2), 0, ih - side);
-  return { x: x0, y: y0, width: side, height: side };
-}
-
-function ellipseWeight(px, py, oval, feather) {
-  const { cx, cy, rx, ry } = oval;
-  if (rx <= 0 || ry <= 0) return 0;
-  const nx = (px - cx) / rx, ny = (py - cy) / ry;
-  const dist = Math.sqrt(nx * nx + ny * ny);
-  const outer = 1 + feather / Math.max(rx, ry);
-  if (dist <= 1) return 1;
-  if (dist >= outer) return 0;
-  const t = (outer - dist) / (outer - 1);
-  return t * t * (3 - 2 * t);
-}
-
-/**
- * Crop a region of an image to a blob URL (fast, main thread OK).
- */
-async function cropRegion(imageSrc, rect) {
-  const img = await loadImage(imageSrc);
-  const canvas = document.createElement("canvas");
-  canvas.width = rect.width;
-  canvas.height = rect.height;
-  canvas.getContext("2d").drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
-  return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.93));
-}
-
-// --- DENTAL ZOOM ENGINE (Step 3: Surgical High-Fidelity) ---
-function renderTeethZoom(zoomCanvas, sourceCanvas, focusBox) {
-  if (!zoomCanvas || !sourceCanvas || !focusBox) return;
-
-  const scale = 3; // 🔥 Optimal sharpness (3x focus)
-  const zw = focusBox.width * scale;
-  const zh = focusBox.height * scale;
-
-  zoomCanvas.width = zw;
-  zoomCanvas.height = zh;
-
-  const ctx = zoomCanvas.getContext("2d");
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-
-  ctx.clearRect(0, 0, zw, zh);
-
-  // Surgical crop-and-scale from processed canvas
-  ctx.drawImage(
-    sourceCanvas,
-    focusBox.x, focusBox.y, focusBox.width, focusBox.height,
-    0, 0, zw, zh
-  );
-}
-
-// ── Shared Engine Canvas (Pillar 2: Anti-Crash) ──────────────────────────────
-let _sharedSimCanvas = null;
-let _sharedMainCanvas = null;
-let _sharedDetCanvas = null;
-
-function getSharedCanvases(iw, ih) {
-  if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
-  if (!_sharedDetCanvas) _sharedDetCanvas = document.createElement('canvas');
-
-  // Rule 1: Physical Pixel Fidelity (Pillar 1)
-  const maxSafeRes = 4096;
-  const rw = Math.min(iw, maxSafeRes);
-  const rh = Math.min(ih, maxSafeRes);
-
-  _sharedMainCanvas.width = rw;
-  _sharedMainCanvas.height = rh;
-  _sharedDetCanvas.width = 1024;
-  _sharedDetCanvas.height = 1024;
-
-  const ctx = _sharedMainCanvas.getContext('2d');
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-  return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
-}
-
-// --- PRODUCTION HELPER MAPPING (Pillar: Precision UI) ---
-function getTeethPoints(landmarks, w, h) {
-  const innerMouthIndices = [
-    78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308
-  ];
-
-  return innerMouthIndices.map(idx => ({
-    x: landmarks[idx].x * w,
-    y: landmarks[idx].y * h
-  }));
-}
-
-function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
-  if (intensity < 0.05) return;
-
-  if (!landmarks || landmarks.length === 0) return;
-
-  const points = TEETH_WHITEN_MASK_INDICES.map(idx => ({
-    x: landmarks[idx].x * w,
-    y: landmarks[idx].y * h
-  }));
-
-  const xs = points.map(p => p.x);
-  const ys = points.map(p => p.y);
-  const minX = Math.max(0, Math.floor(Math.min(...xs)));
-  const maxX = Math.min(w, Math.ceil(Math.max(...xs)));
-  const minY = Math.max(0, Math.floor(Math.min(...ys)));
-  const maxY = Math.min(h, Math.ceil(Math.max(...ys)));
-
-  const teethPath = () => {
-    ctx.beginPath();
-    points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-    ctx.closePath();
-  };
-
-  // ✅ Upgrade 3: Gum Shadow Gradient
-  ctx.save();
-  teethPath();
-  const grad = ctx.createLinearGradient(0, minY, 0, maxY);
-  grad.addColorStop(0, "rgba(0,0,0,0.08)");
-  grad.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.restore();
-
-  const segments = getToothSegments(points, 6);
-  const boxW = maxX - minX;
-  const boxH = maxY - minY;
-/**
  * ENGINE 1: ANATOMICAL ALIGNMENT (Geometry Only)
- * Vertically aligns enamel along a natural mid-smile baseline.
  */
 function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
@@ -524,7 +317,6 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   const data = imageData.data;
   const sourceData = new Uint8ClampedArray(data);
 
-  // SDF Mask for strict alignment boundary locking
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = boxW; maskCanvas.height = boxH;
   const mctx = maskCanvas.getContext("2d");
@@ -539,12 +331,10 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
     const localY = y - minY;
     const dy = (midY - y) * strength;
     const srcLocalY = Math.max(0, Math.min(boxH - 1, Math.round(localY + dy)));
-
     for (let x = minX; x < maxX; x++) {
       const localX = x - minX;
       const i = (localY * boxW + localX) * 4;
       if (maskData[i] < 128) continue;
-
       const srcIdx = (srcLocalY * boxW + localX) * 4;
       data[i] = sourceData[srcIdx];
       data[i + 1] = sourceData[srcIdx + 1];
@@ -552,8 +342,6 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
     }
   }
   ctx.putImageData(imageData, minX, minY);
-
-  // Subtle smoothing (anatomical continuity)
   ctx.save();
   ctx.globalAlpha = 0.12;
   ctx.filter = "blur(0.6px)";
@@ -563,12 +351,10 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
 
 /**
  * ENGINE 2: CLINICAL WHITENING (Color Only)
- * High-performance stoichiometry pass with interproximal cleaning.
  */
 function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   const points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
-
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
   const minX = Math.floor(Math.min(...xs)), maxX = Math.ceil(Math.max(...xs));
   const minY = Math.floor(Math.min(...ys)), maxY = Math.ceil(Math.max(...ys));
@@ -579,7 +365,6 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   const data = imageData.data;
   const faceScale = boxH / 100;
 
-  // Hardware-Accelerated SDF Blur Mask
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = boxW; maskCanvas.height = boxH;
   const mctx = maskCanvas.getContext("2d");
@@ -595,28 +380,20 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     let r = data[i], g = data[i + 1], b = data[i + 2];
     const feather = sdfData[i] / 255;
     if (feather < 0.1) continue;
-
     const isTooth = r > 80 && g > 80 && b > 65 && Math.abs(r - g) < 30 && r < g * 1.12;
     if (!isTooth) continue;
 
     const avg = (r + g + b) / 3;
-    const variation = ((i / 4) % 255) / 255;
-    const lift = 0.40 * feather * (0.85 + 0.3 * variation) * (intensity / 0.65);
-    
-    // Color: Neutralize + Whiten
+    const lift = 0.40 * feather * (intensity / 0.65);
     r = r * 0.65 + avg * 0.35; g = g * 0.65 + avg * 0.35; b = b * 0.85 + avg * 0.15;
     r += (255 - r) * 0.12 * lift; g += (255 - g) * 0.15 * lift; b += (255 - b) * 0.48 * lift;
 
-    // Plaque Cleaning & Depth
     const isPlaque = r > g && g > b && (r - b) > 25;
     if (isPlaque && avg < 160) {
       r = r * 0.85 + avg * 0.15; g = g * 0.88 + avg * 0.12; b = b * 0.95 + avg * 0.05;
       r += (255 - r) * 0.08; g += (255 - g) * 0.08; b += (255 - b) * 0.12;
     }
-    const finalBrightness = (r + g + b) / 3;
-    if (finalBrightness > 210) { r *= 0.92; g *= 0.92; b *= 0.92; }
     if (feather < 0.3) { r *= 0.96; g *= 0.96; b *= 0.96; }
-
     data[i] = Math.min(255, r); data[i + 1] = Math.min(255, g); data[i + 2] = Math.min(255, b);
   }
   ctx.putImageData(imageData, minX, minY);
@@ -624,29 +401,21 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
 
 /**
  * ENGINE 3: BRACES (Visual Only)
- * High-precision overlay orchestrator.
  */
 function applyBracesEffect(ctx, landmarks, w, h, img) {
   drawBracesOverlay(ctx, landmarks, w, h, img);
   eraseAboveUpperLip(ctx, landmarks, w, h, 20);
 }
 
-// --- PRODUCTION BRACES OVERLAY ---
 function drawBracesOverlay(ctx, landmarks, w, h, bracesImage) {
   if (!bracesImage || !bracesImage.complete) return;
-  
   const pack = buildBracesPack(landmarks, w, h);
   if (!pack) return;
-
   ctx.save();
-
-  // --- ORDER 1: WIRE FIRST ---
   ctx.beginPath();
   ctx.strokeStyle = "rgba(203, 213, 225, 0.85)";
   ctx.lineWidth = Math.max(1.1, w * 0.0011);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
   if (pack.wireSamplesUpper?.length > 1) {
     ctx.moveTo(pack.wireSamplesUpper[0].x, pack.wireSamplesUpper[0].y);
     pack.wireSamplesUpper.forEach(p => ctx.lineTo(p.x, p.y));
@@ -656,67 +425,33 @@ function drawBracesOverlay(ctx, landmarks, w, h, bracesImage) {
     pack.wireSamplesLower.forEach(p => ctx.lineTo(p.x, p.y));
   }
   ctx.stroke();
-
-  // --- ORDER 2: BRACKETS (with shadow depth) ---
   const lipMidY = landmarks[13].y * h;
-  
   const drawBrackets = (anchors) => {
     anchors.forEach(a => {
-      // Perspective Scaling based on Horizontal (wMult) AND Vertical (yDist)
       const yDistFromMid = Math.abs(a.y - lipMidY) / (h * 0.1);
       const verticalPerspective = clamp(1 - yDistFromMid * 0.15, 0.8, 1.1);
       const side = pack.baseW * (a.wMult || 1) * verticalPerspective;
-
       ctx.save();
       ctx.translate(a.x, a.y);
       ctx.rotate(a.ang || 0);
-      
-      ctx.shadowBlur = 5;
-      ctx.shadowColor = "rgba(0,0,0,0.42)";
-      
+      ctx.shadowBlur = 5; ctx.shadowColor = "rgba(0,0,0,0.42)";
       ctx.drawImage(bracesImage, -side/2, -side/2, side, side);
       ctx.restore();
     });
   };
-
   drawBrackets(pack.upperAnchors || []);
   drawBrackets(pack.lowerAnchors || []);
-
   ctx.restore();
 }
 
-/**
- * Calculates a tight bounding box around the mouth area using anatomical landmarks.
- */
-function getTeethCropBounds(landmarks, iw, ih, padding = 0.2) {
-  const mouthIndices = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
-  let minX = 1, minY = 1, maxX = 0, maxY = 0;
-
-  mouthIndices.forEach(idx => {
-    const p = landmarks[idx];
-    if (p) {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-      maxX = Math.max(maxX, p.x);
-      maxY = Math.max(maxY, p.y);
-    }
-  });
-
-  const w = maxX - minX;
-  const h = maxY - minY;
-  const px = w * padding;
-  const py = h * padding;
-
-  return {
-    x: Math.max(0, (minX - px) * iw),
-    y: Math.max(0, (minY - py) * ih),
-    width: Math.min(iw, (w + 2 * px) * iw),
-    height: Math.min(ih, (h + 2 * py) * ih)
-  };
+// ── Shared Engine Canvas ──────────────────────────────
+let _sharedMainCanvas = null;
+function getSharedCanvas(iw, ih) {
+  if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
+  _sharedMainCanvas.width = iw;
+  _sharedMainCanvas.height = ih;
+  return _sharedMainCanvas;
 }
-
-// ── Main Component ───────────────────────────────────────────────────────────
-const OVAL_FEATHER_PX = 16;
 
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("upload");
@@ -725,655 +460,236 @@ const SmileSimulatorAI = () => {
   const [beforeImage, setBeforeImage] = useState(null);
   const [afterImage, setAfterImage] = useState(null);
   const [error, setError] = useState(null);
-  const [cameraError, setCameraError] = useState(null);
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [zoomLoading, setZoomLoading] = useState(false);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
-  // Mandate 1 & 2: rawImageUrl is the ONLY bridge between file selection and processing.
-  // Setting it triggers the useEffect below — the onChange handler itself does NO math.
   const [rawImageUrl, setRawImageUrl] = useState(null);
-  // We snapshot the treatment at the moment the user picks an image (avoids stale closure issues)
   const pendingTreatmentRef = useRef("whitening");
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
-  const generationRef = useRef(0);
   const latestLandmarksRef = useRef(null);
+  const generationRef = useRef(0);
   const requestRef = useRef(null);
   const renderRequestRef = useRef(null);
-  const selectedTreatmentRef = useRef(selectedTreatment);
   const bracesImageRef = useRef(null);
   const zoomCanvasRef = useRef(null);
 
-  // --- REAL-TIME DETECTION LOOP (Pillar: Precision Sync) ---
+  useEffect(() => {
+    const img = new Image();
+    const base = import.meta.env.BASE_URL || "/";
+    img.src = `${base}assets/bracket.png`.replace(/\/\//g, '/');
+    img.onload = () => { bracesImageRef.current = img; };
+    initFaceLandmarker().catch(() => { });
+  }, []);
+
   const detectionLoop = useCallback(async () => {
     if (step !== "camera" || !videoRef.current || !_faceLandmarkerInstance) {
       if (step === "camera") requestRef.current = requestAnimationFrame(detectionLoop);
       return;
     }
-    
     try {
       const result = _faceLandmarkerInstance.detectForVideo(videoRef.current, performance.now());
-      if (result.faceLandmarks?.[0]) {
-        latestLandmarksRef.current = result.faceLandmarks[0];
-      }
-    } catch (err) {
-      // Squelch background detection errors
-    }
-    
+      if (result.faceLandmarks?.[0]) latestLandmarksRef.current = result.faceLandmarks[0];
+    } catch { }
     if (step === "camera") requestRef.current = requestAnimationFrame(detectionLoop);
   }, [step]);
 
-  // --- PRODUCTION READY RENDER LOOP ---
   const renderLoop = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-
     if (!video || !canvas || video.videoWidth === 0) {
       if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
       return;
     }
-
-    if (canvas.width !== video.videoWidth) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
-
+    if (canvas.width !== video.videoWidth) { canvas.width = video.videoWidth; canvas.height = video.videoHeight; }
     const ctx = canvas.getContext("2d");
-
-    // --- STRICT PIPELINE (drawImage → whitening → braces → occlusion) ---
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
     if (latestLandmarksRef.current) {
-      const treatment = selectedTreatmentRef.current;
-      if (treatment === "whitening" || treatment === "both" || treatment === "transformation") {
-        applyRealWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
-      }
-      if (treatment === "braces" || treatment === "both") {
-        drawBracesOverlay(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
-        eraseAboveUpperLip(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 20);
-      }
+      const t = selectedTreatment;
+      if (t === "whitening") applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.65);
+      if (t === "alignment") { applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.2); applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.15); }
+      if (t === "braces") applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
+      if (t === "transformation") { applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.25); applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.75); applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current); }
     }
-
-    if (step === "camera") {
-      renderRequestRef.current = requestAnimationFrame(renderLoop);
-    }
-  }, [step]);
-
-  // Pre-load braces asset for production high-speed loop
-  useEffect(() => {
-    const img = new Image();
-    const base = import.meta.env.BASE_URL || "/";
-    const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-    img.src = `${normalizedBase}assets/bracket.png`.replace(/\/\//g, '/');
-    img.onload = () => { bracesImageRef.current = img; };
-  }, []);
+    if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
+  }, [step, selectedTreatment]);
 
   useEffect(() => {
-    if (step === "camera") {
-      requestRef.current = requestAnimationFrame(detectionLoop);
-      renderRequestRef.current = requestAnimationFrame(renderLoop);
-    } else {
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
-      if (renderRequestRef.current) cancelAnimationFrame(renderRequestRef.current);
-    }
-    return () => { 
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
-      if (renderRequestRef.current) cancelAnimationFrame(renderRequestRef.current);
-    };
+    if (step === "camera") { requestRef.current = requestAnimationFrame(detectionLoop); renderRequestRef.current = requestAnimationFrame(renderLoop); }
+    return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); if (renderRequestRef.current) cancelAnimationFrame(renderRequestRef.current); };
   }, [step, detectionLoop, renderLoop]);
 
-  // Sync state to ref for high-frequency loops
-  useEffect(() => {
-    selectedTreatmentRef.current = selectedTreatment;
-  }, [selectedTreatment]);
-
-  // PERFORMANCE OPTIMAL: Deferred AI Pre-Heating (Mandate 1)
-  useEffect(() => {
-    // Wait for UI to be fully interactive before hitting the network for WASM
-    const timer = setTimeout(() => {
-      initFaceLandmarker().catch(() => { });
-    }, 100);
-    return () => {
-      clearTimeout(timer);
-      generationRef.current += 1;
-    };
-  }, []);
-
-  // Camera cleanup
-  useEffect(() => () => stopCamera(), []);
-
-  useEffect(() => {
-    if (step !== "camera" || !streamRef.current || !videoRef.current) return;
-    videoRef.current.srcObject = streamRef.current;
-    videoRef.current.play().catch(() => { });
-  }, [step]);
-
-  const stopCamera = () => {
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    if (videoRef.current) videoRef.current.srcObject = null;
-  };
-
   const startCamera = async () => {
-    setError(null); setCameraError(null); setStep("camera");
+    setStep("camera");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
-    } catch {
-      setCameraError("Could not access camera. Allow permission or upload a photo.");
-      setStep("upload");
-    }
+    } catch { setStep("upload"); }
   };
 
-  const reset = useCallback(() => {
-    generationRef.current += 1;
-    stopCamera();
-    setStep("upload");
-    safeRevoke(beforeImage);
-    safeRevoke(afterImage);
-    setBeforeImage(null);
-    setAfterImage(null);
-    setFinalLandmarks(null);
-    setError(null);
-    setCameraError(null);
-    setIsProcessing(false);
-    setRawImageUrl(null);
-    setActiveTreatment(selectedTreatment);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [beforeImage, afterImage, selectedTreatment]);
+  const stopCamera = () => {
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+  };
 
-  // ── Mandate 2: Double-Timeout Processing Trigger ───────────────────────────
-  // This useEffect is the ONLY place that triggers the heavy pipeline.
-  // The 150ms delay guarantees React has painted the spinner before ANY math starts.
-  useEffect(() => {
-    if (!rawImageUrl || !isProcessing) return;
-    console.log("[2] UI Yielding — waiting 150ms for browser paint before heavy work");
-    const timer = setTimeout(() => {
-      console.log("[3] Starting heavy processing pipeline");
-      startHeavyProcessingPipeline(rawImageUrl);
-    }, 150);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawImageUrl, isProcessing]);
+  const reset = () => {
+    generationRef.current += 1; stopCamera(); setStep("upload"); setBeforeImage(null); setAfterImage(null); setFinalLandmarks(null); setIsProcessing(false); setRawImageUrl(null);
+  };
 
-  // ── Core pipeline (Mandate 3: Granular tracking) ───────────────────────────
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
     const treatment = pendingTreatmentRef.current;
     const generation = ++generationRef.current;
-    const isCurrent = () => generation === generationRef.current;
-
-    let normalizedUrl = null;
-    let finalUrl = null;
-
     try {
-      setProcessingLog("Analyzing anatomy...");
+      setProcessingLog("Landmarking facial anatomy...");
+      const landmarks = await detectLandmarks(imageUrl);
+      if (generation !== generationRef.current) return;
+      if (!landmarks) throw new Error("Face not clear enough. Tips: Use better lighting and look directly at camera.");
 
-      // Step 1: Base Load (The ONLY time we load the source image)
-      const sourceImg = await loadImage(imageUrl);
-
-      if (!_faceLandmarkerInstance) {
-        setProcessingLog("Waking up AI engine...");
-        await initFaceLandmarker();
-        if (!_faceLandmarkerInstance) throw new Error("AI Engine failure.");
-      }
-
-      // Step 2: Detection and High-res Synchronization
-      setProcessingLog("Analyzing anatomical depth...");
-      
-      // ✅ Speed Boost: Use an in-memory canvas for detection resize (Zero-Blob lag)
-      const detCanvas = document.createElement("canvas");
-      detCanvas.width = 256; detCanvas.height = 256;
-      detCanvas.getContext("2d").drawImage(sourceImg, 0, 0, 256, 256);
-      
-      const detections = await _faceLandmarkerInstance.detect(detCanvas);
-      const landmarks = detections?.faceLandmarks?.[0];
-
-      if (!landmarks) {
-        console.error("❌ No landmarks detected on image");
-        setError("Face not detected. Try a clearer image.");
-        setStep("upload");
-        return;
-      }
-
-      if (!isCurrent()) return;
-
-      // ✅ Resolution Prep
-      const scale = Math.min(1, MAX_IMAGE_SIZE / Math.max(sourceImg.width, sourceImg.height, 1));
-      const iw = Math.round(sourceImg.width * scale);
-      const ih = Math.round(sourceImg.height * scale);
-
-      const { main: canvas } = getSharedCanvases(iw, ih);
+      const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
+      const canvas = getSharedCanvas(iw, ih);
       const ctx = canvas.getContext("2d");
-      
-      canvas.width = iw;
-      canvas.height = ih;
+      const img = await loadImage(snapshotUrl);
+      ctx.drawImage(img, 0, 0);
 
-      // Draw the raw original onto our simulation canvas
-      ctx.drawImage(sourceImg, 0, 0, iw, ih);
-      
-      // ✅ HYPER-SPEED: Use the original user input URL as the "Before" image
-      // Eliminates one redundant high-res toBlob operation (~300-500ms saved)
-      const beforeUrl = imageUrl;
-
-      // --- MODULAR SIMULATION PIPELINE (Geometry → Color → Visuals) ---
-      setProcessingLog("Engineering anatomical alignment...");
-      
+      setProcessingLog("Engineering modular simulation...");
       switch (treatment) {
-        case "whitening":
-          applyWhitening(ctx, landmarks, iw, ih, 0.7);
-          break;
-
-        case "alignment":
-          applyAlignment(ctx, landmarks, iw, ih, 0.22);
-          setProcessingLog("Applying healthy radiance...");
-          applyWhitening(ctx, landmarks, iw, ih, 0.15); // subtle boost
-          break;
-
-        case "braces":
-          applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current);
-          break;
-
-        case "transformation":
-          applyAlignment(ctx, landmarks, iw, ih, 0.25);
-          setProcessingLog("Applying Hollywood whitening...");
-          applyWhitening(ctx, landmarks, iw, ih, 0.75);
-          setProcessingLog("Articulating braces...");
-          applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current);
-          break;
-
-        default:
-          console.warn("[Pipeline] No direct treatment match");
+        case "whitening": applyWhitening(ctx, landmarks, iw, ih, 0.7); break;
+        case "alignment": applyAlignment(ctx, landmarks, iw, ih, 0.22); applyWhitening(ctx, landmarks, iw, ih, 0.15); break;
+        case "braces": applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
+        case "transformation": applyAlignment(ctx, landmarks, iw, ih, 0.25); applyWhitening(ctx, landmarks, iw, ih, 0.75); applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
       }
 
-      if (!isCurrent()) return;
-
-      // Step 3: Finalize Visuals
-      setProcessingLog("Finalizing clinical polish...");
-      
-      // ✅ Export the simulated result
-      const resultUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.90));
-
-      if (!isCurrent()) return;
-
+      const finalUrl = canvas.toDataURL("image/jpeg", 0.93);
+      setAfterImage(finalUrl);
+      setBeforeImage(snapshotUrl);
       setFinalLandmarks(landmarks);
-      setBeforeImage(beforeUrl);
-      setAfterImage(resultUrl);
       setStep("result");
 
-      // ✅ PHASE 2 — BACKGROUND ZOOM ENHANCEMENT
-      // Deferred heavy zoom work to keep the main UI update instant.
       setZoomLoading(true);
-      const focusBox = getTeethFocusBox(landmarks, iw, ih);
-
       setTimeout(() => {
-        requestAnimationFrame(() => {
-          if (zoomCanvasRef.current) {
-            renderTeethZoom(zoomCanvasRef.current, canvas, focusBox);
-          }
+        if (zoomCanvasRef.current) {
+          const focus = getTeethFocusBox(landmarks, iw, ih);
+          const scale = 3;
+          zoomCanvasRef.current.width = focus.width * scale;
+          zoomCanvasRef.current.height = focus.height * scale;
+          const zctx = zoomCanvasRef.current.getContext("2d");
+          zctx.drawImage(canvas, focus.x, focus.y, focus.width, focus.height, 0, 0, zoomCanvasRef.current.width, zoomCanvasRef.current.height);
           setZoomLoading(false);
-        });
-      }, 300); // 300ms cushion for React mount & paint
-    } catch (err) {
-      if (!isCurrent()) return;
-      console.error("[ERROR] Pipeline crashed at:", err);
-      setError(err?.message || "Simulation failed. Please try another photo.");
-      setStep("upload");
-    } finally {
-      if (isCurrent()) {
-        setIsProcessing(false);
-        setRawImageUrl(null);
-      }
-      safeRevoke(normalizedUrl);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        }
+      }, 100);
+
+    } catch (err) { setError(err.message); setIsProcessing(false); }
   }, []);
 
+  useEffect(() => {
+    if (!rawImageUrl || !isProcessing) return;
+    const timer = setTimeout(() => startHeavyProcessingPipeline(rawImageUrl), 150);
+    return () => clearTimeout(timer);
+  }, [rawImageUrl, isProcessing, startHeavyProcessingPipeline]);
 
-  const takePhoto = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-
-    const outW = video.videoWidth;
-    const outH = video.videoHeight;
-    canvas.width = outW;
-    canvas.height = outH;
-
-    // --- RAW SNAPSHOT ONLY ---
-    ctx.drawImage(video, 0, 0, outW, outH);
-
-    stopCamera();
-
-    // 3. Export to result view
-    canvas.toBlob(blob => {
-        const processedUrl = URL.createObjectURL(blob);
-        setStep("processing");
-        setActiveTreatment(selectedTreatment);
-        setRawImageUrl(processedUrl);
-        setIsProcessing(true);
-    }, "image/jpeg", 0.95);
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    pendingTreatmentRef.current = selectedTreatment;
+    setActiveTreatment(selectedTreatment);
+    setRawImageUrl(URL.createObjectURL(file));
+    setIsProcessing(true);
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <section id="simulation" className="py-16 md:py-24 bg-[#F9F9F7] scroll-mt-20">
-      <div className="container mx-auto px-4 sm:px-6">
-
-        <AnimatedSection className="text-center mb-10 md:mb-16">
-          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-3xl sm:text-4xl md:text-5xl text-zinc-900 mb-4">
-            AI Smile Simulation
-          </h2>
-          <p className="text-zinc-500 max-w-2xl mx-auto text-base md:text-lg leading-relaxed px-2">
-            Take a photo live — AI whitening, alignment, and precise bracket placement in seconds.
-          </p>
+    <section id="simulator" className="relative py-24 bg-white overflow-hidden">
+      <div className="container mx-auto px-4 max-w-6xl">
+        <AnimatedSection className="text-center mb-16">
+          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">Smile Simulator</h2>
+          <p className="text-zinc-500 max-w-2xl mx-auto text-lg">Experience your dental potential with our clinical-grade AI simulation.</p>
         </AnimatedSection>
 
-        {/* Floating treatment dock — scales down on mobile */}
-        <AnimatedSection className="fixed bottom-5 sm:bottom-10 left-1/2 -translate-x-1/2 z-50 flex justify-center w-full px-4">
-          <div className="flex items-center justify-start sm:justify-center gap-1.5 sm:gap-4 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/75 px-3 sm:px-5 py-2 sm:py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl overflow-x-auto no-scrollbar max-w-[95vw] min-w-0">
-            {TREATMENTS.map(t => (
-              <div key={t.id} className="flex-shrink-0">
-                <TreatmentDockButton
-                  treatment={t}
-                  active={(step === "processing" || step === "result") ? activeTreatment === t.id : selectedTreatment === t.id}
-                  disabled={step === "processing" || step === "result"}
-                  onSelect={() => setSelectedTreatment(t.id)}
-                />
-              </div>
-            ))}
-          </div>
-        </AnimatedSection>
-
-        {/* Main panel */}
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-4xl mx-auto bg-zinc-50 rounded-[40px] p-4 md:p-8 shadow-2xl border border-zinc-100 min-h-[600px] flex flex-col justify-center">
           <AnimatePresence mode="wait">
-
-            {/* ── Camera prompt step ── */}
             {step === "upload" && (
-              <motion.div
-                key="upload"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="bg-white rounded-3xl border border-zinc-100 shadow-xl overflow-hidden"
-              >
-                {/* Hero area */}
-                <div className="relative bg-gradient-to-br from-zinc-900 to-zinc-800 px-8 pt-14 pb-12 text-center">
-                  {/* Animated camera ring */}
-                  <div className="relative inline-flex items-center justify-center mb-6">
-                    <motion.div
-                      className="absolute w-28 h-28 rounded-full border-2 border-brand-gold/30"
-                      animate={{ scale: [1, 1.18, 1], opacity: [0.5, 0.15, 0.5] }}
-                      transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-                    />
-                    <motion.div
-                      className="absolute w-20 h-20 rounded-full border border-brand-gold/50"
-                      animate={{ scale: [1, 1.12, 1], opacity: [0.6, 0.2, 0.6] }}
-                      transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
-                    />
-                    <div className="relative w-16 h-16 rounded-full bg-brand-gold/20 border border-brand-gold/60 flex items-center justify-center">
-                      <Camera size={28} className="text-brand-gold" />
-                    </div>
-                  </div>
-                  <h3 className="text-2xl sm:text-3xl font-serif text-white mb-3">Capture Your Smile</h3>
-                  <p className="text-zinc-400 text-sm sm:text-base max-w-xs mx-auto">
-                    Open your mouth slightly so your teeth are clearly visible.
-                  </p>
+              <motion.div key="upload" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="text-center">
+                <div className="flex justify-center gap-6 mb-12">
+                  {TREATMENTS.map(t => (
+                    <TreatmentDockButton key={t.id} treatment={t} active={selectedTreatment === t.id} onSelect={() => setSelectedTreatment(t.id)} />
+                  ))}
                 </div>
-
-                {/* Action area */}
-                <div className="px-6 sm:px-10 py-8">
-                  {error && (
-                    <div className="mb-6 p-4 bg-red-50 text-red-500 text-sm rounded-xl border border-red-100 text-left">
-                      <strong className="block mb-1">Could not process image</strong>
-                      {error}
-                    </div>
-                  )}
-                  {cameraError && !error && (
-                    <div className="mb-6 p-4 bg-amber-50 text-amber-800 text-sm rounded-xl border border-amber-100">{cameraError}</div>
-                  )}
-
-                  {/* Big tap-friendly camera button */}
-                  <div className="space-y-3">
-                    <motion.button
-                      type="button"
-                      onClick={startCamera}
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="w-full py-5 rounded-2xl font-bold text-base tracking-wide flex items-center justify-center gap-3 text-white shadow-xl shadow-zinc-900/20"
-                      style={{ background: "linear-gradient(135deg,#18181b,#3f3f46)" }}
-                    >
-                      <Camera size={22} />
-                      Take Live Photo
-                    </motion.button>
-                  </div>
-
-                  {/* Tips */}
-                  <ul className="mt-6 space-y-2.5">
-                    {[
-                      "Good lighting works best — face a window or lamp",
-                      "Open your lips slightly to show all teeth",
-                      "Hold your phone at eye level for the best angle",
-                    ].map((tip, i) => (
-                      <li key={i} className="flex items-start gap-2.5 text-xs text-zinc-500">
-                        <span className="mt-0.5 w-4 h-4 rounded-full bg-brand-gold/15 text-brand-gold flex items-center justify-center flex-shrink-0 font-bold text-[10px]">{i + 1}</span>
-                        {tip}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="mt-8 flex items-start gap-3 p-4 bg-zinc-50 rounded-2xl border border-zinc-100">
-                    <Info size={16} className="text-zinc-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-zinc-400 leading-relaxed">
-                      AI-generated preview — not a substitute for professional dental advice.
-                    </p>
-                  </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <button onClick={startCamera} className="group relative h-64 bg-white rounded-3xl border-2 border-dashed border-zinc-200 hover:border-brand-gold transition-all overflow-hidden flex flex-col items-center justify-center gap-4">
+                    <div className="w-16 h-16 rounded-full bg-zinc-50 flex items-center justify-center group-hover:scale-110 transition-transform"><Camera size={32} className="text-zinc-400 group-hover:text-brand-gold" /></div>
+                    <span className="font-bold text-zinc-500">Live Camera</span>
+                  </button>
+                  <label className="group relative h-64 bg-white rounded-3xl border-2 border-dashed border-zinc-200 hover:border-brand-gold transition-all cursor-pointer flex flex-col items-center justify-center gap-4">
+                    <input type="file" accept="image/*" onChange={onFileChange} className="hidden" />
+                    <div className="w-16 h-16 rounded-full bg-zinc-50 flex items-center justify-center group-hover:scale-110 transition-transform"><Info size={32} className="text-zinc-400 group-hover:text-brand-gold" /></div>
+                    <span className="font-bold text-zinc-500">Upload Photo</span>
+                  </label>
                 </div>
               </motion.div>
             )}
 
-            {/* ── Live camera step ── */}
             {step === "camera" && (
-              <motion.div
-                key="camera"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col rounded-3xl overflow-hidden bg-black shadow-2xl"
-              >
-                {/* Video + mask — controls never enter this box */}
-                <div className="relative w-full" style={{ aspectRatio: "3/4" }}>
-                  {/* Background Source (Hidden) */}
-                  <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 h-full w-full object-cover opacity-0 pointer-events-none" />
-                  
-                  {/* Live Simulation Canvas */}
-                  <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
+              <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative rounded-3xl overflow-hidden bg-black aspect-[3/4] md:aspect-video shadow-2xl">
+                <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+                <div className="absolute top-6 left-6 right-6 flex justify-between items-center z-10">
+                  <div className="bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/20"><p className="text-white text-xs font-bold uppercase tracking-wider">Live Preview: {selectedTreatment}</p></div>
+                  <button onClick={reset} className="p-3 bg-black/40 backdrop-blur-md text-white rounded-full border border-white/20 hover:bg-white/10 transition-colors"><X size={20} /></button>
+                </div>
+                <div className="absolute bottom-10 left-0 right-0 flex justify-center z-10">
+                  <button onClick={() => {
+                    const canvas = canvasRef.current;
+                    if (canvas) {
+                      pendingTreatmentRef.current = selectedTreatment;
+                      setActiveTreatment(selectedTreatment);
+                      setRawImageUrl(canvas.toDataURL("image/jpeg", 0.95));
+                      setIsProcessing(true);
+                    }
+                  }} className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center group active:scale-95 transition-transform"><div className="h-14 w-14 rounded-full bg-white group-hover:bg-brand-gold transition-colors" /></button>
+                </div>
+              </motion.div>
+            )}
 
-                  {/* Teeth guide overlay — pointer-events-none so it doesn't block taps */}
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <span className="rounded-full border border-white/25 bg-black/50 px-4 py-1.5 text-[11px] font-semibold tracking-widest text-white/90">
-                        ALIGN TEETH IN CENTER
-                      </span>
-                      <div className="h-20 w-56 sm:w-72 rounded-full border-2 border-dashed border-white/70 bg-white/5" />
-                    </div>
+            {isProcessing && (
+              <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-white/90 backdrop-blur-lg">
+                <div className="text-center max-w-xs">
+                  <div className="relative w-24 h-24 mx-auto mb-8">
+                    <motion.div className="absolute inset-0 border-4 border-zinc-100 rounded-full" />
+                    <motion.div className="absolute inset-0 border-4 border-brand-gold rounded-full border-t-transparent" animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }} />
+                    <motion.div className="absolute inset-0 flex items-center justify-center" animate={{ scale: [1, 1.1, 1] }} transition={{ duration: 2, repeat: Infinity }}><WhiteningIcon /></motion.div>
                   </div>
-                </div>
-
-                {/* Controls bar — always below the video, never overlapping the mask */}
-                <div className="flex items-center justify-center gap-8 bg-zinc-950 px-6 py-6">
-                  {/* Cancel */}
-                  <button
-                    type="button"
-                    onClick={reset}
-                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white active:scale-90 transition-transform"
-                    aria-label="Cancel"
-                  >
-                    <X size={20} />
-                  </button>
-
-                  {/* Shutter */}
-                  <motion.button
-                    type="button"
-                    onClick={takePhoto}
-                    whileTap={{ scale: 0.88 }}
-                    className="flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-xl shadow-black/40"
-                    aria-label="Take photo"
-                  >
-                    <span className="h-14 w-14 rounded-full bg-zinc-900" />
-                  </motion.button>
-
-                  {/* Flip / retry */}
-                  <button
-                    type="button"
-                    onClick={() => { stopCamera(); startCamera(); }}
-                    className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white active:scale-90 transition-transform"
-                    aria-label="Flip camera"
-                  >
-                    <RefreshCw size={18} />
-                  </button>
+                  <h3 style={{ fontFamily: "'Playfair Display', serif" }} className="text-2xl mb-2">Designing Your Smile</h3>
+                  <p className="text-zinc-400 text-sm animate-pulse tracking-wide uppercase font-bold">{processingLog || "Analyzing landmarks..."}</p>
                 </div>
               </motion.div>
             )}
 
-
-            {/* ── Processing step ── */}
-            {step === "processing" && (
-              <motion.div
-                key="processing"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="bg-white px-8 py-16 sm:py-20 rounded-3xl border border-zinc-100 shadow-xl text-center"
-              >
-                <div className="w-16 h-16 border-4 border-zinc-100 border-t-brand-gold rounded-full animate-spin mx-auto mb-8" />
-                <p className="text-lg font-serif text-zinc-800">Designing your future smile…</p>
-                <div className="w-full bg-zinc-100 h-1.5 rounded-full mt-8 overflow-hidden">
-                  <div className="bg-brand-gold h-full animate-[loading_20s_ease-in-out_infinite]" style={{ width: "30%" }} />
-                </div>
-                <p className="mt-6 text-[10px] text-brand-gold font-bold uppercase tracking-[0.2em] animate-pulse">
-                  {processingLog || "Preparing..."}
-                </p>
-              </motion.div>
-            )}
-
-            {/* ── Result step ── */}
             {step === "result" && (
-              <motion.div
-                key="result"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="space-y-5 sm:space-y-8"
-              >
-                {/* Before / After slider */}
-                <motion.div
-                  className="relative rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.14)] w-full mx-auto bg-black"
-                  style={{ aspectRatio: "1/1", maxHeight: "min(90vw, 560px)" }}
-                  initial={{ scale: 1.06, y: 6 }}
-                  animate={{ scale: 1, y: 0 }}
-                  transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1] }}
-                >
-                  <ReactCompareImage
-                    key={afterImage || "compare"}
-                    leftImage={beforeImage}
-                    rightImage={afterImage}
-                    aspectRatio="taller"
-                    sliderPositionPercentage={0.5}
-                    sliderLineWidth={2}
-                    sliderLineColor="#D4AF37"
-                    handleSize={40}
-                    leftImageCss={{ objectFit: "cover", objectPosition: "center" }}
-                    rightImageCss={{ objectFit: "cover", objectPosition: "center" }}
-                  />
-                  <div className="absolute top-4 left-4 pointer-events-none">
-                    <span className="glass px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest text-zinc-900 shadow-sm">Before</span>
-                  </div>
-                  <div className="absolute top-4 right-4 pointer-events-none">
-                    <span className="glass px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest text-brand-gold shadow-sm">After</span>
-                  </div>
-                </motion.div>
-
-                <p className="text-center text-xs text-zinc-400">← Drag the gold line to compare →</p>
-
-                {/* ✅ STEP 1 — ADD ZOOM CANVAS IN JSX */}
-                <div className="flex flex-col items-center">
-                  <div className="mt-4 flex justify-center items-center relative" style={{ width: "240px", height: "160px" }}>
-                    {zoomLoading ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center space-y-3 rounded-xl border-2 border-dashed border-zinc-200 bg-zinc-50">
-                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-brand-gold" />
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 animate-pulse">
-                          Enhancing Detail...
-                        </p>
-                      </div>
-                    ) : null}
-                    
-                    <canvas
-                      ref={zoomCanvasRef}
-                      className="rounded-xl shadow-lg bg-zinc-950 transition-opacity duration-500"
-                      style={{
-                        width: "240px",
-                        height: "160px",
-                        border: "2px solid #D4AF37",
-                        objectFit: "cover",
-                        opacity: zoomLoading ? 0 : 1
-                      }}
-                    />
-                  </div>
-                  <p className="text-[10px] text-center text-zinc-400 mt-2 font-medium tracking-wider uppercase opacity-60">
-                    Zoomed Dental Preview
-                  </p>
+              <motion.div key="result" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
+                <div className="relative rounded-[32px] overflow-hidden shadow-2xl border-4 border-white bg-zinc-200">
+                  <ReactCompareImage leftImage={beforeImage} rightImage={afterImage} sliderLineColor="#D4AF37" sliderLineWidth={3} handleSize={40} />
                 </div>
-
-                {/* Result card */}
-                <div className="bg-white p-6 sm:p-8 rounded-3xl border border-zinc-100 shadow-lg">
-                  <div className="flex items-center gap-3 mb-6">
-                    <motion.div
-                      className="w-10 h-10 bg-green-50 text-green-500 rounded-full flex items-center justify-center flex-shrink-0"
-                      animate={{ scale: [1, 1.08, 1] }}
-                      transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 3 }}
-                    >
-                      <CheckCircle2 size={20} />
-                    </motion.div>
-                    <div>
-                      <h4 className="font-serif text-lg sm:text-xl">Simulation Complete</h4>
-                      <p className="text-zinc-400 text-sm capitalize">{activeTreatment} preview ready</p>
-                    </div>
+                <div className="flex flex-col items-center gap-4">
+                  <div className="relative w-64 h-40 rounded-2xl overflow-hidden border-2 border-brand-gold shadow-xl bg-zinc-950">
+                    {zoomLoading && <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/50 backdrop-blur-sm z-10"><RefreshCw className="animate-spin text-brand-gold" /></div>}
+                    <canvas ref={zoomCanvasRef} className="w-full h-full object-cover" />
                   </div>
-
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <button
-                      onClick={reset}
-                      className="flex-1 py-3.5 rounded-xl border-2 border-zinc-200 text-zinc-700 font-bold text-sm hover:border-zinc-400 transition-colors"
-                    >
-                      Try Another
-                    </button>
-                    <motion.div
-                      className="flex-1"
-                      animate={{ boxShadow: ["0 0 0 0 rgba(212,175,55,0)", "0 0 18px 5px rgba(212,175,55,0.3)", "0 0 0 0 rgba(212,175,55,0)"] }}
-                      transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 1.2 }}
-                    >
-                      <button
-                        className="w-full py-3.5 rounded-xl font-bold text-sm text-black"
-                        style={{ background: "linear-gradient(135deg,#D4AF37,#F5E6C5)" }}
-                      >
-                        Book Consultation
-                      </button>
-                    </motion.div>
+                  <p className="text-[10px] text-zinc-400 font-bold tracking-widest uppercase">Clinical Detail Zoom</p>
+                </div>
+                <div className="bg-white p-8 rounded-[40px] shadow-xl border border-zinc-100 flex flex-col md:flex-row items-center justify-between gap-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center text-green-500"><CheckCircle2 size={24} /></div>
+                    <div><h4 className="font-serif text-xl">Simulation Ready</h4><p className="text-zinc-500 text-sm capitalize">{activeTreatment} result complete</p></div>
+                  </div>
+                  <div className="flex gap-4 w-full md:w-auto">
+                    <button onClick={reset} className="flex-1 md:px-8 py-4 rounded-2xl border-2 border-zinc-200 font-bold hover:border-zinc-400 transition-colors">Try Another</button>
+                    <button className="flex-1 md:px-10 py-4 rounded-2xl bg-zinc-950 text-white font-bold shadow-xl shadow-zinc-200 hover:scale-105 transition-transform">Book Consultation</button>
                   </div>
                 </div>
-
-                <p className="text-center text-xs text-zinc-400 italic px-4">
-                  &ldquo;AI-generated preview — not a substitute for professional dental advice.&rdquo;
-                </p>
               </motion.div>
             )}
-
           </AnimatePresence>
         </div>
       </div>
