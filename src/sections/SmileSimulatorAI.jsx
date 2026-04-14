@@ -402,6 +402,31 @@ async function cropRegion(imageSrc, rect) {
   return new Promise(r => canvas.toBlob(b => r(URL.createObjectURL(b)), "image/jpeg", 0.93));
 }
 
+// --- DENTAL ZOOM ENGINE (Step 3: Surgical High-Fidelity) ---
+function renderTeethZoom(zoomCanvas, sourceCanvas, focusBox) {
+  if (!zoomCanvas || !sourceCanvas || !focusBox) return;
+
+  const scale = 3; // 🔥 Optimal sharpness (3x focus)
+  const zw = focusBox.width * scale;
+  const zh = focusBox.height * scale;
+
+  zoomCanvas.width = zw;
+  zoomCanvas.height = zh;
+
+  const ctx = zoomCanvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  ctx.clearRect(0, 0, zw, zh);
+
+  // Surgical crop-and-scale from processed canvas
+  ctx.drawImage(
+    sourceCanvas,
+    focusBox.x, focusBox.y, focusBox.width, focusBox.height,
+    0, 0, zw, zh
+  );
+}
+
 // ── Shared Engine Canvas (Pillar 2: Anti-Crash) ──────────────────────────────
 let _sharedSimCanvas = null;
 let _sharedMainCanvas = null;
@@ -695,6 +720,7 @@ const SmileSimulatorAI = () => {
   const renderRequestRef = useRef(null);
   const selectedTreatmentRef = useRef(selectedTreatment);
   const bracesImageRef = useRef(null);
+  const zoomCanvasRef = useRef(null);
 
   // --- REAL-TIME DETECTION LOOP (Pillar: Precision Sync) ---
   const detectionLoop = useCallback(async () => {
@@ -913,32 +939,19 @@ const SmileSimulatorAI = () => {
 
       if (!isCurrent()) return;
 
-      // Step 3: Dental Zoom
-      setProcessingLog("Finalizing result...");
+
+      // Step 3: Finalize Visuals
+      setProcessingLog("Finalizing dental detail...");
       const focusBox = getTeethFocusBox(landmarks, iw, ih);
 
-      // BEFORE (original)
-      const beforeCanvas = document.createElement("canvas");
-      beforeCanvas.width = focusBox.width;
-      beforeCanvas.height = focusBox.height;
-      const bctx = beforeCanvas.getContext("2d");
-      bctx.drawImage(img, focusBox.x, focusBox.y, focusBox.width, focusBox.height, 0, 0, focusBox.width, focusBox.height);
+      // Render the Surgical Dental Zoom
+      renderTeethZoom(zoomCanvasRef.current, canvas, focusBox);
 
-      // AFTER (processed)
-      const afterCanvas = document.createElement("canvas");
-      afterCanvas.width = focusBox.width;
-      afterCanvas.height = focusBox.height;
-      const actx = afterCanvas.getContext("2d");
-      actx.drawImage(canvas, focusBox.x, focusBox.y, focusBox.width, focusBox.height, 0, 0, focusBox.width, focusBox.height);
+      // ✅ High-End UI touch: Use FULL images for main view comparison
+      const finalUrl = await new Promise(r => canvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.98));
 
-      // ✅ Optimization 3: High-speed Blob URLs (Stop using Base64 DataURLs)
-      const [bImg, aImg] = await Promise.all([
-        new Promise(r => beforeCanvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.98)),
-        new Promise(r => afterCanvas.toBlob(blob => r(URL.createObjectURL(blob)), "image/jpeg", 0.98))
-      ]);
-
-      setBeforeImage(bImg);
-      setAfterImage(aImg);
+      setBeforeImage(normalizedUrl);
+      setAfterImage(finalUrl);
       setStep("result");
     } catch (err) {
       if (!isCurrent()) return;
@@ -1234,6 +1247,25 @@ const SmileSimulatorAI = () => {
                 </motion.div>
 
                 <p className="text-center text-xs text-zinc-400">← Drag the gold line to compare →</p>
+
+                {/* ✅ STEP 1 — ADD ZOOM CANVAS IN JSX */}
+                <div className="flex flex-col items-center">
+                  <div className="mt-4 flex justify-center">
+                    <canvas
+                      ref={zoomCanvasRef}
+                      className="rounded-xl shadow-lg bg-zinc-950"
+                      style={{
+                        width: "240px",
+                        height: "160px",
+                        border: "2px solid #D4AF37",
+                        objectFit: "cover"
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-center text-zinc-400 mt-2 font-medium tracking-wider uppercase opacity-60">
+                    Zoomed Dental Preview
+                  </p>
+                </div>
 
                 {/* Result card */}
                 <div className="bg-white p-6 sm:p-8 rounded-3xl border border-zinc-100 shadow-lg">
