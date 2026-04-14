@@ -439,36 +439,32 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     const maskValue = maskData[i] / 255;
     if (maskValue < 0.05) continue;
 
-    const localX = (i / 4) % boxW + minX;
+    // 🏥 Anatomical Bounds (Vertical Clamping)
     const localY = Math.floor((i / 4) / boxW) + minY;
-    
-    // Vertical Clamping (Lip Protection)
     if (localY < lipUpperY - mouthHeight * 0.05 || localY > lipLowerY + mouthHeight * 0.05) continue;
 
     let r = data[i], g = data[i + 1], b = data[i + 2];
     
-    // 🦷 SURGICAL ENAMEL FILTER (Tight Lip/Gum Protection)
+    // 🦷 SURGICAL ENAMEL FILTER (Strict Lip/Gum Protection)
     const brightness = (r + g + b) / 3;
-    const isRedHeavy = r > g * 1.13 || r > b * 1.5; // Strict red-rejection (lips/gums)
-    const isTooth = !isRedHeavy && brightness > 40 && Math.abs(r - g) < 45 && r < g * 1.2;
+    const isRedHeavy = r > g * 1.12 || r > b * 1.45; 
+    const isTooth = !isRedHeavy && brightness > 42 && Math.abs(r - g) < 42 && r < g * 1.25;
                     
     if (!isTooth) continue;
 
-    const avg = (r + g + b) / 3;
-    const lift = maskValue * (intensity / 0.65);
+    // ✨ CLINICAL RADIANCE (Luminance + Soft Blend Model)
+    // 1. Calculate Perceptual Luminance
+    const luminance = 0.3 * r + 0.59 * g + 0.11 * b;
+    const strength = 0.58 * maskValue * (intensity / 0.65);
 
-    // ✨ NATURAL RADIANCE MODEL (Preserves Shadows & Depth)
-    let target = avg + (255 - avg) * 0.42 * lift;
-    
-    const rL = target;
-    const gL = target;
-    const bL = Math.min(255, target + 4 * lift);
+    // 2. Target Radiance (High Precision)
+    const target = luminance + (255 - luminance) * strength;
 
-    // 🔥 Texture & Shadow Preservation (Anatomical Parity)
-    const df = avg < 80 ? 0.88 : 0.75;
-    data[i]     = Math.min(255, rL * (1 - df) + r * df);
-    data[i + 1] = Math.min(255, gL * (1 - df) + g * df);
-    data[i + 2] = Math.min(255, bL * (1 - df) + b * df);
+    // 3. Soft Whitening Blend (70% factor to prevent 'plastic' look)
+    const bf = 0.7; // Blend factor
+    data[i]     = Math.min(255, r + (target - r) * bf);
+    data[i + 1] = Math.min(255, g + (target - g) * bf);
+    data[i + 2] = Math.min(255, b + (target - b) * bf + 4 * maskValue); // Subtle clinical pop
   }
   ctx.putImageData(imageData, minX, minY);
 }
