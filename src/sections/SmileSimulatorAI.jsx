@@ -786,16 +786,46 @@ const SmileSimulatorAI = () => {
             )}
 
             {step === "result" && afterImage && (
-              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="flex flex-col gap-10">
-                <div className="relative rounded-[40px] overflow-hidden shadow-2xl bg-white border border-zinc-100 min-h-[500px]">
+              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="flex flex-col gap-8">
+                <div className="relative rounded-[32px] md:rounded-[40px] overflow-hidden shadow-2xl bg-white border border-zinc-100 group">
                   <ReactCompareImage 
                     leftImage={beforeImage} 
                     rightImage={afterImage} 
-                    leftImageLabel="Before" 
-                    rightImageLabel="After"
                     sliderLineColor="#D4AF37"
                     handleSize={40}
                   />
+
+                  {/* 🏷️ Clinical Badges */}
+                  <div className="absolute top-6 left-6 px-4 py-1.5 bg-zinc-900/40 backdrop-blur-md rounded-full border border-white/20">
+                    <span className="text-[10px] font-bold text-white uppercase tracking-widest">Before</span>
+                  </div>
+                  <div className="absolute top-6 right-6 px-4 py-1.5 bg-brand-gold/80 backdrop-blur-md rounded-full border border-white/20">
+                    <span className="text-[10px] font-bold text-white uppercase tracking-widest">After</span>
+                  </div>
+
+                  {/* 🚀 Floating Treatment Dock (Overlay) */}
+                  <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 w-fit">
+                    <div className="bg-zinc-900/90 backdrop-blur-2xl px-5 py-3 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-5">
+                      {TREATMENTS.map(t => (
+                        <TreatmentDockButton 
+                          key={t.id} 
+                          treatment={t} 
+                          active={activeTreatment === t.id} 
+                          onSelect={() => {
+                            if (t.id !== activeTreatment) {
+                              pendingTreatmentRef.current = t.id;
+                              setActiveTreatment(t.id);
+                              setIsProcessing(true);
+                            }
+                          }} 
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-center">
+                  <p className="text-zinc-400 text-xs font-medium uppercase tracking-[0.2em]">← Drag the gold line to compare →</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
