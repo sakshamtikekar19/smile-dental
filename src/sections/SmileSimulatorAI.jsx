@@ -511,7 +511,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const centerX = (minX + maxX) / 2;
   const boxWidth = maxX - minX;
 
-  // 🎯 Pixel Whitening Loop (Natural Realism Refine)
+  // 🎯 Pixel Whitening Loop (Final Clean Fix)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
       if (!isInside(x, y, points)) continue;
@@ -522,46 +522,34 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
-      // ✨ STEP 1: CONTINUOUS TOOTH CONFIDENCE (Smooth-Loop)
-      // Replaces binary 'continue' with a 0..1 multiplier to eliminate 'blocky' islands
-      const brightnessScore = Math.min(1, (Math.min(r, g, b) - 60) / 40);
-      const colorScore = Math.max(0, 1 - Math.abs(r - g) / 30);
-      const toothConfidence = Math.max(0, Math.min(1, brightnessScore * colorScore));
+      // ✅ 1. Relaxed Masking (Prevents skipping pixels in shadow)
+      const isTooth = r > 85 && g > 85 && b > 75;
+      if (!isTooth) continue;
 
-      const segmentIndex = segments.findIndex(s => x >= s.start && x <= s.end);
-      if (segmentIndex === -1) continue;
-
-      // ✅ Anatomical Factors
+      // ✅ 2. Feather Safety
       const edgeDist = distanceToEdge(x, y, points);
       const feather = Math.min(1, edgeDist / (4 * faceScale));
+      const featherSafe = Math.max(0.3, feather);
 
-      // ✨ STEP 2: SUBTLE NEUTRALIZATION
+      // ✅ 3. Balanced Power Lift
       const avg = (r + g + b) / 3;
-      const neutR = r * 0.9 + avg * 0.1;
-      const neutG = g * 0.9 + avg * 0.1;
-      const neutB = b * 0.95 + avg * 0.05;
-
-      // Apply neutralization based on tooth confidence
-      r += (neutR - r) * toothConfidence;
-      g += (neutG - g) * toothConfidence;
-      b += (neutB - b) * toothConfidence;
-
-      // ✨ STEP 3: GENTLE WHITENING + CENTER BOOST
-      const lift = 0.25 * feather * toothConfidence;
       const centerFactor = Math.exp(-Math.pow((x - centerX) / boxWidth, 2));
-      const finalLift = lift * (0.9 + 0.2 * centerFactor);
+      const lift = 0.38 * featherSafe * (0.9 + 0.2 * centerFactor);
 
-      r += (255 - r) * 0.08 * finalLift;
-      g += (255 - g) * 0.08 * finalLift;
-      b += (255 - b) * 0.18 * finalLift;
+      // Controlled Neutralization
+      r = r * 0.88 + avg * 0.12;
+      g = g * 0.88 + avg * 0.12;
+      b = b * 0.92 + avg * 0.08;
 
-      // ✨ STEP 4: EDGE DARKENING (Depth)
-      const edgeFactor = Math.min(1, edgeDist / 8);
-      const shadow = 1 - 0.08 * (1 - edgeFactor);
-      
-      r *= shadow;
-      g *= shadow;
-      b *= shadow;
+      // Whitening
+      r += (255 - r) * 0.12 * lift;
+      g += (255 - g) * 0.12 * lift;
+      b += (255 - b) * 0.28 * lift;
+
+      // ✅ 4. Edge Depth (Smooth, not lines)
+      const edgeFactor = Math.min(1, edgeDist / 10);
+      const shadow = 1 - 0.06 * (1 - edgeFactor);
+      r *= shadow; g *= shadow; b *= shadow;
 
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
@@ -578,19 +566,6 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   ctx.globalAlpha = 0.12;
   ctx.filter = "blur(1px)"; 
   ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
-
-  // 🔥 Separation Shadows (Interproximal depth)
-  ctx.save();
-  teethPath();
-  ctx.clip();
-  ctx.globalCompositeOperation = "multiply";
-  segments.forEach((s, i) => {
-    if (i === segments.length - 1) return;
-    const gradWidth = Math.max(1, 2 * (w / 1024)); 
-    ctx.fillStyle = "rgba(0,0,0,0.10)";
-    ctx.fillRect(s.end - gradWidth/2, minY, gradWidth, maxY - minY);
-  });
   ctx.restore();
 
   // ✅ Upgrade 2: Enamel Shine Layer (Premium gloss)
