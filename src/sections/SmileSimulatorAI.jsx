@@ -607,9 +607,38 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       g += (255 - g) * 0.15 * finalLift;
       b += (255 - b) * 0.48 * finalLift;
 
-      // Edge Shadow
-      const shadow = 1 - 0.09 * (1 - feather);
-      r *= shadow; g *= shadow; b *= shadow;
+      // --- INTERPROXIMAL PLAQUE CLEANING & STAIN REMOVAL ---
+      // detect yellow/brown tones (plaque/stain)
+      const isPlaque = r > g && g > b && (r - b) > 25; 
+      // detect darker narrow regions (between teeth)
+      const isDarkGap = (r + g + b) / 3 < 160;
+
+      if (isPlaque && isDarkGap) {
+        const plaqueAvg = (r + g + b) / 3;
+        // gentle neutralization
+        r = r * 0.85 + plaqueAvg * 0.15;
+        g = g * 0.88 + plaqueAvg * 0.12;
+        b = b * 0.95 + plaqueAvg * 0.05;
+        // slight whitening (not too much!)
+        r += (255 - r) * 0.08;
+        g += (255 - g) * 0.08;
+        b += (255 - b) * 0.12;
+      }
+
+      // ⚠️ DEPTH PROTECTION (Don't break 3D anatomy)
+      const brightness = (r + g + b) / 3;
+      if (brightness > 210) {
+        // keep gaps/shadows slightly darker than main enamel
+        const darkScale = 0.92;
+        r *= darkScale; g *= darkScale; b *= darkScale;
+      }
+
+      // ✨ MICRO EDGE SHADOW (Individual Tooth Definition)
+      // feather (0=edge, 1=center) from SDF Mask
+      if (feather < 0.3) {
+        const edgeShadow = 0.96;
+        r *= edgeShadow; g *= edgeShadow; b *= edgeShadow;
+      }
 
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
