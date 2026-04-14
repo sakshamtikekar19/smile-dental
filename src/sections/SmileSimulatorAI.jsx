@@ -503,9 +503,8 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   }
 
   const faceScale = (maxY - minY) / 100;
-  const baseIntensity = intensity;
 
-  // 🎯 Pixel Whitening Loop (Hollywood Luminance Engine - Full Coverage)
+  // 🎯 Pixel Whitening Loop (Neutral-Lift Engine - Full Coverage)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
       if (!isInside(x, y, points)) continue;
@@ -513,24 +512,28 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       const i = (y * w + x) * 4;
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
+      // 👉 PREVENT WHITENING INSIDE MOUTH SHADOWS (Luminance Guard)
+      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (luminance < 80) continue; 
+
       const segmentIndex = segments.findIndex(s => x >= s.start && x <= s.end);
       if (segmentIndex === -1) continue;
 
-      // ✅ Anatomical Intensity Math
-      const toothVariation = 0.85 + (segmentIndex * 0.05);
-      const centerBoost = Math.exp(-Math.pow((segmentIndex - 2.5), 2) / 4);
-      const noise = (Math.sin(x * 0.1 + y * 0.1) + 1) / 2;
+      // ✅ Anatomical Factors
       const edgeDist = distanceToEdge(x, y, points);
       const feather = Math.min(1, edgeDist / (4 * faceScale));
 
-      const finalIntensity = baseIntensity * toothVariation * (0.9 + 0.2 * centerBoost) * (0.9 + 0.1 * noise);
-      
-      // 🔥 PREMIUM LIFT MATH
-      const lift = 0.45 * finalIntensity * feather;
+      // ✨ STEP 1: REMOVE YELLOW (Pull toward neutral)
+      const avg = (r + g + b) / 3;
+      r = r * 0.85 + avg * 0.15;
+      g = g * 0.85 + avg * 0.15;
+      b = b * 0.90 + avg * 0.10;
 
-      r += (255 - r) * 0.12 * lift;
-      g += (255 - g) * 0.12 * lift;
-      b += (255 - b) * 0.55 * lift;
+      // ✨ STEP 2: CONTROLLED WHITENING
+      const lift = 0.35 * feather;
+      r += (255 - r) * 0.10 * lift;
+      g += (255 - g) * 0.10 * lift;
+      b += (255 - b) * 0.25 * lift;
 
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
@@ -544,7 +547,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   ctx.save();
   teethPath();
   ctx.clip();
-  ctx.globalAlpha = 0.15;
+  ctx.globalAlpha = 0.12;
   ctx.filter = "blur(1px)";
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
