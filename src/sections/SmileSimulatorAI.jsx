@@ -448,16 +448,17 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     const avg = (r + g + b) / 3;
     const lift = maskValue * (intensity / 0.65);
 
-    // 🔥 MODIFIED LIFT MODEL (Stronger brightness pop)
-    let target = avg + (255 - avg) * 0.55 * lift;
+    // ✨ NATURAL RADIANCE MODEL (Preserves Shadows & Depth)
+    // We lift the brightness but keep 75% of the original anatomical shading
+    let target = avg + (255 - avg) * 0.42 * lift;
     
-    // Neutralize yellow and lift cool tones
+    // Clinical balance: Neutralize yellow while shifting towards a fresh white
     const rL = target;
     const gL = target;
-    const bL = Math.min(255, target + 10 * lift); // Stronger cool tone for "pop"
+    const bL = Math.min(255, target + 4 * lift); // Suble fresh cool tone
 
-    // Detail preservation
-    const df = 0.35;
+    // 🔥 Texture & Shadow Preservation (Anatomical Parity)
+    const df = avg < 80 ? 0.88 : 0.75; // Even more detail in dark crevices
     data[i]     = Math.min(255, rL * (1 - df) + r * df);
     data[i + 1] = Math.min(255, gL * (1 - df) + g * df);
     data[i + 2] = Math.min(255, bL * (1 - df) + b * df);
