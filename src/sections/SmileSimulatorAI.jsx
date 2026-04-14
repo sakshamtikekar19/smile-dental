@@ -660,11 +660,11 @@ const SmileSimulatorAI = () => {
     <section id="simulator" className="relative py-24 bg-white overflow-hidden">
       <div className="container mx-auto px-4 max-w-6xl">
         <AnimatedSection className="text-center mb-16">
-          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">Smile Simulator</h2>
-          <p className="text-zinc-500 max-w-2xl mx-auto text-lg italic">Instant clinical-grade dental simulation.</p>
+          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">AI Smile Simulation</h2>
+          <p className="text-zinc-500 max-w-2xl mx-auto text-lg italic">Take a photo live — AI whitening, alignment, and precise bracket placement in seconds.</p>
         </AnimatedSection>
 
-        <div className="max-w-4xl mx-auto rounded-[40px] overflow-hidden flex flex-col justify-center min-h-[500px]">
+        <div className="max-w-4xl mx-auto rounded-[40px] flex flex-col justify-center min-h-[500px]">
           <AnimatePresence mode="wait">
             {step === "entry" && (
               <motion.div key="entry" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full">
@@ -677,7 +677,7 @@ const SmileSimulatorAI = () => {
                     <Camera size={44} className="text-zinc-400 group-hover:text-brand-gold transition-colors" />
                   </div>
                   <div className="text-center relative z-10">
-                    <span className="block font-serif text-3xl text-zinc-800 mb-2">Start Live Preview</span>
+                    <span className="block font-serif text-3xl text-zinc-800 mb-2">Take Photo</span>
                     <span className="block text-xs text-zinc-400 uppercase tracking-[0.3em] font-bold">Secure AI anatomical scan</span>
                   </div>
                 </button>
@@ -686,13 +686,33 @@ const SmileSimulatorAI = () => {
             )}
 
             {step === "camera" && (
-              <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative aspect-[3/4] md:aspect-video bg-black shadow-2xl rounded-[32px] overflow-hidden">
-                <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
-                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-                
-                {/* 🚀 PREMIUM FLOATING TREATMENT DOCK */}
-                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4">
-                  <div className="bg-black/45 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
+              <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
+                <div className="relative aspect-[3/4] md:aspect-video bg-black shadow-2xl rounded-[32px] overflow-hidden">
+                  <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                  <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+                  
+                  <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-6 z-10 pointer-events-none">
+                    <p className="text-white/70 text-[10px] uppercase tracking-[0.3em] font-bold drop-shadow-md">Live AI Simulation</p>
+                  </div>
+
+                  <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10">
+                    <button onClick={() => {
+                      const canvas = canvasRef.current;
+                      if (canvas) {
+                        pendingTreatmentRef.current = selectedTreatment;
+                        setActiveTreatment(selectedTreatment);
+                        setRawImageUrl(canvas.toDataURL("image/jpeg", 0.95));
+                        setIsProcessing(true);
+                      }
+                    }} className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center group active:scale-95 transition-transform">
+                      <div className="h-14 w-14 rounded-full bg-white group-hover:bg-brand-gold transition-colors" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 🚀 PREMIUM TREATMENT DOCK (POSITIONED BELOW) */}
+                <div className="flex flex-col items-center gap-4">
+                  <div className="bg-zinc-900/90 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
                     {TREATMENTS.map(t => (
                       <TreatmentDockButton 
                         key={t.id} 
@@ -704,33 +724,14 @@ const SmileSimulatorAI = () => {
                   </div>
                   
                   <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1 rounded-full border border-white/5"
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="flex items-center gap-2 bg-zinc-50 px-4 py-1.5 rounded-full border border-zinc-100"
                   >
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                    <span className="text-[10px] text-white/80 uppercase tracking-widest font-bold">
-                      {TREATMENTS.find(t => t.id === selectedTreatment)?.label} Preview Ready
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.3)]" />
+                    <span className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold">
+                      {TREATMENTS.find(t => t.id === selectedTreatment)?.label} Ready to Preview
                     </span>
                   </motion.div>
-                </div>
-
-                <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-6 z-10 pointer-events-none">
-                  <p className="text-white/70 text-[10px] uppercase tracking-[0.3em] font-bold drop-shadow-md">Live AI Simulation</p>
-                </div>
-
-                <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-10">
-                  <button onClick={() => {
-                    const canvas = canvasRef.current;
-                    if (canvas) {
-                      pendingTreatmentRef.current = selectedTreatment;
-                      setActiveTreatment(selectedTreatment);
-                      setRawImageUrl(canvas.toDataURL("image/jpeg", 0.95));
-                      setIsProcessing(true);
-                    }
-                  }} className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center group active:scale-95 transition-transform">
-                    <div className="h-14 w-14 rounded-full bg-white group-hover:bg-brand-gold transition-colors" />
-                  </button>
                 </div>
               </motion.div>
             )}
@@ -747,7 +748,7 @@ const SmileSimulatorAI = () => {
             )}
 
             {step === "result" && afterImage && (
-              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="space-y-8 relative">
+              <motion.div key="result" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="flex flex-col gap-10">
                 <div className="relative rounded-[40px] overflow-hidden shadow-2xl bg-white border border-zinc-100 min-h-[500px]">
                   <ReactCompareImage 
                     leftImage={beforeImage} 
@@ -757,42 +758,40 @@ const SmileSimulatorAI = () => {
                     sliderLineColor="#D4AF37"
                     handleSize={40}
                   />
-
-                  {/* 🚀 PREMIUM FLOATING DOCK (Result Overlay) */}
-                  <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4 w-full px-4">
-                    <div className="bg-black/60 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
-                      {TREATMENTS.map(t => (
-                        <TreatmentDockButton 
-                          key={t.id} 
-                          treatment={t} 
-                          active={selectedTreatment === t.id} 
-                          onSelect={() => {
-                            // If user clicks a different treatment in result view, we re-process
-                            if (t.id !== activeTreatment) {
-                              pendingTreatmentRef.current = t.id;
-                              setSelectedTreatment(t.id);
-                              setActiveTreatment(t.id);
-                              setIsProcessing(true);
-                            }
-                          }} 
-                        />
-                      ))}
-                    </div>
-                    
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex items-center gap-2 bg-black/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10"
-                    >
-                      <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.6)]" />
-                      <span className="text-[10px] text-white/90 uppercase tracking-[0.2em] font-bold">
-                        {TREATMENTS.find(t => t.id === activeTreatment)?.label} Preview Ready
-                      </span>
-                    </motion.div>
-                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8">
+                {/* 🚀 PREMIUM TREATMENT DOCK (POSITIONED BELOW) */}
+                <div className="flex flex-col items-center gap-4">
+                  <div className="bg-zinc-900/90 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
+                    {TREATMENTS.map(t => (
+                      <TreatmentDockButton 
+                        key={t.id} 
+                        treatment={t} 
+                        active={selectedTreatment === t.id} 
+                        onSelect={() => {
+                          if (t.id !== activeTreatment) {
+                            pendingTreatmentRef.current = t.id;
+                            setSelectedTreatment(t.id);
+                            setActiveTreatment(t.id);
+                            setIsProcessing(true);
+                          }
+                        }} 
+                      />
+                    ))}
+                  </div>
+                  
+                  <motion.div 
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="flex items-center gap-2 bg-zinc-50 px-4 py-1.5 rounded-full border border-zinc-100"
+                  >
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.3)]" />
+                    <span className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold">
+                      {TREATMENTS.find(t => t.id === activeTreatment)?.label} Simulation Applied
+                    </span>
+                  </motion.div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
                   <div className="bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm transition-all hover:border-zinc-200">
                     <div className="flex items-center justify-between mb-6">
                       <h4 className="text-xs uppercase tracking-widest text-zinc-400 font-bold">Clinical Detail Zoom</h4>
@@ -836,6 +835,9 @@ const SmileSimulatorAI = () => {
         </div>
       </div>
     </section>
+  );
+};
+
   );
 };
 
