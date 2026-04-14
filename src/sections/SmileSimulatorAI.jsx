@@ -429,19 +429,28 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   for (let i = 0; i < maskData.length; i += 4) if (maskData[i] > 20) activePixels++;
   console.log(`[Whitening Engine] Active Mask Pixels: ${activePixels} / Total: ${boxW * boxH}`);
 
-  // 🧪 ENGINE CORE: Inclusive Reconstruction
+  // 🏥 Anatomical Bounds (Vertical Clamping)
+  const lipUpperY = landmarks[13].y * h;
+  const lipLowerY = landmarks[14].y * h;
+  const mouthHeight = lipLowerY - lipUpperY;
+
+  // 🧪 ENGINE CORE: Surgical Reconstruction
   for (let i = 0; i < data.length; i += 4) {
     const maskValue = maskData[i] / 255;
-    if (maskValue < 0.05) continue; // More inclusive threshold
+    if (maskValue < 0.05) continue;
+
+    const localX = (i / 4) % boxW + minX;
+    const localY = Math.floor((i / 4) / boxW) + minY;
+    
+    // Vertical Clamping (Lip Protection)
+    if (localY < lipUpperY - mouthHeight * 0.05 || localY > lipLowerY + mouthHeight * 0.05) continue;
 
     let r = data[i], g = data[i + 1], b = data[i + 2];
     
-    // 🦷 RELAXED ENAMEL FILTER (Handles yellow/warm lighting)
+    // 🦷 SURGICAL ENAMEL FILTER (Tight Lip/Gum Protection)
     const brightness = (r + g + b) / 3;
-    const isTooth = brightness > 35 &&  // Inclusive brightness
-                    Math.abs(r - g) < 55 &&  // Allow more yellow
-                    r < g * 1.3 &&           // Lip safety (looser)
-                    r > b * 0.8;            // General tooth color bounds
+    const isRedHeavy = r > g * 1.13 || r > b * 1.5; // Strict red-rejection (lips/gums)
+    const isTooth = !isRedHeavy && brightness > 40 && Math.abs(r - g) < 45 && r < g * 1.2;
                     
     if (!isTooth) continue;
 
@@ -449,16 +458,14 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     const lift = maskValue * (intensity / 0.65);
 
     // ✨ NATURAL RADIANCE MODEL (Preserves Shadows & Depth)
-    // We lift the brightness but keep 75% of the original anatomical shading
     let target = avg + (255 - avg) * 0.42 * lift;
     
-    // Clinical balance: Neutralize yellow while shifting towards a fresh white
     const rL = target;
     const gL = target;
-    const bL = Math.min(255, target + 4 * lift); // Suble fresh cool tone
+    const bL = Math.min(255, target + 4 * lift);
 
     // 🔥 Texture & Shadow Preservation (Anatomical Parity)
-    const df = avg < 80 ? 0.88 : 0.75; // Even more detail in dark crevices
+    const df = avg < 80 ? 0.88 : 0.75;
     data[i]     = Math.min(255, rL * (1 - df) + r * df);
     data[i + 1] = Math.min(255, gL * (1 - df) + g * df);
     data[i + 2] = Math.min(255, bL * (1 - df) + b * df);
