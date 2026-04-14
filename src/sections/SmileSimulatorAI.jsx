@@ -390,7 +390,6 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
  */
 function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   // 🦷 ANATOMICAL INDICES (Consolidated Visible Map)
-  // We use the inner lip perimeter as the natural dental container
   const upperArchIdx = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
   const lowerArchIdx = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
   const fullMouthIdx = [...upperArchIdx, ...lowerArchIdx];
@@ -406,59 +405,62 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   const data = imageData.data;
   const faceScale = boxH / 100;
 
-  // 🚀 UNIFIED VISIBLE TEETH MASK (Eliminates Center Bias)
+  // 🚀 HARDENED DUAL-STAGE MASK (Ensures Hydration)
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = boxW; maskCanvas.height = boxH;
   const mctx = maskCanvas.getContext("2d");
   mctx.translate(-minX, -minY);
-  
-  // Create a uniform fill mask with a very subtle edge feather
   mctx.fillStyle = "white";
   mctx.beginPath();
   points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
   mctx.closePath();
   mctx.fill();
-  
-  // Use a minimal blur (2-4px) to avoid harsh polygon edges, but keep lift uniform
-  mctx.filter = `blur(${Math.max(1, Math.round(1.5 * faceScale))}px)`;
-  mctx.globalCompositeOperation = "copy";
-  mctx.drawImage(maskCanvas, 0, 0);
 
-  const maskData = mctx.getImageData(0, 0, boxW, boxH).data;
+  const blurCanvas = document.createElement("canvas");
+  blurCanvas.width = boxW; blurCanvas.height = boxH;
+  const bctx = blurCanvas.getContext("2d");
+  bctx.filter = `blur(${Math.max(1, Math.round(1.2 * faceScale))}px)`;
+  bctx.drawImage(maskCanvas, 0, 0);
+
+  const maskData = bctx.getImageData(0, 0, boxW, boxH).data;
   
-  // 🔍 Clinical Debug: Verify mask density (Fix 1)
+  // 🔍 Clinical Debug
   let activePixels = 0;
-  for (let i = 0; i < maskData.length; i += 4) if (maskData[i] > 128) activePixels++;
+  for (let i = 0; i < maskData.length; i += 4) if (maskData[i] > 20) activePixels++;
   console.log(`[Whitening Engine] Active Mask Pixels: ${activePixels} / Total: ${boxW * boxH}`);
 
-  // 🧪 ENGINE CORE: High-Intensity Reconstruction (Fix 4)
+  // 🧪 ENGINE CORE: Inclusive Reconstruction
   for (let i = 0; i < data.length; i += 4) {
     const maskValue = maskData[i] / 255;
-    if (maskValue < 0.1) continue;
+    if (maskValue < 0.05) continue; // More inclusive threshold
 
     let r = data[i], g = data[i + 1], b = data[i + 2];
     
-    // Stoichiometric Filter (Enamel Detection) - Slightly more inclusive
-    const isTooth = r > 65 && g > 65 && b > 50 && Math.abs(r - g) < 40 && r < g * 1.18;
+    // 🦷 RELAXED ENAMEL FILTER (Handles yellow/warm lighting)
+    const brightness = (r + g + b) / 3;
+    const isTooth = brightness > 35 &&  // Inclusive brightness
+                    Math.abs(r - g) < 55 &&  // Allow more yellow
+                    r < g * 1.3 &&           // Lip safety (looser)
+                    r > b * 0.8;            // General tooth color bounds
+                    
     if (!isTooth) continue;
 
-    // 🔥 HIGH-INTENSITY LIFT MODEL
-    // Convert to brightness base
-    let avg = (r + g + b) / 3;
-    const lift = maskValue * (intensity / 0.7);
+    const avg = (r + g + b) / 3;
+    const lift = maskValue * (intensity / 0.65);
 
-    // Increase brightness base (avg) + clinical cool-tone shift
-    avg = avg + (255 - avg) * 0.45 * lift;
+    // 🔥 MODIFIED LIFT MODEL (Stronger brightness pop)
+    let target = avg + (255 - avg) * 0.55 * lift;
+    
+    // Neutralize yellow and lift cool tones
+    const rL = target;
+    const gL = target;
+    const bL = Math.min(255, target + 10 * lift); // Stronger cool tone for "pop"
 
-    r = avg; 
-    g = avg; 
-    b = Math.min(255, avg + 5); // ❄️ Slight clinical cool tone for premium pop
-
-    // Preserve original luminosity detail
-    const detailFactor = 0.4;
-    data[i]     = Math.min(255, r * (1 - detailFactor) + data[i] * detailFactor);
-    data[i + 1] = Math.min(255, g * (1 - detailFactor) + data[i + 1] * detailFactor);
-    data[i + 2] = Math.min(255, b * (1 - detailFactor) + data[i + 2] * detailFactor);
+    // Detail preservation
+    const df = 0.35;
+    data[i]     = Math.min(255, rL * (1 - df) + r * df);
+    data[i + 1] = Math.min(255, gL * (1 - df) + g * df);
+    data[i + 2] = Math.min(255, bL * (1 - df) + b * df);
   }
   ctx.putImageData(imageData, minX, minY);
 }
