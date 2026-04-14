@@ -522,19 +522,23 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
-      // ✅ 1. Relaxed Masking (Prevents skipping pixels in shadow)
-      const isTooth = r > 85 && g > 85 && b > 75;
+      // ✅ 1. Surgical Enamel Lock (Prevents bleeding onto Lips/Gums)
+      // Teeth are neutral (R≈G); Lips/Gums are reddish (R > G).
+      const isTooth = 
+        r > 85 && g > 85 && b > 75 && 
+        Math.abs(r - g) < 25 && 
+        r < g * 1.15; 
+      
       if (!isTooth) continue;
 
-      // ✅ 2. Feather Safety
+      // ✅ 2. Surgical Feathering (No safety at mask edges)
       const edgeDist = distanceToEdge(x, y, points);
-      const feather = Math.min(1, edgeDist / (4 * faceScale));
-      const featherSafe = Math.max(0.3, feather);
+      const feather = Math.min(1, edgeDist / (3.5 * faceScale));
 
       // ✅ 3. Balanced Power Lift + Micro Variation + Center Focus
       const avg = (r + g + b) / 3;
       const variation = (Math.sin(x * 0.3 + y * 0.3) + 1) * 0.5;
-      const lift = 0.38 * featherSafe * (0.85 + 0.3 * variation);
+      const lift = 0.38 * feather * (0.85 + 0.3 * variation);
       
       const centerFactor = Math.exp(-Math.pow((x - centerX) / boxWidth, 2));
       const finalLift = lift * (0.9 + 0.2 * centerFactor);
@@ -544,10 +548,10 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       g = g * 0.78 + avg * 0.22;
       b = b * 0.88 + avg * 0.12;
 
-      // Whitening (Blue-Radiance Boost)
+      // Whitening (Blue-Radiance - Toned slightly for safety)
       r += (255 - r) * 0.12 * finalLift;
       g += (255 - g) * 0.12 * finalLift;
-      b += (255 - b) * 0.38 * finalLift;
+      b += (255 - b) * 0.32 * finalLift;
 
       // ✅ 4. Edge Depth (High-Definition Definition)
       const edgeFactor = Math.min(1, edgeDist / 10);
@@ -567,7 +571,7 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   teethPath();
   ctx.clip();
   ctx.globalAlpha = 0.08;
-  ctx.filter = "blur(0.4px)"; 
+  ctx.filter = "blur(0.3px)"; 
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
