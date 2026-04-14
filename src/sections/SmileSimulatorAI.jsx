@@ -584,7 +584,12 @@ const SmileSimulatorAI = () => {
         audio: false 
       });
       streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current.play().catch(e => console.error("Camera play failed:", e));
+        };
+      }
     } catch (err) { 
       setError("Camera access denied. Please enable camera permissions in your settings.");
       setStep("entry");
@@ -657,15 +662,15 @@ const SmileSimulatorAI = () => {
   }, [rawImageUrl, isProcessing, startHeavyProcessingPipeline]);
 
   return (
-    <section id="simulator" className="relative py-24 bg-white overflow-hidden">
+    <section id="simulator" className="relative py-12 md:py-24 bg-white overflow-hidden">
       <div className="container mx-auto px-4 max-w-6xl">
         <AnimatedSection className="text-center mb-8">
-          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">AI Smile Simulation</h2>
-          <p className="text-zinc-500 max-w-2xl mx-auto text-lg italic mb-10">Take a photo live — AI whitening, alignment, and precise bracket placement in seconds.</p>
+          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-3xl md:text-5xl lg:text-6xl mb-4">AI Smile Simulation</h2>
+          <p className="text-zinc-500 max-w-2xl mx-auto text-sm md:text-lg italic mb-6 md:mb-10 px-4">Take a photo live — AI whitening, alignment, and precise bracket placement in seconds.</p>
           
           {/* 🚀 GLOBAL PREMIUM TREATMENT DOCK (BELOW HEADING) */}
-          <div className="flex flex-col items-center gap-6 mt-4 mb-12">
-            <div className="bg-zinc-900/95 backdrop-blur-2xl px-6 py-4 rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-4 md:gap-6">
+          <div className="flex flex-col items-center gap-4 md:gap-6 mt-4 mb-8 md:mb-12">
+            <div className="bg-zinc-900/95 backdrop-blur-2xl px-4 py-3 md:px-6 md:py-4 rounded-[28px] md:rounded-[32px] border border-white/10 shadow-2xl flex items-center gap-3 md:gap-6">
               {TREATMENTS.map(t => (
                 <TreatmentDockButton 
                   key={t.id} 
@@ -688,29 +693,29 @@ const SmileSimulatorAI = () => {
               initial={{ opacity: 0 }} animate={{ opacity: 1 }}
               className="flex items-center gap-2 bg-zinc-50 px-4 py-1.5 rounded-full border border-zinc-100"
             >
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.3)]" />
-              <span className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold">
+              <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.3)]" />
+              <span className="text-[9px] md:text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-bold">
                 {TREATMENTS.find(t => t.id === (step === "result" ? activeTreatment : selectedTreatment))?.label} Ready to Preview
               </span>
             </motion.div>
           </div>
         </AnimatedSection>
 
-        <div className="max-w-4xl mx-auto rounded-[40px] flex flex-col justify-center min-h-[500px]">
+        <div className="max-w-4xl mx-auto rounded-[32px] md:rounded-[40px] flex flex-col justify-center min-h-[400px] md:min-h-[500px]">
           <AnimatePresence mode="wait">
             {step === "entry" && (
               <motion.div key="entry" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full">
                 <button 
                   onClick={startCamera}
-                  className="group relative w-full h-[400px] bg-white rounded-[42px] border-2 border-dashed border-zinc-200 hover:border-brand-gold transition-all flex flex-col items-center justify-center gap-6 overflow-hidden"
+                  className="group relative w-full aspect-square md:aspect-auto md:h-[400px] bg-white rounded-[32px] md:rounded-[42px] border-2 border-dashed border-zinc-200 hover:border-brand-gold transition-all flex flex-col items-center justify-center gap-4 md:gap-6 overflow-hidden"
                 >
                   <div className="absolute inset-0 bg-gradient-to-b from-transparent to-zinc-50/50 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <div className="w-24 h-24 rounded-full bg-zinc-50 flex items-center justify-center group-hover:scale-110 group-hover:bg-brand-gold/10 transition-all duration-500 relative z-10">
-                    <Camera size={44} className="text-zinc-400 group-hover:text-brand-gold transition-colors" />
+                  <div className="w-16 h-16 md:w-24 md:h-24 rounded-full bg-zinc-50 flex items-center justify-center group-hover:scale-110 group-hover:bg-brand-gold/10 transition-all duration-500 relative z-10">
+                    <Camera size={32} className="md:size-[44px] text-zinc-400 group-hover:text-brand-gold transition-colors" />
                   </div>
                   <div className="text-center relative z-10">
-                    <span className="block font-serif text-3xl text-zinc-800 mb-2">Take Photo</span>
-                    <span className="block text-xs text-zinc-400 uppercase tracking-[0.3em] font-bold">Secure AI anatomical scan</span>
+                    <span className="block font-serif text-2xl md:text-3xl text-zinc-800 mb-1 md:mb-2">Take Photo</span>
+                    <span className="block text-[10px] text-zinc-400 uppercase tracking-[0.3em] font-bold">Secure AI anatomical scan</span>
                   </div>
                 </button>
                 {error && <p className="mt-6 text-center text-red-500 text-sm font-medium animate-pulse">{error}</p>}
@@ -719,8 +724,8 @@ const SmileSimulatorAI = () => {
 
             {step === "camera" && (
               <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
-                <div className="relative aspect-[3/4] md:aspect-video bg-black shadow-2xl rounded-[32px] overflow-hidden">
-                  <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                <div className="relative aspect-[3/4] md:aspect-video bg-black shadow-2xl rounded-[24px] md:rounded-[32px] overflow-hidden">
+                  <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
                   <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
                   
                   <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-6 z-10 pointer-events-none">
