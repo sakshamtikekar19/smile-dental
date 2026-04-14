@@ -520,17 +520,17 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       const toothVariation = 0.85 + (segmentIndex * 0.05);
       const centerBoost = Math.exp(-Math.pow((segmentIndex - 2.5), 2) / 4);
       const noise = (Math.sin(x * 0.1 + y * 0.1) + 1) / 2;
-      
       const edgeDist = distanceToEdge(x, y, points);
       const feather = Math.min(1, edgeDist / (4 * faceScale));
 
-      const finalIntensity = baseIntensity * toothVariation * (0.9 + 0.2 * centerBoost) * (0.9 + 0.1 * noise) * feather;
+      const finalIntensity = baseIntensity * toothVariation * (0.9 + 0.2 * centerBoost) * (0.9 + 0.1 * noise);
+      
+      // 🔥 PREMIUM LIFT MATH
+      const lift = 0.45 * finalIntensity * feather;
 
-      // 🔥 Hollywood Luminance (Visible White)
-      const targetW = 255;
-      b += (targetW - b) * 0.65 * finalIntensity;
-      r += (targetW - r) * 0.42 * finalIntensity;
-      g += (targetW - g) * 0.42 * finalIntensity;
+      r += (255 - r) * 0.12 * lift;
+      g += (255 - g) * 0.12 * lift;
+      b += (255 - b) * 0.55 * lift;
 
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
@@ -539,6 +539,15 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   }
 
   ctx.putImageData(imageData, 0, 0);
+
+  // ✨ FINAL SMOOTH BLUR (Clipped to enamel)
+  ctx.save();
+  teethPath();
+  ctx.clip();
+  ctx.globalAlpha = 0.15;
+  ctx.filter = "blur(1px)";
+  ctx.drawImage(ctx.canvas, 0, 0);
+  ctx.restore();
 
   // 🔥 Separation Shadows (Interproximal depth)
   ctx.save();
