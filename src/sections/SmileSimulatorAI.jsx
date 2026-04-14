@@ -244,6 +244,20 @@ function TreatmentDockButton({ treatment, active, disabled, onSelect }) {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+function getToothSegments(points, segmentCount = 6) {
+  const xs = points.map(p => p.x);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const width = maxX - minX;
+  const segments = [];
+  for (let i = 0; i < segmentCount; i++) {
+    const start = minX + (i / segmentCount) * width;
+    const end = minX + ((i + 1) / segmentCount) * width;
+    segments.push({ start, end });
+  }
+  return segments;
+}
+
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -424,60 +438,30 @@ function getTeethPoints(landmarks, w, h) {
   }));
 }
 
-function getMouthBoundingBox(landmarks, w, h) {
-  const pts = getTeethPoints(landmarks, w, h);
-  if (pts.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
-  
-  let minX = w, maxX = 0, minY = h, maxY = 0;
-  pts.forEach(p => {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-  });
-  
-  // Padding to ensure braces cover the anatomy properly
-  const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.1;
-  return {
-    x: minX - padX,
-    y: minY - padY,
-    width: (maxX - minX) + 2 * padX,
-    height: (maxY - minY) + 2 * padY
-  };
-}
-
-// --- PRODUCTION WHITENING OVERLAY (Step 2: RealWhitening) ---
 function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
-  // ✅ Upgrade 4: Smart Guard (Skip if intensity is negligible)
   if (intensity < 0.05) return;
-
-  console.log("Whitening running"); // DEBUG
 
   if (!landmarks || landmarks.length === 0) return;
 
-  // Map landmarks → canvas points
   const points = TEETH_WHITEN_MASK_INDICES.map(idx => ({
     x: landmarks[idx].x * w,
     y: landmarks[idx].y * h
   }));
 
-  // -------------------------------
-  // 🔥 Bounding Box Optimization
-  // -------------------------------
   const xs = points.map(p => p.x);
   const ys = points.map(p => p.y);
-
   const minX = Math.max(0, Math.floor(Math.min(...xs)));
   const maxX = Math.min(w, Math.ceil(Math.max(...xs)));
   const minY = Math.max(0, Math.floor(Math.min(...ys)));
   const maxY = Math.min(h, Math.ceil(Math.max(...ys)));
 
-  // Path helper for aesthetic layers
   const teethPath = () => {
     ctx.beginPath();
     points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
     ctx.closePath();
   };
 
-  // ✅ Upgrade 3: Gum Shadow Gradient (Anatomical depth)
+  // ✅ Upgrade 3: Gum Shadow Gradient
   ctx.save();
   teethPath();
   const grad = ctx.createLinearGradient(0, minY, 0, maxY);
@@ -487,13 +471,10 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   ctx.fill();
   ctx.restore();
 
-  // -------------------------------
-  // 🎯 Pixel Whitening Loop (Optimized)
-  // -------------------------------
+  const segments = getToothSegments(points, 6);
   const imageData = ctx.getImageData(0, 0, w, h);
   const data = imageData.data;
 
-  // 🧠 Point-in-polygon check
   function isInside(x, y, poly) {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -505,12 +486,10 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
     return inside;
   }
 
-  // ✨ Edge Feathering helper
   function distanceToEdge(x, y, poly) {
     let minDist = Infinity;
     for (let i = 0; i < poly.length; i++) {
-      const p1 = poly[i];
-      const p2 = poly[(i + 1) % poly.length];
+      const p1 = poly[i], p2 = poly[(i + 1) % poly.length];
       const A = x - p1.x, B = y - p1.y, C = p2.x - p1.x, D = p2.y - p1.y;
       const dot = A * C + B * D, lenSq = C * C + D * D;
       let param = dot / lenSq;
@@ -523,30 +502,33 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   }
 
   const faceScale = (maxY - minY) / 100;
+  const baseIntensity = intensity;
 
-  for (let y = minY; y < maxY; y += 2) {
-    for (let x = minX; x < maxX; x += 2) {
-      if ((x + y) % 4 !== 0) continue; // Checkerboard skip
+  // 🎯 Pixel Whitening Loop (Anatomically-Segmented)
+  for (let y = minY; y < maxY; y++) {
+    for (let x = minX; x < maxX; x++) {
       if (!isInside(x, y, points)) continue;
 
       const i = (y * w + x) * 4;
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
+      const segmentIndex = segments.findIndex(s => x >= s.start && x <= s.end);
+      if (segmentIndex === -1) continue;
+
+      // ✅ Anatomical Intensity Math
+      const toothVariation = 0.85 + (segmentIndex * 0.05);
+      const centerBoost = Math.exp(-Math.pow((segmentIndex - 2.5), 2) / 4);
+      const noise = (Math.sin(x * 0.1 + y * 0.1) + 1) / 2;
+      
       const edgeDist = distanceToEdge(x, y, points);
       const feather = Math.min(1, edgeDist / (4 * faceScale));
 
-      // ✅ Upgrade 1: Subtle Variation (Natural enamel texture)
-      const variation = 0.9 + 0.2 * Math.sin(x * 0.05 + y * 0.05);
-      const finalIntensity = intensity * variation;
+      const finalIntensity = baseIntensity * toothVariation * (0.9 + 0.2 * centerBoost) * (0.9 + 0.1 * noise) * feather;
 
-      // 🔥 Real whitening (remove yellow)
-      b += (255 - b) * 0.35 * finalIntensity * feather;
-      r += (255 - r) * 0.08 * finalIntensity * feather;
-      g += (255 - g) * 0.08 * finalIntensity * feather;
-
-      // Prevent artificial blue tint
-      const avg = (r + g + b) / 3;
-      if (b > avg + 20) b = avg + 20;
+      // 🔥 Balanced Clinical Whitening
+      b += (255 - b) * 0.45 * finalIntensity;
+      r += (255 - r) * 0.12 * finalIntensity;
+      g += (255 - g) * 0.12 * finalIntensity;
 
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
@@ -555,6 +537,19 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   }
 
   ctx.putImageData(imageData, 0, 0);
+
+  // 🔥 Separation Shadows (Interproximal depth)
+  ctx.save();
+  teethPath();
+  ctx.clip();
+  ctx.globalCompositeOperation = "multiply";
+  segments.forEach((s, i) => {
+    if (i === segments.length - 1) return;
+    const gradWidth = Math.max(1, 2 * (w / 1024)); 
+    ctx.fillStyle = "rgba(0,0,0,0.06)";
+    ctx.fillRect(s.end - gradWidth/2, minY, gradWidth, maxY - minY);
+  });
+  ctx.restore();
 
   // ✅ Upgrade 2: Enamel Shine Layer (Premium gloss)
   ctx.save();
