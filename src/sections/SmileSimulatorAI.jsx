@@ -500,7 +500,7 @@ function getSharedCanvas(iw, ih) {
 }
 
 const SmileSimulatorAI = () => {
-  const [step, setStep] = useState("camera"); // 🔥 Live-Only by default
+  const [step, setStep] = useState("entry"); // 🔥 Starts with explicit user action
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
   const [activeTreatment, setActiveTreatment] = useState("whitening");
   const [beforeImage, setBeforeImage] = useState(null);
@@ -523,19 +523,13 @@ const SmileSimulatorAI = () => {
   const bracesImageRef = useRef(null);
   const zoomCanvasRef = useRef(null);
 
-  // Auto-start camera on mount for instant simulation
+  // Load assets on mount, but wait for user to start camera
   useEffect(() => {
     const img = new Image();
     const base = import.meta.env.BASE_URL || "/";
     img.src = `${base}assets/bracket.png`.replace(/\/\//g, '/');
     img.onload = () => { bracesImageRef.current = img; };
-    
-    initFaceLandmarker().then(() => {
-      startCamera();
-    }).catch(() => {
-      setError("AI Engine failed to initialize. Please check camera permissions.");
-    });
-
+    initFaceLandmarker().catch(() => { });
     return () => stopCamera();
   }, []);
 
@@ -577,6 +571,8 @@ const SmileSimulatorAI = () => {
   }, [step, detectionLoop, renderLoop]);
 
   const startCamera = async () => {
+    setError(null);
+    setProcessingLog("Opening secure camera feed...");
     setStep("camera");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -590,7 +586,8 @@ const SmileSimulatorAI = () => {
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) { 
-      setError("Camera access denied. Please enable camera to use the simulator.");
+      setError("Camera access denied. Please enable camera permissions in your settings.");
+      setStep("entry");
     }
   };
 
@@ -604,8 +601,7 @@ const SmileSimulatorAI = () => {
     setFinalLandmarks(null); 
     setIsProcessing(false); 
     setRawImageUrl(null);
-    setStep("camera");
-    startCamera();
+    setStep("entry");
   };
 
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
@@ -664,12 +660,31 @@ const SmileSimulatorAI = () => {
     <section id="simulator" className="relative py-24 bg-white overflow-hidden">
       <div className="container mx-auto px-4 max-w-6xl">
         <AnimatedSection className="text-center mb-16">
-          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">Live Smile Preview</h2>
+          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-4xl md:text-5xl lg:text-6xl mb-6">Smile Simulator</h2>
           <p className="text-zinc-500 max-w-2xl mx-auto text-lg italic">Instant clinical-grade dental simulation.</p>
         </AnimatedSection>
 
-        <div className="max-w-4xl mx-auto rounded-[40px] overflow-hidden flex flex-col justify-center">
+        <div className="max-w-4xl mx-auto rounded-[40px] overflow-hidden flex flex-col justify-center min-h-[500px]">
           <AnimatePresence mode="wait">
+            {step === "entry" && (
+              <motion.div key="entry" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full">
+                <button 
+                  onClick={startCamera}
+                  className="group relative w-full h-[400px] bg-white rounded-[42px] border-2 border-dashed border-zinc-200 hover:border-brand-gold transition-all flex flex-col items-center justify-center gap-6 overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-b from-transparent to-zinc-50/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="w-24 h-24 rounded-full bg-zinc-50 flex items-center justify-center group-hover:scale-110 group-hover:bg-brand-gold/10 transition-all duration-500 relative z-10">
+                    <Camera size={44} className="text-zinc-400 group-hover:text-brand-gold transition-colors" />
+                  </div>
+                  <div className="text-center relative z-10">
+                    <span className="block font-serif text-3xl text-zinc-800 mb-2">Start Live Preview</span>
+                    <span className="block text-xs text-zinc-400 uppercase tracking-[0.3em] font-bold">Secure AI anatomical scan</span>
+                  </div>
+                </button>
+                {error && <p className="mt-6 text-center text-red-500 text-sm font-medium animate-pulse">{error}</p>}
+              </motion.div>
+            )}
+
             {step === "camera" && (
               <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative aspect-[3/4] md:aspect-video bg-black shadow-2xl rounded-[32px] overflow-hidden">
                 <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
