@@ -317,6 +317,11 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   const data = imageData.data;
   const sourceData = new Uint8ClampedArray(data);
 
+  // Parabolic Smile Arc Parameters
+  const centerX = boxW / 2;
+  const smileDepth = 12 * strength; // Natural Curvature Multiplier
+  const localMidY = midY - minY;
+
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = boxW; maskCanvas.height = boxH;
   const mctx = maskCanvas.getContext("2d");
@@ -329,13 +334,19 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
 
   for (let y = minY; y < maxY; y++) {
     const localY = y - minY;
-    const dy = (midY - y) * strength;
-    const srcLocalY = Math.max(0, Math.min(boxH - 1, Math.round(localY + dy)));
     for (let x = minX; x < maxX; x++) {
       const localX = x - minX;
       const i = (localY * boxW + localX) * 4;
       if (maskData[i] < 128) continue;
+
+      // 🎯 Anatomical Curve: Calculate target Y on the Parabolic Smile Arc
+      const dx = (localX - centerX) / (boxW / 2);
+      const targetLocalY = localMidY + smileDepth * (dx * dx);
+      
+      const dy = (targetLocalY - localY) * strength;
+      const srcLocalY = Math.max(0, Math.min(boxH - 1, Math.round(localY + dy)));
       const srcIdx = (srcLocalY * boxW + localX) * 4;
+      
       data[i] = sourceData[srcIdx];
       data[i + 1] = sourceData[srcIdx + 1];
       data[i + 2] = sourceData[srcIdx + 2];
