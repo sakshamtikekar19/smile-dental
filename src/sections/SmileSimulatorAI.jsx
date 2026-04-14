@@ -476,30 +476,34 @@ function getSharedCanvases(iw, ih) {
   return { main: _sharedMainCanvas, det: _sharedDetCanvas, rw, rh };
 }
 
-// --- PIXEL-SURGICAL WHITENING ENGINE (Direct ImageData Manipulation) ---
-function applyWhiteningToImageData(imageData, landmarks) {
-  const data = imageData.data;
+// --- FORCED DEBUG WHITENING ENGINE (Step 3) ---
+function applyForcedWhitening(ctx, landmarks, rw, rh) {
+  if (!landmarks || landmarks.length === 0) return;
+  
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.fillStyle = "rgba(255,255,255,0.4)"; // Forced white brighten
 
-  for (let i = 0; i < data.length; i += 4) {
-    let r = data[i];
-    let g = data[i + 1];
-    let b = data[i + 2];
+  ctx.beginPath();
+  // Inner lip indices for teeth masking
+  const toothIndices = [
+    61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 
+    308, 415, 310, 311, 312, 13, 82, 81, 80, 191, 78
+  ];
 
-    // --- NEW: CLINICAL DETECTION VALUES ---
-    const brightness = (r + g + b) / 3;
-    
-    // 1. Find pixels that look like teeth (Bright + Low Saturation)
-    // 2. Math.abs(r - g) < 20 ensures we aren't whitening pink lips
-    // 3. b < r confirms there is a yellow tint to remove
-    const isTooth = brightness > 125 && brightness < 245 && Math.abs(r - g) < 20 && b < r;
-
-    if (isTooth) {
-      // THE SHIFT: Boost R/G (Brightness) and Drop B (Yellowing)
-      data[i]     = Math.min(255, r + 5); 
-      data[i + 1] = Math.min(255, g + 5); 
-      data[i + 2] = Math.max(0, b - 10); // <--- High-intensity yellow removal
+  toothIndices.forEach((idx, i) => {
+    const p = landmarks[idx];
+    if (p) {
+      const x = p.x * rw, y = p.y * rh;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
-  }
+  });
+
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.restore();
 }
 
 // Load bracket asset once with robust fallbacks
@@ -570,6 +574,15 @@ const drawBracesOverlay = async (ctx, landmarks, rw, rh) => {
       }
     }
   }
+
+  // ✅ STEP 4: Force braces test (Fixed position)
+  if (bracketImg) {
+    ctx.drawImage(bracketImg, 100, 200, 100, 100);
+  } else {
+    ctx.fillStyle = "blue";
+    ctx.fillRect(100, 200, 100, 100);
+  }
+
   ctx.restore();
 };
 
@@ -915,21 +928,19 @@ const SmileSimulatorAI = () => {
     // ✅ STEP 1: draw fresh frame
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // 🚨 CRITICAL: Immediately get pixels AFTER drawing
-    let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // ✅ DIAGNOSTIC: Confirm canvas is updating
+    ctx.fillStyle = "red";
+    ctx.fillRect(10, 10, 50, 50);
 
-    // ✅ STEP 2: MODIFY PIXELS DIRECTLY
+    // ✅ STEP 2 & 3: MODIFY PIXELS / APPLY FORCED WHITENING
     if (latestLandmarksRef.current) {
       const treatment = selectedTreatmentRef.current;
       if (treatment === "whitening" || treatment === "both") {
-        applyWhiteningToImageData(imageData, latestLandmarksRef.current);
+        applyForcedWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
       }
     }
 
-    // ✅ STEP 3: PUT BACK MODIFIED FRAME
-    ctx.putImageData(imageData, 0, 0);
-
-    // ✅ STEP 4: DRAW BRACES ON TOP (AFTER PUT)
+    // ✅ STEP 4: DRAW BRACES ON TOP
     if (latestLandmarksRef.current) {
       const treatment = selectedTreatmentRef.current;
       if (treatment === "braces" || treatment === "both") {
