@@ -317,14 +317,6 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   const data = imageData.data;
   const sourceData = new Uint8ClampedArray(data);
 
-  /**
-   * FIX 1: AUTO TILT CORRECTION
-   * Calculate smile tilt using mouth corners (61 & 291)
-   */
-  const lp = landmarks[61], rp = landmarks[291];
-  const tdx = (rp.x - lp.x) * w, tdy = (rp.y - lp.y) * h;
-  const tiltAngle = Math.atan2(tdy, tdx);
-
   // Parabolic Smile Arc Parameters
   const centerX = boxW / 2;
   const smileDepth = 10 * strength; 
@@ -347,11 +339,9 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
       const i = (localY * boxW + localX) * 4;
       if (maskData[i] < 128) continue;
 
-      // 🎯 SMILE CURVE + AUTO-TILT
+      // 🎯 SMILE CURVE (Anatomical Parity)
       const dxRel = (localX - centerX) / (boxW / 2);
-      // Incorporate tilt correction directly into target Y
-      const tiltShift = Math.tan(tiltAngle) * (localX - centerX);
-      const targetLocalY = localMidY + tiltShift + smileDepth * (dxRel * dxRel);
+      const targetLocalY = localMidY + smileDepth * (dxRel * dxRel);
 
       // FIX 3 — DYNAMIC CONTROL (Adaptive Strength)
       const distance = Math.abs(targetLocalY - localY);
@@ -578,8 +568,8 @@ const SmileSimulatorAI = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          width: { min: 1280, ideal: 1920 },
+          height: { min: 720, ideal: 1080 }
         }, 
         audio: false 
       });
@@ -638,20 +628,6 @@ const SmileSimulatorAI = () => {
       setFinalLandmarks(landmarks);
       setStep("result");
       stopCamera();
-
-      setZoomLoading(true);
-      setTimeout(() => {
-        if (zoomCanvasRef.current) {
-          const focus = getTeethFocusBox(landmarks, iw, ih);
-          const scale = 3;
-          zoomCanvasRef.current.width = focus.width * scale;
-          zoomCanvasRef.current.height = focus.height * scale;
-          const zctx = zoomCanvasRef.current.getContext("2d");
-          zctx.drawImage(canvas, focus.x, focus.y, focus.width, focus.height, 0, 0, zoomCanvasRef.current.width, zoomCanvasRef.current.height);
-          setZoomLoading(false);
-        }
-      }, 100);
-
     } catch (err) { setError(err.message); setIsProcessing(false); }
   }, []);
 
@@ -660,6 +636,41 @@ const SmileSimulatorAI = () => {
     const timer = setTimeout(() => startHeavyProcessingPipeline(rawImageUrl), 150);
     return () => clearTimeout(timer);
   }, [rawImageUrl, isProcessing, startHeavyProcessingPipeline]);
+
+  // 🔥 Robust Zoom Engine: Triggers drawing when result view mounts
+  useEffect(() => {
+    if (step === "result" && finalLandmarks && beforeImage) {
+      setZoomLoading(true);
+      const timer = setTimeout(async () => {
+        const canvas = zoomCanvasRef.current;
+        if (!canvas) return;
+        
+        try {
+          // Use shared canvas which holds the processed result
+          const sourceCanvas = _sharedMainCanvas;
+          if (!sourceCanvas) return;
+
+          const focus = getTeethFocusBox(finalLandmarks, sourceCanvas.width, sourceCanvas.height);
+          const scale = 3;
+          canvas.width = focus.width * scale;
+          canvas.height = focus.height * scale;
+          
+          const zctx = canvas.getContext("2d");
+          zctx.imageSmoothingEnabled = true;
+          zctx.imageSmoothingQuality = "high";
+          zctx.drawImage(
+            sourceCanvas, 
+            focus.x, focus.y, focus.width, focus.height, 
+            0, 0, canvas.width, canvas.height
+          );
+          setZoomLoading(false);
+        } catch (err) {
+          console.error("Zoom draw failed:", err);
+        }
+      }, 300); // ⚡ Allow DOM mounting & React rendering to settle
+      return () => clearTimeout(timer);
+    }
+  }, [step, finalLandmarks, beforeImage]);
 
   return (
     <section id="simulator" className="relative py-12 md:py-24 bg-white overflow-hidden">
@@ -728,6 +739,14 @@ const SmileSimulatorAI = () => {
                   <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
                   <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
                   
+                  {/* 🦷 Teeth Placement Guidance Oval */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                    <div className="relative w-[75%] md:w-[60%] aspect-[1.8/1] border-[3px] border-dashed border-white/50 rounded-[500px] flex items-center justify-center">
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full border border-white/20 rounded-[500px] animate-pulse" />
+                      <span className="text-white/60 text-[9px] md:text-[10px] uppercase tracking-[0.3em] font-bold mt-28 md:mt-32">Align Teeth Here</span>
+                    </div>
+                  </div>
+
                   <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-6 z-10 pointer-events-none">
                     <p className="text-white/70 text-[10px] uppercase tracking-[0.3em] font-bold drop-shadow-md">Live AI Simulation</p>
                   </div>
