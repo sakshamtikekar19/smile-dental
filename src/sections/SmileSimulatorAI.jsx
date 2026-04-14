@@ -809,46 +809,6 @@ const SmileSimulatorAI = () => {
               </motion.div>
             )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
-                  <div className="bg-white p-8 rounded-[32px] border border-zinc-100 shadow-sm transition-all hover:border-zinc-200">
-                    <div className="flex items-center justify-between mb-6">
-                      <h4 className="text-xs uppercase tracking-widest text-zinc-400 font-bold">Clinical Detail Zoom</h4>
-                      <div className="px-3 py-1 bg-zinc-50 rounded-full border border-zinc-100">
-                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter">3.0x Magnification</span>
-                      </div>
-                    </div>
-                    <div className="aspect-square bg-zinc-50 rounded-3xl overflow-hidden relative border border-zinc-100 shadow-inner group">
-                      {zoomLoading ? (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-20">
-                          <RefreshCw className="animate-spin text-brand-gold" size={24} />
-                        </div>
-                      ) : null}
-                      <canvas ref={zoomCanvasRef} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col justify-center space-y-6">
-                    <div className="inline-flex items-center gap-3 px-6 py-2.5 bg-brand-gold/10 text-brand-gold rounded-full w-fit border border-brand-gold/20 shadow-sm shadow-brand-gold/10">
-                      <CheckCircle2 size={20} className="drop-shadow-sm" />
-                      <span className="text-xs font-bold uppercase tracking-[0.15em]">{activeTreatment} Reconstruction Complete</span>
-                    </div>
-                    <h3 className="text-4xl md:text-5xl font-serif text-zinc-900 leading-tight">Professional Grade Results</h3>
-                    <p className="text-lg text-zinc-500 leading-relaxed font-light">
-                      Our clinical-grade AI has successfully simulated your transformation using anatomical tooth alignment and stoichiometric radiance enhancement.
-                    </p>
-                    <div className="flex gap-4 pt-4">
-                      <button 
-                        onClick={reset} 
-                        className="group py-5 bg-zinc-950 text-white rounded-2xl font-bold hover:bg-black transition-all flex-1 shadow-xl shadow-zinc-200 flex items-center justify-center gap-3 active:scale-[0.98]"
-                      >
-                        <RefreshCw size={18} className="group-hover:rotate-180 transition-transform duration-500" />
-                        <span>New Simulation</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
           </AnimatePresence>
         </div>
       </div>
