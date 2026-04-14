@@ -873,6 +873,7 @@ const SmileSimulatorAI = () => {
       const { main: canvas } = getSharedCanvases(iw, ih);
       const ctx = canvas.getContext("2d");
       // --- STRICT PIPELINE (drawImage → whitening → braces → occlusion) ---
+      const img = await loadImage(normalizedUrl);
       ctx.drawImage(img, 0, 0, iw, ih);
 
       if (treatment === "whitening" || treatment === "transformation" || treatment === "both") {
