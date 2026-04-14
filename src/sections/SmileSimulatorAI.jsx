@@ -32,7 +32,7 @@ async function initFaceLandmarker() {
         baseOptions: {
           modelAssetPath:
             "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-          delegate: "CPU",
+          delegate: "GPU", // 🔥 GPU (WebGL) for mobile speed
         },
         runningMode: "IMAGE",
         numFaces: 1,
@@ -81,7 +81,8 @@ function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const MAX_IMAGE_SIZE = 8192;  // High-fidelity limit (essentially original resolution)
+const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const MAX_IMAGE_SIZE = IS_MOBILE ? 2048 : 4096; // ⚡ High-fidelity desktop, high-speed mobile
 const FACE_DETECT_TIMEOUT_MS = 18_000;
 const AI_FETCH_TIMEOUT_MS = 75_000;
 const MOUTH_PERIMETER_INDICES = [61, 291, 17, 13, 14, 78, 308, 181];
@@ -504,9 +505,12 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const faceScale = (maxY - minY) / 100;
   const baseIntensity = intensity;
 
+  // ⚡ Performance optimization: Pixel skipping for mobile previews
+  const skip = IS_MOBILE ? 2 : 1;
+
   // 🎯 Pixel Whitening Loop (Hollywood Luminance Engine)
-  for (let y = minY; y < maxY; y++) {
-    for (let x = minX; x < maxX; x++) {
+  for (let y = minY; y < maxY; y += skip) {
+    for (let x = minX; x < maxX; x += skip) {
       if (!isInside(x, y, points)) continue;
 
       const i = (y * w + x) * 4;
@@ -980,16 +984,17 @@ const SmileSimulatorAI = () => {
         </AnimatedSection>
 
         {/* Floating treatment dock — scales down on mobile */}
-        <AnimatedSection className="fixed bottom-5 sm:bottom-10 left-1/2 -translate-x-1/2 z-50 flex justify-center w-full px-2 sm:px-4">
-          <div className="inline-flex items-center justify-center gap-1.5 sm:gap-4 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/75 px-2.5 sm:px-5 py-2 sm:py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+        <AnimatedSection className="fixed bottom-5 sm:bottom-10 left-1/2 -translate-x-1/2 z-50 flex justify-center w-full px-4">
+          <div className="flex items-center justify-start sm:justify-center gap-1.5 sm:gap-4 rounded-full border border-[rgba(255,255,255,0.1)] bg-zinc-950/75 px-3 sm:px-5 py-2 sm:py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] backdrop-blur-xl overflow-x-auto no-scrollbar max-w-[95vw] min-w-0">
             {TREATMENTS.map(t => (
-              <TreatmentDockButton
-                key={t.id}
-                treatment={t}
-                active={(step === "processing" || step === "result") ? activeTreatment === t.id : selectedTreatment === t.id}
-                disabled={step === "processing" || step === "result"}
-                onSelect={() => setSelectedTreatment(t.id)}
-              />
+              <div key={t.id} className="flex-shrink-0">
+                <TreatmentDockButton
+                  treatment={t}
+                  active={(step === "processing" || step === "result") ? activeTreatment === t.id : selectedTreatment === t.id}
+                  disabled={step === "processing" || step === "result"}
+                  onSelect={() => setSelectedTreatment(t.id)}
+                />
+              </div>
             ))}
           </div>
         </AnimatedSection>

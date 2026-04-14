@@ -4,11 +4,11 @@ import AnimatedSection from "../components/AnimatedSection";
 
 const Hero = () => {
   return (
-    <section className="relative min-h-[95vh] flex items-center pt-24 overflow-hidden bg-white">
-      {/* Background patterns: Premium Layering */}
-      <div className="absolute top-0 right-0 w-[60%] h-full bg-brand-beige/30 -z-10 skew-x-[-12deg] translate-x-24" />
+    <section className="relative min-h-[90vh] md:min-h-[95vh] flex items-center pt-20 md:pt-24 overflow-hidden bg-white">
+      {/* Background patterns: Premium Layering (Clipped on mobile) */}
+      <div className="absolute top-0 right-0 w-[80%] md:w-[60%] h-full bg-brand-beige/30 -z-10 skew-x-[-12deg] translate-x-12 md:translate-x-24" />
       
-      {/* Dynamic Animated Blobs */}
+      {/* Dynamic Animated Blobs (Hidden on mobile for performance) */}
       <motion.div 
         animate={{ 
           scale: [1, 1.2, 1],
@@ -16,7 +16,7 @@ const Hero = () => {
           y: [0, -30, 0]
         }}
         transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-        className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-brand-blue/40 rounded-full blur-[140px] -z-10" 
+        className="absolute top-1/4 left-1/4 w-[300px] md:w-[500px] h-[300px] md:h-[500px] bg-brand-blue/30 rounded-full blur-[100px] md:blur-[140px] -z-10 hidden sm:block" 
       />
       <motion.div 
         animate={{ 
@@ -25,21 +25,21 @@ const Hero = () => {
           y: [0, 40, 0]
         }}
         transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-        className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-brand-gold/10 rounded-full blur-[120px] -z-10" 
+        className="absolute bottom-1/4 right-1/4 w-[250px] md:w-[400px] h-[250px] md:h-[400px] bg-brand-gold/10 rounded-full blur-[80px] md:blur-[120px] -z-10 hidden sm:block" 
       />
       
-      <div className="container mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-        <div className="max-w-2xl">
+      <div className="container mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-16 items-center">
+        <div className="max-w-2xl text-center lg:text-left">
           <AnimatedSection delay={0.2} y={30}>
-            <div className="flex items-center gap-3 mb-8">
-              <span className="h-px w-8 bg-brand-gold" />
-              <span className="text-brand-gold text-[11px] font-bold uppercase tracking-[0.3em]">
+            <div className="flex items-center justify-center lg:justify-start gap-3 mb-6 md:mb-8">
+              <span className="h-px w-6 md:w-8 bg-brand-gold" />
+              <span className="text-brand-gold text-[10px] md:text-[11px] font-bold uppercase tracking-[0.3em]">
                 The Future of Aesthetic Dentistry
               </span>
             </div>
-            <h1 className="text-6xl md:text-7xl lg:text-8xl font-serif leading-[1.02] tracking-tight text-zinc-900 mb-8">
-              Visualize Your <br />
-              <span className="italic text-zinc-400 font-normal">Perfect Smile</span> <br />
+            <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-serif leading-[1.1] md:leading-[1.02] tracking-tight text-zinc-900 mb-6 md:mb-8">
+              Visualize Your <br className="hidden sm:block" />
+              <span className="italic text-zinc-400 font-normal">Perfect Smile</span> <br className="hidden sm:block" />
               Before Treatment
             </h1>
             <p className="text-lg md:text-xl text-zinc-500 font-sans leading-relaxed mb-10 max-w-lg">
