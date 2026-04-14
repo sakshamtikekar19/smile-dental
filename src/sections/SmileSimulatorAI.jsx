@@ -425,35 +425,40 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   mctx.drawImage(maskCanvas, 0, 0);
 
   const maskData = mctx.getImageData(0, 0, boxW, boxH).data;
+  
+  // 🔍 Clinical Debug: Verify mask density (Fix 1)
+  let activePixels = 0;
+  for (let i = 0; i < maskData.length; i += 4) if (maskData[i] > 128) activePixels++;
+  console.log(`[Whitening Engine] Active Mask Pixels: ${activePixels} / Total: ${boxW * boxH}`);
 
-  // 🧪 ENGINE CORE: Uniform Reconstruction Lift
+  // 🧪 ENGINE CORE: High-Intensity Reconstruction (Fix 4)
   for (let i = 0; i < data.length; i += 4) {
     const maskValue = maskData[i] / 255;
     if (maskValue < 0.1) continue;
 
     let r = data[i], g = data[i + 1], b = data[i + 2];
     
-    // Stoichiometric Filter (Enamel Detection)
-    const isTooth = r > 70 && g > 70 && b > 55 && Math.abs(r - g) < 35 && r < g * 1.15;
+    // Stoichiometric Filter (Enamel Detection) - Slightly more inclusive
+    const isTooth = r > 65 && g > 65 && b > 50 && Math.abs(r - g) < 40 && r < g * 1.18;
     if (!isTooth) continue;
 
-    const avg = (r + g + b) / 3;
-    const lift = maskValue * (intensity / 0.65); // Uniform intensity across the whole mask
-    
-    // Clinical Whitening Mix (Enhanced for Laptop Visibility)
-    r = r * 0.5 + avg * 0.5; g = g * 0.5 + avg * 0.5; b = b * 0.7 + avg * 0.3;
-    r += (255 - r) * 0.22 * lift; 
-    g += (255 - g) * 0.26 * lift; 
-    b += (255 - b) * 0.65 * lift;
+    // 🔥 HIGH-INTENSITY LIFT MODEL
+    // Convert to brightness base
+    let avg = (r + g + b) / 3;
+    const lift = maskValue * (intensity / 0.7);
 
-    // Advanced Plaque/Stain Stoichiometry
-    const isStain = r > g && g > b && (r - b) > 20;
-    if (isStain && avg < 170) {
-      r = r * 0.82 + avg * 0.18; g = g * 0.85 + avg * 0.15; b = b * 0.92 + avg * 0.08;
-      r += (255 - r) * 0.1; g += (255 - g) * 0.1; b += (255 - b) * 0.15;
-    }
-    
-    data[i] = Math.min(255, r); data[i + 1] = Math.min(255, g); data[i + 2] = Math.min(255, b);
+    // Increase brightness base (avg) + clinical cool-tone shift
+    avg = avg + (255 - avg) * 0.45 * lift;
+
+    r = avg; 
+    g = avg; 
+    b = Math.min(255, avg + 5); // ❄️ Slight clinical cool tone for premium pop
+
+    // Preserve original luminosity detail
+    const detailFactor = 0.4;
+    data[i]     = Math.min(255, r * (1 - detailFactor) + data[i] * detailFactor);
+    data[i + 1] = Math.min(255, g * (1 - detailFactor) + data[i + 1] * detailFactor);
+    data[i + 2] = Math.min(255, b * (1 - detailFactor) + data[i + 2] * detailFactor);
   }
   ctx.putImageData(imageData, minX, minY);
 }
