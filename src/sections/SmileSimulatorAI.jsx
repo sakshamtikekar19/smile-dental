@@ -505,197 +505,133 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   const segments = getToothSegments(points, 6);
   const boxW = maxX - minX;
   const boxH = maxY - minY;
+/**
+ * ENGINE 1: ANATOMICAL ALIGNMENT (Geometry Only)
+ * Vertically aligns enamel along a natural mid-smile baseline.
+ */
+function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
+  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  const points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
+
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  const minX = Math.floor(Math.min(...xs)), maxX = Math.ceil(Math.max(...xs));
+  const minY = Math.floor(Math.min(...ys)), maxY = Math.ceil(Math.max(...ys));
+  const boxW = maxX - minX, boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
 
-  function isInside(x, y, poly) {
-    let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const xi = poly[i].x, yi = poly[i].y;
-      const xj = poly[j].x, yj = poly[j].y;
-      const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  }
-
-  function distanceToEdge(x, y, poly) {
-    let minDist = Infinity;
-    for (let i = 0; i < poly.length; i++) {
-      const p1 = poly[i], p2 = poly[(i + 1) % poly.length];
-      const A = x - p1.x, B = y - p1.y, C = p2.x - p1.x, D = p2.y - p1.y;
-      const dot = A * C + B * D, lenSq = C * C + D * D;
-      let param = dot / lenSq;
-      param = Math.max(0, Math.min(1, param));
-      const xx = p1.x + param * C, yy = p1.y + param * D;
-      const dx = x - xx, dy = y - yy;
-      minDist = Math.min(minDist, Math.sqrt(dx * dx + dy * dy));
-    }
-    return minDist;
-  }
-
-  // 📝 Feature Configuration
-  const isAlignmentMode = mode === "alignment" || mode === "transformation";
-  const isWhiteningMode = mode === "whitening" || mode === "transformation";
-
-  const faceScale = (maxY - minY) / 100;
-  const centerX = (minX + maxX) / 2;
-  const boxWidth = maxX - minX;
-
-  // Level 2 Alignment Baseline: Mid- Smile Arc
-  const midY = (points.reduce((sum, p) => sum + p.y, 0)) / points.length;
-  // Shift strictly gated to Alignment or Transformation modes
-  const shiftStrength = isAlignmentMode ? (0.1 + 0.2 * 0.28) : 0;
-
+  const midY = points.reduce((s, p) => s + p.y, 0) / points.length;
   const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
-  // Source buffer for anatomical warping (Unaltered pixels)
   const sourceData = new Uint8ClampedArray(data);
 
-  // ✅ SDF Masking Engine: Pre-render the teeth selection with hardware-accelerated blur
-  // This replaces millions of distanceToEdge() calls with a single fast lookup map.
+  // SDF Mask for strict alignment boundary locking
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = boxW; maskCanvas.height = boxH;
   const mctx = maskCanvas.getContext("2d");
   mctx.translate(-minX, -minY);
-  
-  // 1. Solid Mask (Base teeth isolation)
   mctx.beginPath();
   points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
   mctx.closePath();
-  mctx.fillStyle = "white";
-  mctx.fill();
-  const maskSolid = mctx.getImageData(0, 0, boxW, boxH).data;
+  mctx.fillStyle = "white"; mctx.fill();
+  const maskData = mctx.getImageData(0, 0, boxW, boxH).data;
 
-  // 2. Blurred SDF Mask (Feathering map)
-  mctx.clearRect(minX, minY, boxW, boxH);
+  for (let y = minY; y < maxY; y++) {
+    const localY = y - minY;
+    const dy = (midY - y) * strength;
+    const srcLocalY = Math.max(0, Math.min(boxH - 1, Math.round(localY + dy)));
+
+    for (let x = minX; x < maxX; x++) {
+      const localX = x - minX;
+      const i = (localY * boxW + localX) * 4;
+      if (maskData[i] < 128) continue;
+
+      const srcIdx = (srcLocalY * boxW + localX) * 4;
+      data[i] = sourceData[srcIdx];
+      data[i + 1] = sourceData[srcIdx + 1];
+      data[i + 2] = sourceData[srcIdx + 2];
+    }
+  }
+  ctx.putImageData(imageData, minX, minY);
+
+  // Subtle smoothing (anatomical continuity)
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  ctx.filter = "blur(0.6px)";
+  ctx.drawImage(ctx.canvas, 0, 0);
+  ctx.restore();
+}
+
+/**
+ * ENGINE 2: CLINICAL WHITENING (Color Only)
+ * High-performance stoichiometry pass with interproximal cleaning.
+ */
+function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
+  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  const points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
+
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  const minX = Math.floor(Math.min(...xs)), maxX = Math.ceil(Math.max(...xs));
+  const minY = Math.floor(Math.min(...ys)), maxY = Math.ceil(Math.max(...ys));
+  const boxW = maxX - minX, boxH = maxY - minY;
+  if (boxW <= 0 || boxH <= 0) return;
+
+  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
+  const data = imageData.data;
+  const faceScale = boxH / 100;
+
+  // Hardware-Accelerated SDF Blur Mask
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = boxW; maskCanvas.height = boxH;
+  const mctx = maskCanvas.getContext("2d");
+  mctx.translate(-minX, -minY);
   mctx.filter = `blur(${Math.round(3.5 * faceScale)}px)`;
   mctx.beginPath();
   points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
   mctx.closePath();
-  mctx.fillStyle = "white";
-  mctx.fill();
-  const maskSDF = mctx.getImageData(0, 0, boxW, boxH).data;
+  mctx.fillStyle = "white"; mctx.fill();
+  const sdfData = mctx.getImageData(0, 0, boxW, boxH).data;
 
-  // 🎯 Turbo Pixel Loop (Vertical Alignment + Whitening)
-  for (let y = minY; y < maxY; y++) {
-    const localY = y - minY;
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i], g = data[i + 1], b = data[i + 2];
+    const feather = sdfData[i] / 255;
+    if (feather < 0.1) continue;
+
+    const isTooth = r > 80 && g > 80 && b > 65 && Math.abs(r - g) < 30 && r < g * 1.12;
+    if (!isTooth) continue;
+
+    const avg = (r + g + b) / 3;
+    const variation = ((i / 4) % 255) / 255;
+    const lift = 0.40 * feather * (0.85 + 0.3 * variation) * (intensity / 0.65);
     
-    // Calculate vertical alignment shift for this row
-    const dy = (midY - y) * shiftStrength;
-    const sourceLocalY = Math.max(0, Math.min(boxH - 1, Math.round(localY + dy)));
-    
-    for (let x = minX; x < maxX; x++) {
-      const localX = x - minX;
-      const i = (localY * boxW + localX) * 4;
-      
-      const mVal = maskSolid[i];
-      if (mVal < 128) continue; 
+    // Color: Neutralize + Whiten
+    r = r * 0.65 + avg * 0.35; g = g * 0.65 + avg * 0.35; b = b * 0.85 + avg * 0.15;
+    r += (255 - r) * 0.12 * lift; g += (255 - g) * 0.15 * lift; b += (255 - b) * 0.48 * lift;
 
-      // Sample anatomical data from the shifted position (Level 2 Alignment)
-      const srcIdx = (sourceLocalY * boxW + localX) * 4;
-      let r = sourceData[srcIdx], g = sourceData[srcIdx + 1], b = sourceData[srcIdx + 2];
-
-      const isTooth = 
-        r > 80 && g > 80 && b > 65 && 
-        Math.abs(r - g) < 30 && 
-        r < g * 1.12; 
-      
-      if (!isTooth) continue;
-
-      // ✅ SDF Feathering
-      const feather = maskSDF[i] / 255;
-
-      // ✅ Math-Lite Effects (Approximations for speed)
-      const avg = (r + g + b) / 3;
-      const variation = ((x ^ y) & 255) / 255;
-      const lift = 0.40 * feather * (0.85 + 0.3 * variation);
-      
-      const d = (x - centerX) / boxWidth;
-      const centerFactor = Math.max(0, 1.1 - 4 * d * d);
-      const finalLift = lift * (0.85 + 0.3 * centerFactor);
-
-      // Hollywood Neutralization
-      r = r * 0.65 + avg * 0.35;
-      g = g * 0.65 + avg * 0.35;
-      b = b * 0.85 + avg * 0.15;
-
-      // Hollywood Whitening (Throttled based on mode)
-      const bWhiten = isWhiteningMode ? 0.48 : 0.08;
-      const gWhiten = isWhiteningMode ? 0.15 : 0.04;
-      const rWhiten = isWhiteningMode ? 0.12 : 0.03;
-
-      r += (255 - r) * rWhiten * finalLift;
-      g += (255 - g) * gWhiten * finalLift;
-      b += (255 - b) * bWhiten * finalLift;
-
-      // --- INTERPROXIMAL PLAQUE CLEANING & STAIN REMOVAL ---
-      // detect yellow/brown tones (plaque/stain)
-      const isPlaque = r > g && g > b && (r - b) > 25; 
-      // detect darker narrow regions (between teeth)
-      const isDarkGap = (r + g + b) / 3 < 160;
-
-      if (isPlaque && isDarkGap) {
-        const plaqueAvg = (r + g + b) / 3;
-        // gentle neutralization
-        r = r * 0.85 + plaqueAvg * 0.15;
-        g = g * 0.88 + plaqueAvg * 0.12;
-        b = b * 0.95 + plaqueAvg * 0.05;
-        // slight whitening (not too much!)
-        r += (255 - r) * 0.08;
-        g += (255 - g) * 0.08;
-        b += (255 - b) * 0.12;
-      }
-
-      // ⚠️ DEPTH PROTECTION (Don't break 3D anatomy)
-      const brightness = (r + g + b) / 3;
-      if (brightness > 210) {
-        // keep gaps/shadows slightly darker than main enamel
-        const darkScale = 0.92;
-        r *= darkScale; g *= darkScale; b *= darkScale;
-      }
-
-      // ✨ MICRO EDGE SHADOW (Individual Tooth Definition)
-      // feather (0=edge, 1=center) from SDF Mask
-      if (feather < 0.3) {
-        const edgeShadow = 0.96;
-        r *= edgeShadow; g *= edgeShadow; b *= edgeShadow;
-      }
-
-      data[i] = Math.min(255, r);
-      data[i + 1] = Math.min(255, g);
-      data[i + 2] = Math.min(255, b);
+    // Plaque Cleaning & Depth
+    const isPlaque = r > g && g > b && (r - b) > 25;
+    if (isPlaque && avg < 160) {
+      r = r * 0.85 + avg * 0.15; g = g * 0.88 + avg * 0.12; b = b * 0.95 + avg * 0.05;
+      r += (255 - r) * 0.08; g += (255 - g) * 0.08; b += (255 - b) * 0.12;
     }
+    const finalBrightness = (r + g + b) / 3;
+    if (finalBrightness > 210) { r *= 0.92; g *= 0.92; b *= 0.92; }
+    if (feather < 0.3) { r *= 0.96; g *= 0.96; b *= 0.96; }
+
+    data[i] = Math.min(255, r); data[i + 1] = Math.min(255, g); data[i + 2] = Math.min(255, b);
   }
-
   ctx.putImageData(imageData, minX, minY);
-
-  // ✨ FINAL CLINICAL SMOOTHING & BLEND
-  ctx.save();
-  teethPath();
-  ctx.clip();
-  ctx.globalAlpha = 0.12;
-  ctx.filter = "blur(0.8px)";
-  ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
-
-  ctx.save();
-  teethPath();
-  ctx.clip();
-  ctx.globalAlpha = 0.06;
-  ctx.filter = "blur(0.2px)"; 
-  ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
-
-  // ✅ Upgrade 2: Enamel Shine Layer (Premium Gloss - Boosted)
-  ctx.save();
-  ctx.globalCompositeOperation = "soft-light";
-  ctx.fillStyle = "rgba(255,255,255,0.11)";
-  teethPath();
-  ctx.fill();
-  ctx.restore();
 }
 
-// --- PRODUCTION BRACES OVERLAY (Step 3) ---
+/**
+ * ENGINE 3: BRACES (Visual Only)
+ * High-precision overlay orchestrator.
+ */
+function applyBracesEffect(ctx, landmarks, w, h, img) {
+  drawBracesOverlay(ctx, landmarks, w, h, img);
+  eraseAboveUpperLip(ctx, landmarks, w, h, 20);
+}
+
+// --- PRODUCTION BRACES OVERLAY ---
 function drawBracesOverlay(ctx, landmarks, w, h, bracesImage) {
   if (!bracesImage || !bracesImage.complete) return;
   
@@ -1022,22 +958,34 @@ const SmileSimulatorAI = () => {
       // Eliminates one redundant high-res toBlob operation (~300-500ms saved)
       const beforeUrl = imageUrl;
 
-      // --- SIMULATION PIPELINE (4 FEATURE ISOLATION) ---
-      setProcessingLog("Applying Hollywood radiance...");
+      // --- MODULAR SIMULATION PIPELINE (Geometry → Color → Visuals) ---
+      setProcessingLog("Engineering anatomical alignment...");
       
-      const isWhiteningRequested = treatment === "whitening" || treatment === "transformation";
-      const isAlignmentRequested = treatment === "alignment" || treatment === "transformation";
-      const isBracesRequested = treatment === "braces";
+      switch (treatment) {
+        case "whitening":
+          applyWhitening(ctx, landmarks, iw, ih, 0.7);
+          break;
 
-      if (isWhiteningRequested || isAlignmentRequested) {
-        // Pass treatment as mode to applyRealWhitening for logical branching
-        applyRealWhitening(ctx, landmarks, iw, ih, treatment);
-      }
-      
-      if (isBracesRequested) {
-        setProcessingLog("Articulating dental alignment...");
-        drawBracesOverlay(ctx, landmarks, iw, ih, bracesImageRef.current);
-        eraseAboveUpperLip(ctx, landmarks, iw, ih, 20);
+        case "alignment":
+          applyAlignment(ctx, landmarks, iw, ih, 0.22);
+          setProcessingLog("Applying healthy radiance...");
+          applyWhitening(ctx, landmarks, iw, ih, 0.15); // subtle boost
+          break;
+
+        case "braces":
+          applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current);
+          break;
+
+        case "transformation":
+          applyAlignment(ctx, landmarks, iw, ih, 0.25);
+          setProcessingLog("Applying Hollywood whitening...");
+          applyWhitening(ctx, landmarks, iw, ih, 0.75);
+          setProcessingLog("Articulating braces...");
+          applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current);
+          break;
+
+        default:
+          console.warn("[Pipeline] No direct treatment match");
       }
 
       if (!isCurrent()) return;
