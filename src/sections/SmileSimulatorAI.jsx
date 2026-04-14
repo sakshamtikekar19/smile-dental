@@ -508,8 +508,10 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
   }
 
   const faceScale = (maxY - minY) / 100;
+  const centerX = (minX + maxX) / 2;
+  const boxWidth = maxX - minX;
 
-  // 🎯 Pixel Whitening Loop (Regional Bounding-Box Optimized)
+  // 🎯 Pixel Whitening Loop (Natural Realism Refine)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
       if (!isInside(x, y, points)) continue;
@@ -520,8 +522,8 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       
       let r = data[i], g = data[i + 1], b = data[i + 2];
 
-      // ✨ STEP 1: STRICT TEETH MASK
-      const isTooth = r > 120 && g > 120 && b > 100 && Math.abs(r - g) < 40;
+      // ✨ STEP 1: RELAXED TEETH MASK
+      const isTooth = r > 90 && g > 90 && b > 80 && Math.abs(r - g) < 40;
       if (!isTooth) continue;
 
       const segmentIndex = segments.findIndex(s => x >= s.start && x <= s.end);
@@ -531,17 +533,28 @@ function applyRealWhitening(ctx, landmarks, w, h, intensity = 0.65) {
       const edgeDist = distanceToEdge(x, y, points);
       const feather = Math.min(1, edgeDist / (4 * faceScale));
 
-      // ✨ STEP 4: FIX COLOR BALANCE
+      // ✨ STEP 2: SUBTLE NEUTRALIZATION (Not full gray)
       const avg = (r + g + b) / 3;
-      r = r * 0.8 + avg * 0.2;
-      g = g * 0.8 + avg * 0.2;
-      b = b * 0.9 + avg * 0.1;
+      r = r * 0.9 + avg * 0.1;
+      g = g * 0.9 + avg * 0.1;
+      b = b * 0.95 + avg * 0.05;
 
-      // ✨ STEP 3: FORCED STRONG WHITENING
-      const lift = 0.55 * feather;
-      r += (255 - r) * 0.4 * lift;
-      g += (255 - g) * 0.4 * lift;
-      b += (255 - b) * 0.6 * lift;
+      // ✨ STEP 3: GENTLE WHITENING + CENTER BOOST
+      const lift = 0.25 * feather;
+      const centerFactor = Math.exp(-Math.pow((x - centerX) / boxWidth, 2));
+      const finalLift = lift * (0.9 + 0.2 * centerFactor);
+
+      r += (255 - r) * 0.08 * finalLift;
+      g += (255 - g) * 0.08 * finalLift;
+      b += (255 - b) * 0.18 * finalLift;
+
+      // ✨ STEP 4: EDGE DARKENING (Depth)
+      const edgeFactor = Math.min(1, edgeDist / 8);
+      const shadow = 1 - 0.08 * (1 - edgeFactor);
+      
+      r *= shadow;
+      g *= shadow;
+      b *= shadow;
 
       data[i] = Math.min(255, r);
       data[i + 1] = Math.min(255, g);
