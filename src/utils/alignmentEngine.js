@@ -138,7 +138,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * 0.6 * strength;
+    let dy = (targetY - center.y) * strength * 0.6;
 
     // ensure minimum visible shift
     if (Math.abs(dy) < 0.5 && Math.abs(dy) > 0.01) {
