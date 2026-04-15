@@ -477,19 +477,14 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     const isGapZone = !inOriginalMask && dilatedMask[idx];
     if (!inOriginalMask && !isGapZone) continue;
 
-    let r = data[i], g = data[i + 1], b = data[i + 2];
+    const r = data[i], g = data[i + 1], b = data[i + 2];
     const maskValue = maskData[i] / 255;
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     const avg = (r+g+b)/3;
 
-    if (isGapZone) {
-      // 🦷 Interdental Plaque Reduction (Neutralize yellow tints)
-      const clean = avg + (240 - avg) * 0.4;
-      data[i]     = r * 0.4 + clean * 0.6;
-      data[i + 1] = g * 0.4 + clean * 0.6;
-      data[i + 2] = b * 0.4 + clean * 0.6;
-    } else {
-      // 🦷 Main Enamel Whitening
+    if (dilatedMask[idx]) {
+      // 🦷 Main Enamel Whitening (On Dilated Mask)
+      const centerX = boxW / 2;
       const localX = idx % boxW;
       const distFromCenter = Math.abs(localX - centerX) / centerX;
       const stabilityWeight = 1.0 - distFromCenter * 0.08;
@@ -502,6 +497,13 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
       data[i]     = Math.min(255, r + (target - r) * bf);
       data[i + 1] = Math.min(255, g + (target - g) * bf);
       data[i + 2] = Math.min(255, b + (target - b) * bf);
+    } 
+    else if (isGapZone) {
+      // 🦷 Interdental Plaque Reduction (On surrounding 'Halo')
+      const clean = avg + (240 - avg) * 0.4;
+      data[i]     = r * 0.4 + clean * 0.6;
+      data[i + 1] = g * 0.4 + clean * 0.6;
+      data[i + 2] = b * 0.4 + clean * 0.6;
     }
   }
   ctx.putImageData(imageData, minX, minY);
