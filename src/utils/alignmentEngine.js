@@ -162,13 +162,6 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
       if (nx < 0 || nx >= boxW || ny < 0 || ny >= boxH) continue;
 
-      const niFlat = ny * boxW + nx;
-      if (depthMap[niFlat] > center.y) continue; // Basic Z-buffer for overlaps
-      depthMap[niFlat] = center.y;
-
-      const ni = niFlat * 4, oi = idx * 4;
-      const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
-
       const sx = clamp(x - dx - rotX, 0, boxW - 1);
       const sy = clamp(y - dy - rotY, 0, boxH - 1);
       const x1 = Math.floor(sx), x2 = clamp(x1 + 1, 0, boxW - 1);
