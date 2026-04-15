@@ -6,7 +6,9 @@ import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
 import { clipToWhiteningMask, eraseAboveUpperLip } from "../utils/bracesClipFixed";
 import { buildBracesPack } from "../utils/bracesGeometryFixed";
+import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
 import { TEETH_WHITEN_MASK_INDICES } from "../utils/teethWhitenMaskIndices";
+
 
 // ── Environment ──────────────────────────────────────────────────────────────
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -303,87 +305,15 @@ async function detectLandmarks(imageSrc) {
  * ENGINE 1: ANATOMICAL ALIGNMENT (Geometry Only)
  */
 function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
-  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-  const points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
-
-  const xs = points.map(p => p.x), ys = points.map(p => p.y);
-  const minX = Math.floor(Math.min(...xs)), maxX = Math.ceil(Math.max(...xs));
-  const minY = Math.floor(Math.min(...ys)), maxY = Math.ceil(Math.max(...ys));
-  const boxW = maxX - minX, boxH = maxY - minY;
-  if (boxW <= 0 || boxH <= 0) return;
-
-  const midY = points.reduce((s, p) => s + p.y, 0) / points.length;
-  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
-  const data = imageData.data;
-  const sourceData = new Uint8ClampedArray(data);
-
-  // Parabolic Smile Arc Parameters
-  const centerX = boxW / 2;
-  const smileDepth = 10 * strength; 
-  const localMidY = midY - minY;
-
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = boxW; maskCanvas.height = boxH;
-  const mctx = maskCanvas.getContext("2d");
-  mctx.translate(-minX, -minY);
-  mctx.beginPath();
-  points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
-  mctx.closePath();
-  mctx.fillStyle = "white"; mctx.fill();
-  const maskData = mctx.getImageData(0, 0, boxW, boxH).data;
-
-  for (let y = minY; y < maxY; y++) {
-    const localY = y - minY;
-    for (let x = minX; x < maxX; x++) {
-      const localX = x - minX;
-      const i = (localY * boxW + localX) * 4;
-      if (maskData[i] < 128) continue;
-
-      // 🎯 SMILE CURVE (Anatomical Parity)
-      const dxRel = (localX - centerX) / (boxW / 2);
-      const targetLocalY = localMidY + smileDepth * (dxRel * dxRel);
-
-      // FIX 3 — DYNAMIC CONTROL (Adaptive Strength)
-      const distance = Math.abs(targetLocalY - localY);
-      const adaptiveStrength = Math.min(1, distance / 40);
-      
-      // FIX 2 — TOOTH HEIGHT NORMALIZATION 
-      const verticalBias = 0.15;
-      const primaryDy = (targetLocalY - localY) * strength * adaptiveStrength;
-      const levelingDy = (targetLocalY - localY) * verticalBias;
-      const dy = primaryDy + levelingDy;
-
-      // INTERPOLATION (Sub-pixel Precision)
-      const floatY = localY + dy;
-      const y1 = clamp(Math.floor(floatY), 0, boxH - 1);
-      const y2 = clamp(y1 + 1, 0, boxH - 1);
-      const t = floatY - y1;
-
-      const idx1 = (y1 * boxW + localX) * 4;
-      const idx2 = (y2 * boxW + localX) * 4;
-
-      data[i]     = sourceData[idx1] * (1 - t) + sourceData[idx2] * t;
-      data[i + 1] = sourceData[idx1 + 1] * (1 - t) + sourceData[idx2 + 1] * t;
-      data[i + 2] = sourceData[idx1 + 2] * (1 - t) + sourceData[idx2 + 2] * t;
-    }
-  }
-  ctx.putImageData(imageData, minX, minY);
-
-  // FINAL TOUCH — ANATOMICAL BLENDING
-  ctx.save();
-  ctx.globalAlpha = 0.1;
-  ctx.filter = "blur(0.6px)";
-  ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
-
-  // 🦷 EDGE BRIGHTENING (SUBTLE PREMIUM RADIANCE)
-  ctx.save();
-  ctx.globalCompositeOperation = "overlay";
-  ctx.globalAlpha = 0.08;
-  ctx.filter = "blur(1px)";
-  ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
+  applyProfessionalAlignment(ctx, landmarks, w, h, {
+    strength: strength * 4.0,
+    maxShiftX: 2.2,
+    maxShiftY: 1.1,
+    smoothing: 0.3
+  });
 }
+
+
 
 /**
  * ENGINE 2: CLINICAL WHITENING (Color Only)
