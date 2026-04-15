@@ -434,45 +434,75 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   const lipLowerY = landmarks[14].y * h;
   const mouthHeight = lipLowerY - lipUpperY;
 
-  // 🧪 ENGINE CORE: Surgical Reconstruction
+  // 🚀 PASS 1: Build Binary Tooth Mask (Stoichiometry + Clamping)
+  const pixelCount = boxW * boxH;
+  const isToothMask = new Uint8Array(pixelCount);
   for (let i = 0; i < data.length; i += 4) {
+    const idx = i / 4;
     const maskValue = maskData[i] / 255;
     if (maskValue < 0.05) continue;
 
-    // 🏥 Anatomical Bounds (Vertical Clamping)
-    const localY = Math.floor((i / 4) / boxW) + minY;
+    const localY = Math.floor(idx / boxW) + minY;
     if (localY < lipUpperY - mouthHeight * 0.05 || localY > lipLowerY + mouthHeight * 0.05) continue;
 
+    const r = data[i], g = data[i+1], b = data[i+2];
+    const brightness = (r+g+b)/3;
+    const isRedHeavy = r > g * 1.13 || r > b * 1.5;
+    if (!isRedHeavy && brightness > 40 && Math.abs(r-g) < 45 && r < g * 1.25) {
+      isToothMask[idx] = 1;
+    }
+  }
+
+  // 🚀 PASS 2: Mask Dilation (Expand into Interdental Gaps)
+  let dilatedMask = new Uint8Array(isToothMask);
+  for (let p = 0; p < 2; p++) {
+    const temp = new Uint8Array(dilatedMask);
+    for (let y = 1; y < boxH - 1; y++) {
+      for (let x = 1; x < boxW - 1; x++) {
+        const idx = y * boxW + x;
+        if (!dilatedMask[idx] && 
+            (dilatedMask[idx-1] || dilatedMask[idx+1] || dilatedMask[idx-boxW] || dilatedMask[idx+boxW])) {
+          temp[idx] = 1;
+        }
+      }
+    }
+    dilatedMask = temp;
+  }
+
+  // 🚀 PASS 3: Composite Reconstruction (Cleaning + Whitening)
+  const centerX = boxW / 2;
+  for (let i = 0; i < data.length; i += 4) {
+    const idx = i / 4;
+    const inOriginalMask = isToothMask[idx];
+    const isGapZone = !inOriginalMask && dilatedMask[idx];
+    if (!inOriginalMask && !isGapZone) continue;
+
     let r = data[i], g = data[i + 1], b = data[i + 2];
-    
-    // 🦷 SURGICAL ENAMEL FILTER (Strict Lip/Gum Protection)
-    const brightness = (r + g + b) / 3;
-    const isRedHeavy = r > g * 1.12 || r > b * 1.45; 
-    const isTooth = !isRedHeavy && brightness > 42 && Math.abs(r - g) < 42 && r < g * 1.25;
-                    
-    if (!isTooth) continue;
-
-    // ✨ FINAL ENAMEL MODEL (PRODUCTION SAFE)
-    // 1. Rec.709 Perceptual Luminance (Preserves Gradients)
+    const maskValue = maskData[i] / 255;
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    
-    // 2. Deterministic Stability (Flicker-Free Depth)
-    const centerX = boxW / 2;
-    const localX = (i / 4) % boxW;
-    const distFromCenter = Math.abs(localX - centerX) / centerX;
-    const stabilityWeight = 1.0 - distFromCenter * 0.08;
-    if (stabilityWeight < 0.6) continue; // Safety gate
-    
-    // 3. Final Radiant Target (Anti-Drift Luminance Lock)
-    const strength = 0.35 * maskValue * (intensity / 0.65);
-    let target = luminance + (235 - luminance) * strength;
-    target = Math.min(235, Math.max(luminance, target)); // 🔒 Clinical Lock
+    const avg = (r+g+b)/3;
 
-    // 4. Anatomical Soft Blend (45% texture preservation)
-    const bf = 0.45;
-    data[i]     = Math.min(255, r + (target - r) * bf);
-    data[i + 1] = Math.min(255, g + (target - g) * bf);
-    data[i + 2] = Math.min(255, b + (target - b) * bf);
+    if (isGapZone) {
+      // 🦷 Interdental Plaque Reduction (Neutralize yellow tints)
+      const clean = avg + (240 - avg) * 0.4;
+      data[i]     = r * 0.4 + clean * 0.6;
+      data[i + 1] = g * 0.4 + clean * 0.6;
+      data[i + 2] = b * 0.4 + clean * 0.6;
+    } else {
+      // 🦷 Main Enamel Whitening
+      const localX = idx % boxW;
+      const distFromCenter = Math.abs(localX - centerX) / centerX;
+      const stabilityWeight = 1.0 - distFromCenter * 0.08;
+      if (stabilityWeight < 0.6) continue;
+
+      const strength = 0.35 * maskValue * (intensity / 0.65);
+      let target = luminance + (235 - luminance) * strength;
+      target = Math.min(235, Math.max(luminance, target));
+      const bf = 0.45;
+      data[i]     = Math.min(255, r + (target - r) * bf);
+      data[i + 1] = Math.min(255, g + (target - g) * bf);
+      data[i + 2] = Math.min(255, b + (target - b) * bf);
+    }
   }
   ctx.putImageData(imageData, minX, minY);
 }
