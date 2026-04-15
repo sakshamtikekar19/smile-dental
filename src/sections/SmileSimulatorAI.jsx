@@ -701,6 +701,7 @@ const SmileSimulatorAI = () => {
       setBeforeImage(snapshotUrl);
       setFinalLandmarks(landmarks);
       setStep("result");
+      setIsProcessing(false);
       stopCamera();
     } catch (err) { setError(err.message); setIsProcessing(false); }
   }, []);
