@@ -78,13 +78,64 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
     return notGum && notDark;
   };
 
+  // 🦷 MISSING TOOTH DETECTION
+  const detectMissingMask = (sourceData, boxW, boxH) => {
+    const mask = new Array(boxW * boxH).fill(false);
+    const isEnamelLocal = (i) => {
+      const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const notGum = !(r > g * 1.2 && r > b * 1.2);
+      return notGum && lum > 55;
+    };
+    for (let y = 1; y < boxH - 1; y++) {
+      for (let x = 1; x < boxW - 1; x++) {
+        const idx = y * boxW + x;
+        const i = idx * 4;
+        if (isEnamelLocal(i)) continue;
+        let neighbors = 0;
+        const n1 = ((y * boxW + (x - 1)) * 4);
+        const n2 = ((y * boxW + (x + 1)) * 4);
+        const n3 = (((y - 1) * boxW + x) * 4);
+        const n4 = (((y + 1) * boxW + x) * 4);
+        if (isEnamelLocal(n1)) neighbors++;
+        if (isEnamelLocal(n2)) neighbors++;
+        if (isEnamelLocal(n3)) neighbors++;
+        if (isEnamelLocal(n4)) neighbors++;
+        if (neighbors >= 2) mask[idx] = true;
+      }
+    }
+    return mask;
+  };
+
+  const expandMask = (mask, boxW, boxH, passes = 2) => {
+    let output = [...mask];
+    for (let p = 0; p < passes; p++) {
+      const temp = [...output];
+      for (let y = 1; y < boxH - 1; y++) {
+        for (let x = 1; x < boxW - 1; x++) {
+          const idx = y * boxW + x;
+          if (output[idx] || output[idx - 1] || output[idx + 1] || output[idx - boxW] || output[idx + boxW]) {
+            temp[idx] = true;
+          }
+        }
+      }
+      output = temp;
+    }
+    return output;
+  };
+
+  // 🧠 detect missing tooth regions
+  let missingMask = detectMissingMask(sourceData, boxW, boxH);
+  missingMask = expandMask(missingMask, boxW, boxH, 2);
+
   // 3. PIXEL MIGRATION WITH SHADOW CONSISTENCY
   for (let y = 0; y < boxH; y++) {
     for (let x = 0; x < boxW; x++) {
       const i = (y * boxW + x) * 4;
       const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
 
-      if (!isEnamel(r, g, b)) continue;
+      const idxFlat = y * boxW + x;
+      if (!isEnamel(r, g, b) || missingMask[idxFlat]) continue;
 
       const gx = x + minX, gy = y + minY;
       
