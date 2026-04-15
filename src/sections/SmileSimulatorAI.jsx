@@ -505,6 +505,7 @@ const SmileSimulatorAI = () => {
   const [zoomLoading, setZoomLoading] = useState(false);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
+  const [cameraStream, setCameraStream] = useState(null);
   const pendingTreatmentRef = useRef("whitening");
 
   const videoRef = useRef(null);
@@ -572,20 +573,25 @@ const SmileSimulatorAI = () => {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: "user",
-          width: { min: 1280, ideal: 1920 },
-          height: { min: 720, ideal: 1080 }
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
         }, 
         audio: false 
       });
       streamRef.current = stream;
+      setCameraStream(stream);
     } catch (err) { 
-      setError("Camera access denied. Please enable camera permissions in your settings.");
+      setError("Camera access denied or hardware not supported. Please enable permissions.");
       setStep("entry");
     }
   };
 
   const stopCamera = () => {
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    if (streamRef.current) { 
+      streamRef.current.getTracks().forEach(t => t.stop()); 
+      streamRef.current = null; 
+    }
+    setCameraStream(null);
   };
 
   const reset = () => {
@@ -594,6 +600,7 @@ const SmileSimulatorAI = () => {
     setFinalLandmarks(null); 
     setIsProcessing(false); 
     setRawImageUrl(null);
+    setCameraStream(null);
     setStep("entry");
   };
 
@@ -636,16 +643,18 @@ const SmileSimulatorAI = () => {
     return () => clearTimeout(timer);
   }, [rawImageUrl, isProcessing, startHeavyProcessingPipeline]);
 
-  // 🔥 CLINICAL FIX: Camera Lifecycle Sync (Prevents Black Screen on Reset)
+  // 🔥 CLINICAL FIX: Camera Lifecycle Sync (State-Based Tracking)
   useEffect(() => {
-    if (step === "camera" && streamRef.current && videoRef.current) {
+    if (step === "camera" && cameraStream && videoRef.current) {
       const video = videoRef.current;
-      video.srcObject = streamRef.current;
-      video.onloadedmetadata = () => {
-        video.play().catch(e => console.error("Camera play failed:", e));
-      };
+      if (video.srcObject !== cameraStream) {
+        video.srcObject = cameraStream;
+        video.onloadedmetadata = () => {
+          video.play().catch(e => console.error("Camera play failed:", e));
+        };
+      }
     }
-  }, [step]);
+  }, [step, cameraStream]);
 
   // 🔥 Robust Zoom Engine: Triggers drawing when result view mounts
   useEffect(() => {
