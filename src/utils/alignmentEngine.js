@@ -65,7 +65,7 @@ function getCenter(cluster, width) {
  * 🚀 Internal transformation pass for a specific arch
  */
 function processArch(ctx, landmarks, w, h, indices, options) {
-  const { strength, maxShiftX, maxShiftY } = options;
+  const { strength = 1.0, maxShiftX, maxShiftY } = options;
 
   let points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
   const midPoint = Math.floor(points.length / 2);
@@ -147,11 +147,11 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * strength * 0.6;
+    let dy = (targetY - center.y) * strength * 0.7;
 
-    // ensure minimum visible shift
-    if (Math.abs(dy) < 0.5 && Math.abs(dy) > 0.01) {
-      dy = dy > 0 ? 0.5 : -0.5;
+    // force visible movement
+    if (Math.abs(dy) < 0.8 && Math.abs(dy) > 0.01) {
+      dy = dy > 0 ? 0.8 : -0.8;
     }
     let dx = 0; // Lock horizontal to prevent jank
     
