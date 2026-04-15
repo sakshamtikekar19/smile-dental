@@ -560,7 +560,7 @@ const SmileSimulatorAI = () => {
       }
       if (t === "braces") applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
       if (t === "transformation") { 
-        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, { strength: 0.25 }); 
+        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, { strength: alignmentStrength }); 
         applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.75); 
         applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current); 
       }
