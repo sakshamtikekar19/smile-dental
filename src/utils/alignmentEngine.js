@@ -87,9 +87,9 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const isEnamel = (r, g, b) => {
     const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
-    const isTooDark = lum < 53;            // RELAXED: handles deeper shadows
-    const isGum = r > g * 1.15 && r > b * 1.15; // removes lips/gums
-    const isSkin = r > 140 && g > 100 && b > 90; // removes face skin tones
+    const isTooDark = lum < 42;            // RESTORED: Catch shadowed teeth
+    const isGum = r > g * 1.25 && r > b * 1.25; // CALIBRATED: Allows warm tooth tones
+    const isSkin = r > 150 && g > 110 && b > 100; // PRECISE: Protects facial skin
 
     return !isTooDark && !isGum && !isSkin;
   };
@@ -138,10 +138,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * 0.6;
+    let dy = (targetY - center.y) * 0.6 * strength;
 
     // ensure minimum visible shift
-    if (Math.abs(dy) < 0.5) {
+    if (Math.abs(dy) < 0.5 && Math.abs(dy) > 0.01) {
       dy = dy > 0 ? 0.5 : -0.5;
     }
     let dx = 0; // Lock horizontal to prevent jank
@@ -150,9 +150,9 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     dx = clamp(dx, -maxShiftX, maxShiftX);
     dy = clamp(dy, -maxShiftY, maxShiftY);
 
-    // 🚀 BOOSTED ROTATION (Perceptible Side Correction)
+    // 🚀 BOOSTED ROTATION (Reconnected Strength)
     const norm = (center.x - centerX) / (boxW / 2);
-    let angle = norm * 0.0035; 
+    let angle = norm * 0.0035 * strength; 
     const falloff = 1 - Math.abs(norm);
     angle *= (1 - falloff);
 

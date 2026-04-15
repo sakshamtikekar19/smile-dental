@@ -625,11 +625,15 @@ const SmileSimulatorAI = () => {
       switch (treatment) {
         case "whitening": applyWhitening(ctx, landmarks, iw, ih, 0.82); break;
         case "alignment": 
-          applyAlignment(ctx, landmarks, iw, ih, 0.22); 
+          applyAlignment(ctx, landmarks, iw, ih, { strength: 0.22 }); 
           applyWhitening(ctx, landmarks, iw, ih, 0.2); 
           break;
         case "braces": applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
-        case "transformation": applyAlignment(ctx, landmarks, iw, ih, 0.25); applyWhitening(ctx, landmarks, iw, ih, 0.85); applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
+        case "transformation": 
+          applyAlignment(ctx, landmarks, iw, ih, { strength: 0.25 }); 
+          applyWhitening(ctx, landmarks, iw, ih, 0.85); 
+          applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
+          break;
       }
 
       const finalUrl = canvas.toDataURL("image/jpeg", 0.93);
