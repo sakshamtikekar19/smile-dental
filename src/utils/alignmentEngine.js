@@ -87,23 +87,27 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const isEnamel = (r, g, b) => {
     const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
-    const isTooDark = lum < 60;            // removes shadows / mouth interior
+    const isTooDark = lum < 53;            // RELAXED: handles deeper shadows
     const isGum = r > g * 1.15 && r > b * 1.15; // removes lips/gums
     const isSkin = r > 140 && g > 100 && b > 90; // removes face skin tones
 
     return !isTooDark && !isGum && !isSkin;
   };
 
-  // 1. BUILD ENAMEL MASK & HOLE PREP (DO THIS ONLY)
+  // 1. BUILD ENAMEL MASK & OCCUPANCY MAP
   const enamelMask = new Array(boxW * boxH).fill(false);
+  const occupancyMap = new Int8Array(boxW * boxH).fill(0); // Tracking for moved pixels
+
   for (let i = 0; i < boxW * boxH; i++) {
     const idx = i * 4;
     const r = sourceData[idx], g = sourceData[idx+1], b = sourceData[idx+2];
 
     if (isEnamel(r, g, b)) {
       enamelMask[i] = true;
-      // Preparation for Safety Check: Clear alpha so moved teeth can fill
-      newData[idx + 3] = 0;
+      // Softly darken old position to show transformation area
+      newData[idx] *= 0.85;
+      newData[idx+1] *= 0.85;
+      newData[idx+2] *= 0.85;
     }
   }
 
@@ -152,13 +156,17 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const falloff = 1 - Math.abs(norm);
     angle *= (1 - falloff);
 
-    // 🔥 CORRECTED FRONT TOOTH LOCK (Allows Movement)
+    // 🔥 CORRECTED FRONT TOOTH LOCK (Calibrated)
     if (Math.abs(center.x - centerX) < boxW * 0.1) {
-      angle *= 0.7;
-      dy *= 0.9;
+      angle *= 0.65;
+      dy *= 0.85;
     }
 
-    angle += (Math.random() - 0.5) * 0.0005; // Natural jitter
+    // 🦷 INCISAL CONTOURING (Shaping)
+    const clusterMaxY = Math.max(...cluster.map(idx => Math.floor(idx / boxW)));
+    const clusterMinY = Math.min(...cluster.map(idx => Math.floor(idx / boxW)));
+
+    angle += (Math.random() - 0.5) * 0.0005; 
 
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
 
@@ -187,14 +195,23 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
       const ni = niFlat * 4;
       
-      // 🔥 SAFETY: DO NOT WRITE if destination already filled
-      if (newData[ni + 3] !== 0) continue;
+      // 🔥 PRECISION SAFETY: Don't overwrite another MOVED tooth
+      if (occupancyMap[niFlat] === 1) continue;
+      occupancyMap[niFlat] = 1;
 
       const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
 
-      // 🚀 EDGE-AWARE BLENDING (Strong edges, smooth centers)
+      // 🦷 INCISAL LEVELING (Shaping Pass)
+      let shapingForce = 1.0;
+      if (isLower) {
+        if (y < clusterMinY + 5) shapingForce = 0.85; // Soften jagged tops
+      } else {
+        if (y > clusterMaxY - 5) shapingForce = 0.85; // Soften jagged bottoms
+      }
+
+      // 🚀 EDGE-AWARE BLENDING
       const edgeFactor = Math.abs(dx) + Math.abs(dy);
-      const dynamicBlend = clamp(0.65 + (edgeFactor * 0.1), 0.65, 0.75);
+      const dynamicBlend = clamp(0.68 + (edgeFactor * 0.1), 0.68, 0.78);
 
       for (let c = 0; c < 3; c++) {
         const p00 = sourceData[(y1 * boxW + x1) * 4 + c];
@@ -203,30 +220,18 @@ function processArch(ctx, landmarks, w, h, indices, options) {
         const p11 = sourceData[(y2 * boxW + x2) * 4 + c];
         const interX = p00 * (1 - tx) + p10 * tx;
         const interY = p01 * (1 - tx) + p11 * tx;
-        const newVal = clamp((interX * (1 - ty) + interY * ty) - shadeAdjust, 0, 255);
         
-        // Final Realism Blend (Source Texture + New Shift)
+        // 🦷 Apply shaping to the coordinate calculation (Incisal Leveling)
+        let newVal = (interX * (1 - ty) + interY * ty);
+        if (shapingForce < 1.0) newVal *= 1.02; // Boost edge brightness to simulate shaping
+        newVal = clamp(newVal - shadeAdjust, 0, 255);
+        
+        // Final Realism Blend
         newData[ni + c] = sourceData[(y * boxW + x) * 4 + c] * dynamicBlend + newVal * (1 - dynamicBlend);
       }
-      newData[ni + 3] = 255; // Solid Mark
-
-      // FALLBACK: Prevent gaps
-      if (newData[ni + 3] === 0) {
-        for (let c = 0; c < 4; c++) newData[ni + c] = sourceData[(y * boxW + x) * 4 + c];
-      }
+      newData[ni + 3] = 255; 
     }
   });
-
-  // 2. REFILL GAP HOLES (Realism Fix: keep original texture in untouched holes)
-  for (let i = 0; i < boxW * boxH; i++) {
-    const idx = i * 4;
-    if (newData[idx + 3] === 0) {
-       newData[idx] = sourceData[idx];
-       newData[idx+1] = sourceData[idx+1];
-       newData[idx+2] = sourceData[idx+2]; 
-       newData[idx+3] = 255;
-    }
-  }
 
   imageData.data.set(newData);
   ctx.putImageData(imageData, minX, minY);
