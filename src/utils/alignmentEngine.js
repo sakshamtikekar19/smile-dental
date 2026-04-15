@@ -137,117 +137,47 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
   const isLower = indices.includes(14);
 
-  // 3. RIGID MOVEMENT LOOP
+  // 3. RIGID MOVEMENT LOOP (Guaranteed Visibility)
   teethClusters.forEach((cluster) => {
     const center = getCenter(cluster, boxW);
 
-    // 🧠 MIN DISTANCE (Overlap Prevention)
-    const minDist = 6;
-    const clusterIdx = teethClusters.indexOf(cluster);
-    if (clusterIdx > 0) {
-      const prevCenter = getCenter(teethClusters[clusterIdx - 1], boxW);
-      if (Math.abs(center.x - prevCenter.x) < minDist) return;
-    }
-
-    const gx = center.x + minX, gy = center.y + minY;
+    const gx = center.x + minX;
+    const gy = center.y + minY;
     
-    // Calculate target vertical pos and rotation
+    // Calculate target vertical pos
     const dxRel = (gx - centerX) / (boxW / 2);
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
     let dy = (targetY - center.y) * strength;
 
-    // force visible movement
+    // force visible movement floor
     if (Math.abs(dy) < 0.8 && Math.abs(dy) > 0.01) {
       dy = dy > 0 ? 0.8 : -0.8;
     }
-    let dx = 0; // Lock horizontal to prevent jank
-    
-    // Protection limits
-    dx = clamp(dx, -maxShiftX, maxShiftX);
-    dy = clamp(dy, -maxShiftY, maxShiftY);
-
-    // 🚀 BOOSTED ROTATION (Reconnected Strength)
-    const norm = (center.x - centerX) / (boxW / 2);
-    let angle = norm * 0.0035 * strength; 
-    const falloff = 1 - Math.abs(norm);
-    angle *= (1 - falloff);
-
-    // 🔥 CORRECTED FRONT TOOTH LOCK (Calibrated)
-    if (Math.abs(center.x - centerX) < boxW * 0.1) {
-      angle *= 0.65;
-      dy *= 0.85;
-    }
-
-    // 🦷 INCISAL CONTOURING (Shaping)
-    const clusterMaxY = Math.max(...cluster.map(idx => Math.floor(idx / boxW)));
-    const clusterMinY = Math.min(...cluster.map(idx => Math.floor(idx / boxW)));
-
-    angle += (Math.random() - 0.5) * 0.0005; 
-
-    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const dx = 0; 
 
     for (let idx of cluster) {
-      const x = idx % boxW, y = Math.floor(idx / boxW);
-      
-      // Rotate around tooth center
-      const relX = x - center.x, relY = y - center.y;
-      const rotX = relX * cosA - relY * sinA;
-      const rotY = relX * sinA + relY * cosA;
+      const x = idx % boxW;
+      const y = Math.floor(idx / boxW);
 
-      const nx = Math.round(center.x + rotX + dx);
-      const ny = Math.round(center.y + rotY + dy);
+      let nx = Math.round(x + dx);
+      let ny = Math.round(y + dy);
+
+      // 🚨 Ensure movement actually happens (No rounding-to-zero)
+      if (nx === x && ny === y) {
+        if (dy !== 0) ny = y + (dy > 0 ? 1 : -1);
+      }
 
       if (nx < 0 || nx >= boxW || ny < 0 || ny >= boxH) continue;
 
-      const sx = clamp(x - dx - rotX, 0, boxW - 1);
-      const sy = clamp(y - dy - rotY, 0, boxH - 1);
-      const x1 = Math.floor(sx), x2 = clamp(x1 + 1, 0, boxW - 1);
-      const y1 = Math.floor(sy), y2 = clamp(y1 + 1, 0, boxH - 1);
-      const tx = sx - x1, ty = sy - y1;
+      const ni = (ny * boxW + nx) * 4;
+      const oi = idx * 4;
 
-      const niFlat = ny * boxW + nx;
-      if (depthMap[niFlat] > center.y) continue;
-      depthMap[niFlat] = center.y;
-
-      const ni = niFlat * 4;
-      
-      // 🔥 PRECISION SAFETY: Don't overwrite another MOVED tooth
-      if (occupancyMap[niFlat] === 1) continue;
-      occupancyMap[niFlat] = 1;
-
-      const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
-
-      // 🦷 INCISAL LEVELING (Shaping Pass)
-      let shapingForce = 1.0;
-      if (isLower) {
-        if (y < clusterMinY + 5) shapingForce = 0.85; // Soften jagged tops
-      } else {
-        if (y > clusterMaxY - 5) shapingForce = 0.85; // Soften jagged bottoms
+      // Direct Write for Max Visibility
+      for (let c = 0; c < 4; c++) {
+        newData[ni + c] = sourceData[oi + c];
       }
-
-      // 🚀 EDGE-AWARE BLENDING
-      const edgeFactor = Math.abs(dx) + Math.abs(dy);
-      const dynamicBlend = clamp(0.68 + (edgeFactor * 0.1), 0.68, 0.78);
-
-      for (let c = 0; c < 3; c++) {
-        const p00 = sourceData[(y1 * boxW + x1) * 4 + c];
-        const p10 = sourceData[(y1 * boxW + x2) * 4 + c];
-        const p01 = sourceData[(y2 * boxW + x1) * 4 + c];
-        const p11 = sourceData[(y2 * boxW + x2) * 4 + c];
-        const interX = p00 * (1 - tx) + p10 * tx;
-        const interY = p01 * (1 - tx) + p11 * tx;
-        
-        // 🦷 Apply shaping to the coordinate calculation (Incisal Leveling)
-        let newVal = (interX * (1 - ty) + interY * ty);
-        if (shapingForce < 1.0) newVal *= 1.02; // Boost edge brightness to simulate shaping
-        newVal = clamp(newVal - shadeAdjust, 0, 255);
-        
-        // Final Realism Blend
-        newData[ni + c] = sourceData[(y * boxW + x) * 4 + c] * dynamicBlend + newVal * (1 - dynamicBlend);
-      }
-      newData[ni + 3] = 255; 
     }
   });
 
