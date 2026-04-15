@@ -42,7 +42,7 @@ function segmentTeeth(mask, width, height) {
       }
     }
 
-    if (cluster.length > 120) { // Clinical noise filter
+    if (cluster.length > 80 && cluster.length < 1200) { // Clinical noise filter & merge prevention
       clusters.push(cluster);
     }
   }
@@ -107,6 +107,15 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   // 3. RIGID MOVEMENT LOOP
   teethClusters.forEach((cluster) => {
     const center = getCenter(cluster, boxW);
+
+    // 🧠 MIN DISTANCE (Overlap Prevention)
+    const minDist = 6;
+    const clusterIdx = teethClusters.indexOf(cluster);
+    if (clusterIdx > 0) {
+      const prevCenter = getCenter(teethClusters[clusterIdx - 1], boxW);
+      if (Math.abs(center.x - prevCenter.x) < minDist) return;
+    }
+
     const gx = center.x + minX, gy = center.y + minY;
     
     // Calculate target vertical pos and rotation
@@ -115,17 +124,25 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetY = targetYGlobal - minY;
 
     let dy = (targetY - center.y) * 0.3 * strength;
-    let dx = (centerX - gx) * 0.005 * strength; // Extremely subtle horizontal center
+    let dx = 0; // Lock horizontal to prevent jank
     
     // Protection limits
     dx = clamp(dx, -maxShiftX, maxShiftX);
     dy = clamp(dy, -maxShiftY, maxShiftY);
 
-    // Rotation Angle: outer teeth rotate slightly inward
-    let angle = (center.x - boxW / 2) * 0.0025; 
-    const falloff = 1 - Math.min(1, Math.abs(dxRel) * 1.5);
-    angle *= (1 - falloff); // Front teeth stay stable
-    angle += (Math.random() - 0.5) * 0.0005; // Realism jitter
+    // 🚀 STABILIZED ROTATION (Controlled Side Correction)
+    const norm = (center.x - centerX) / (boxW / 2);
+    let angle = norm * 0.0015;
+    const falloff = 1 - Math.abs(norm);
+    angle *= (1 - falloff);
+
+    // 🔥 FRONT TOOTH LOCK (Preserve Smile Identity)
+    if (Math.abs(center.x - centerX) < boxW * 0.1) {
+      angle *= 0.2;
+      dy *= 0.5;
+    }
+
+    angle += (Math.random() - 0.5) * 0.0005; // Natural jitter
 
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
 
