@@ -42,7 +42,7 @@ function segmentTeeth(mask, width, height) {
       }
     }
 
-    if (cluster.length > 80 && cluster.length < 3000) { // RAISED LIMIT: merge prevention
+    if (cluster.length > 80 && cluster.length < 1800) { // CLINICAL LIMIT: prevents side-tooth merging
       clusters.push(cluster);
     }
   }
@@ -94,7 +94,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const enamelMask = new Array(boxW * boxH).fill(false);
   for (let i = 0; i < boxW * boxH; i++) {
     const idx = i * 4;
-    if (isEnamel(sourceData[idx], sourceData[idx+1], sourceData[idx+2])) {
+    const r = sourceData[idx], g = sourceData[idx+1], b = sourceData[idx+2];
+    const isGap = (r < 90 && g < 90 && b < 90); // INTERDENTAL line protection
+
+    if (isEnamel(r, g, b) && !isGap) {
       enamelMask[i] = true;
       // SOFTEN BASE instead of deleting
       newData[idx] *= 0.6;
@@ -130,7 +133,12 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * 0.55 * strength; // BOOSTED VERTICAL FORCE
+    let dy = (targetY - center.y) * 0.55 * strength;
+    
+    // 👄 SMILE LINE NATURALIZATION (Avoids flat look)
+    const distFromCenter = Math.abs(gx - centerX) / (boxW / 2);
+    dy *= (0.8 + distFromCenter * 0.2);
+
     if (Math.abs(dy) < 0.4 && Math.abs(dy) > 0.01) {
       dy = dy > 0 ? 0.4 : -0.4; // MINIMUM MOVEMENT GUARANTEE
     }
@@ -182,7 +190,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const ni = niFlat * 4;
       const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
 
-      const blend = 0.78; // ENAMEL TEXTURE PRESERVATION
+      // 🚀 EDGE-AWARE BLENDING (Strong edges, smooth centers)
+      const edgeFactor = Math.abs(dx) + Math.abs(dy);
+      const dynamicBlend = clamp(0.65 + (edgeFactor * 0.1), 0.65, 0.75);
+
       for (let c = 0; c < 3; c++) {
         const p00 = sourceData[(y1 * boxW + x1) * 4 + c];
         const p10 = sourceData[(y1 * boxW + x2) * 4 + c];
@@ -192,8 +203,11 @@ function processArch(ctx, landmarks, w, h, indices, options) {
         const interY = p01 * (1 - tx) + p11 * tx;
         const newVal = clamp((interX * (1 - ty) + interY * ty) - shadeAdjust, 0, 255);
         
+        // 🌚 MICRO SHADOW RESTORE (Brings back depth)
+        const microShadow = (dx * 0.32 + dy * 0.32);
+        
         // Final Realism Blend (Source Texture + New Shift)
-        newData[ni + c] = sourceData[(y * boxW + x) * 4 + c] * blend + newVal * (1 - blend);
+        newData[ni + c] = clamp(sourceData[(y * boxW + x) * 4 + c] * dynamicBlend + newVal * (1 - dynamicBlend) - microShadow, 0, 255);
       }
       newData[ni + 3] = sourceData[(Math.round(sy) * boxW + Math.round(sx)) * 4 + 3];
 
@@ -221,10 +235,10 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
   processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, settings);
   processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, settings);
 
-  // Final Texture Pass (Enamel Feel)
+  // Final Texture Pass (Dental Realism Pass)
   ctx.save();
-  ctx.globalAlpha = 0.08;
-  ctx.filter = "contrast(1.05) brightness(1.02)";
+  ctx.globalAlpha = 0.05;
+  ctx.filter = "contrast(1.03) brightness(1.01)";
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
