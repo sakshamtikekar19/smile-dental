@@ -306,9 +306,9 @@ async function detectLandmarks(imageSrc) {
  */
 function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   applyProfessionalAlignment(ctx, landmarks, w, h, {
-    strength: strength * 4.0,
-    maxShiftX: 2.2,
-    maxShiftY: 1.1,
+    strength: strength * 4.2,
+    maxShiftX: 2.5,
+    maxShiftY: 1.3,
     smoothing: 0.3
   });
 }

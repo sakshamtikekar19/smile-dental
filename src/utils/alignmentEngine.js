@@ -1,194 +1,182 @@
 /**
- * ALIGNMENT ENGINE: Professional Refinements (The Magic Pass)
- * 1. Contact Preservation (fixes fake gaps)
- * 2. Micro-Imperfection Injection (realism)
- * 3. Shadow Consistency (prevents floating look)
- * 4. Smile Arc Preservation (natural curvature)
+ * ALIGNMENT ENGINE: Rigid Tooth Segmentation & Transformation
+ * 1. Connectivity-based Segmentation (Tooth Clustering)
+ * 2. Object-Oriented Rigid Movement (Translation + Rotation)
+ * 3. Shadow Consistency & Depth Mapping
  */
 
 const UPPER_ARCH_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
+const LOWER_ARCH_INDICES = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 /**
- * 🦷 FINAL REFINEMENT: Micro-Imperfections (Realism)
+ * 🦷 TOOTH SEGMENTATION ENGINE (Flood Fill Clustering)
  */
-function addNaturalVariation(dx, dy, x, y) {
-  const varX = Math.sin(x * 0.3) * 0.15;
-  const varY = Math.cos(y * 0.2) * 0.1;
-  return { dx: dx + varX, dy: dy + varY };
+function segmentTeeth(mask, width, height) {
+  const visited = new Array(mask.length).fill(false);
+  const clusters = [];
+  const dirs = [-1, 1, -width, width];
+
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i] || visited[i]) continue;
+
+    let queue = [i];
+    let cluster = [];
+    visited[i] = true;
+
+    while (queue.length) {
+      const curr = queue.pop();
+      cluster.push(curr);
+
+      for (let d of dirs) {
+        const ni = curr + d;
+        // Check bounds and connectivity
+        if (ni >= 0 && ni < mask.length && mask[ni] && !visited[ni]) {
+          // Prevent wrapping around the canvas edges
+          if (Math.abs((curr % width) - (ni % width)) <= 1) {
+            visited[ni] = true;
+            queue.push(ni);
+          }
+        }
+      }
+    }
+
+    if (cluster.length > 120) { // Clinical noise filter
+      clusters.push(cluster);
+    }
+  }
+  return clusters;
 }
 
 /**
- * Main Entry Point
+ * Calculates geometric center of a tooth cluster
  */
-export function applyAlignment(ctx, landmarks, w, h, options = {}) {
-  const {
-    strength = 1.0, 
-    maxShiftX = 2.2,
-    maxShiftY = 1.1,
-    minGap = 1.8, // Contact preservation
-    smoothing = 0.3
-  } = options;
+function getCenter(cluster, width) {
+  let sx = 0, sy = 0;
+  for (let idx of cluster) {
+    sx += idx % width;
+    sy += Math.floor(idx / width);
+  }
+  return { x: sx / cluster.length, y: sy / cluster.length };
+}
 
-  let points = UPPER_ARCH_INDICES.map(i => ({ 
-    x: landmarks[i].x * w, 
-    y: landmarks[i].y * h,
-    origX: landmarks[i].x * w,
-    origY: landmarks[i].y * h
-  }));
+/**
+ * 🚀 Internal transformation pass for a specific arch
+ */
+function processArch(ctx, landmarks, w, h, indices, options) {
+  const { strength, maxShiftX, maxShiftY } = options;
 
-  const mid = Math.floor(points.length / 2);
-  const centerX = points[mid].x;
+  let points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
+  const midPoint = Math.floor(points.length / 2);
+  const centerX = points[midPoint].x;
   const archMidY = points.reduce((s, p) => s + p.y, 0) / points.length;
 
-  // 1. SMILE ARC PRESERVATION
-  points = points.map((p, i) => {
-    const offset = Math.abs(i - mid) * 0.6;
-    return { ...p, targetY: archMidY - offset };
-  });
-
-  // 2. CONTACT PRESERVATION (Fixes merging/fake gaps)
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    const gap = curr.x - prev.x;
-    if (gap < minGap) {
-      const shift = minGap - gap;
-      curr.x += shift;
-    }
-  }
-
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
-  const minX = Math.floor(Math.min(...xs)) - 15, maxX = Math.ceil(Math.max(...xs)) + 15;
-  const minY = Math.floor(Math.min(...ys)) - 15, maxY = Math.ceil(Math.max(...ys)) + 15;
+  const minX = Math.floor(Math.min(...xs)) - 30, maxX = Math.ceil(Math.max(...xs)) + 30;
+  const minY = Math.floor(Math.min(...ys)) - 30, maxY = Math.ceil(Math.max(...ys)) + 30;
   const boxW = maxX - minX, boxH = maxY - minY;
-  
   if (boxW <= 0 || boxH <= 0) return;
 
   const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
   const sourceData = new Uint8ClampedArray(data);
+  const newData = new Uint8ClampedArray(sourceData);
+  const depthMap = new Float32Array(boxW * boxH).fill(-1);
 
-  // 🚀 GUM PROTECTION Logic
   const isEnamel = (r, g, b) => {
     const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    const notGum = !(r > g * 1.2 && r > b * 1.2);
-    const notDark = lum > 55;
-    return notGum && notDark;
+    const notGum = !(r > g * 1.15 && r > b * 1.15);
+    return notGum && lum > 52;
   };
 
-  // 🦷 MISSING TOOTH DETECTION
-  const detectMissingMask = (sourceData, boxW, boxH) => {
-    const mask = new Array(boxW * boxH).fill(false);
-    const isEnamelLocal = (i) => {
-      const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
-      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      const notGum = !(r > g * 1.2 && r > b * 1.2);
-      return notGum && lum > 55;
-    };
-    for (let y = 1; y < boxH - 1; y++) {
-      for (let x = 1; x < boxW - 1; x++) {
-        const idx = y * boxW + x;
-        const i = idx * 4;
-        if (isEnamelLocal(i)) continue;
-        let neighbors = 0;
-        const n1 = ((y * boxW + (x - 1)) * 4);
-        const n2 = ((y * boxW + (x + 1)) * 4);
-        const n3 = (((y - 1) * boxW + x) * 4);
-        const n4 = (((y + 1) * boxW + x) * 4);
-        if (isEnamelLocal(n1)) neighbors++;
-        if (isEnamelLocal(n2)) neighbors++;
-        if (isEnamelLocal(n3)) neighbors++;
-        if (isEnamelLocal(n4)) neighbors++;
-        if (neighbors >= 2) mask[idx] = true;
-      }
-    }
-    return mask;
-  };
-
-  const expandMask = (mask, boxW, boxH, passes = 2) => {
-    let output = [...mask];
-    for (let p = 0; p < passes; p++) {
-      const temp = [...output];
-      for (let y = 1; y < boxH - 1; y++) {
-        for (let x = 1; x < boxW - 1; x++) {
-          const idx = y * boxW + x;
-          if (output[idx] || output[idx - 1] || output[idx + 1] || output[idx - boxW] || output[idx + boxW]) {
-            temp[idx] = true;
-          }
-        }
-      }
-      output = temp;
-    }
-    return output;
-  };
-
-  const isEdgePixel = (sourceData, i, threshold = 25) => {
-    const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
-    const avg = (r + g + b) / 3;
-    return Math.abs(r - avg) > threshold ||
-           Math.abs(g - avg) > threshold ||
-           Math.abs(b - avg) > threshold;
-  };
-
-  // 🧠 detect missing tooth regions
-  let missingMask = detectMissingMask(sourceData, boxW, boxH);
-  missingMask = expandMask(missingMask, boxW, boxH, 2);
-
-  // 3. PIXEL MIGRATION WITH SHADOW CONSISTENCY
-  for (let y = 0; y < boxH; y++) {
-    for (let x = 0; x < boxW; x++) {
-      const i = (y * boxW + x) * 4;
-      const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
-
-      const idxFlat = y * boxW + x;
-      if (!isEnamel(r, g, b) || missingMask[idxFlat] || isEdgePixel(sourceData, i)) continue;
-
-      const gx = x + minX, gy = y + minY;
-      
-      // Calculate target curve displacement
-      const dxRel = (gx - centerX) / (boxW / 2);
-      const targetY = archMidY + (boxH * 0.015) * (dxRel * dxRel); 
-      
-      let dy = (targetY - gy) * strength * 0.25;
-      let dx = 0;
-
-      // 🧠 MICRO-IMPERFECTION INJECTION
-      const variation = addNaturalVariation(dx, dy, gx, gy);
-      dx = clamp(variation.dx, -maxShiftX, maxShiftX);
-      dy = clamp(variation.dy, -maxShiftY, maxShiftY);
-
-      // --- BACK-MAPPING ---
-      const sx = clamp(x - dx, 0, boxW - 1);
-      const sy = clamp(y - dy, 0, boxH - 1);
-
-      const x1 = Math.floor(sx), x2 = clamp(x1 + 1, 0, boxW - 1);
-      const y1 = Math.floor(sy), y2 = clamp(y1 + 1, 0, boxH - 1);
-      const tx = sx - x1, ty = sy - y1;
-
-      for (let c = 0; c < 3; c++) {
-        const p00 = sourceData[(y1 * boxW + x1) * 4 + c];
-        const p10 = sourceData[(y1 * boxW + x2) * 4 + c];
-        const p01 = sourceData[(y2 * boxW + x1) * 4 + c];
-        const p11 = sourceData[(y2 * boxW + x2) * 4 + c];
-        const interX = p00 * (1 - tx) + p10 * tx;
-        const interY = p01 * (1 - tx) + p11 * tx;
-        
-        // 🧪 SHADOW CONSISTENCY FIX
-        // Subtle shading adjustment based on movement to fix "floating" look
-        const shadeAdjust = (dx * 0.4 + dy * 0.3) * 0.4;
-        data[i + c] = clamp((interX * (1 - ty) + interY * ty) - shadeAdjust, 0, 255);
-      }
-    }
+  // 1. BUILD ENAMEL MASK
+  const enamelMask = new Array(boxW * boxH).fill(false);
+  for (let i = 0; i < boxW * boxH; i++) {
+    if (isEnamel(sourceData[i*4], sourceData[i*4+1], sourceData[i*4+2])) enamelMask[i] = true;
   }
 
-  ctx.putImageData(imageData, minX, minY);
+  // 2. SEGMENT INTO TEETH
+  let teethClusters = segmentTeeth(enamelMask, boxW, boxH);
+  
+  // Sort Left -> Right for consistent processing
+  teethClusters.sort((a, b) => getCenter(a, boxW).x - getCenter(b, boxW).x);
 
-  // 4. FINAL RADIANCE
+  const isLower = indices.includes(14);
+
+  // 3. RIGID MOVEMENT LOOP
+  teethClusters.forEach((cluster) => {
+    const center = getCenter(cluster, boxW);
+    const gx = center.x + minX, gy = center.y + minY;
+    
+    // Calculate target vertical pos and rotation
+    const dxRel = (gx - centerX) / (boxW / 2);
+    const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
+    const targetY = targetYGlobal - minY;
+
+    let dy = (targetY - center.y) * 0.3 * strength;
+    let dx = (centerX - gx) * 0.005 * strength; // Extremely subtle horizontal center
+    
+    // Protection limits
+    dx = clamp(dx, -maxShiftX, maxShiftX);
+    dy = clamp(dy, -maxShiftY, maxShiftY);
+
+    // Rotation Angle: outer teeth rotate slightly inward
+    let angle = (center.x - boxW / 2) * 0.0025; 
+    const falloff = 1 - Math.min(1, Math.abs(dxRel) * 1.5);
+    angle *= (1 - falloff); // Front teeth stay stable
+    angle += (Math.random() - 0.5) * 0.0005; // Realism jitter
+
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+
+    for (let idx of cluster) {
+      const x = idx % boxW, y = Math.floor(idx / boxW);
+      
+      // Rotate around tooth center
+      const relX = x - center.x, relY = y - center.y;
+      const rotX = relX * cosA - relY * sinA;
+      const rotY = relX * sinA + relY * cosA;
+
+      const nx = Math.round(center.x + rotX + dx);
+      const ny = Math.round(center.y + rotY + dy);
+
+      if (nx < 0 || nx >= boxW || ny < 0 || ny >= boxH) continue;
+
+      const niFlat = ny * boxW + nx;
+      if (depthMap[niFlat] > center.y) continue; // Basic Z-buffer for overlaps
+      depthMap[niFlat] = center.y;
+
+      const ni = niFlat * 4, oi = idx * 4;
+      const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
+
+      for (let c = 0; c < 3; c++) {
+        newData[ni + c] = clamp(sourceData[oi + c] - shadeAdjust, 0, 255);
+      }
+      newData[ni + 3] = sourceData[oi + 3];
+    }
+  });
+
+  imageData.data.set(newData);
+  ctx.putImageData(imageData, minX, minY);
+}
+
+/**
+ * Main Entry Point - Multi-Arch Rigid Recovery
+ */
+export function applyAlignment(ctx, landmarks, w, h, options = {}) {
+  const settings = {
+    strength: options.strength || 1.0,
+    maxShiftX: options.maxShiftX || 2.4,
+    maxShiftY: options.maxShiftY || 1.4
+  };
+
+  processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, settings);
+  processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, settings);
+
+  // Clinical Radiance
   ctx.save();
-  ctx.globalAlpha = 0.025;
-  ctx.filter = "blur(0.3px) brightness(1.015)";
+  ctx.globalAlpha = 0.035;
+  ctx.filter = "blur(0.4px) brightness(1.01)";
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 }
