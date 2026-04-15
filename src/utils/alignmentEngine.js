@@ -42,7 +42,7 @@ function segmentTeeth(mask, width, height) {
       }
     }
 
-    if (cluster.length > 80 && cluster.length < 1200) { // Clinical noise filter & merge prevention
+    if (cluster.length > 80 && cluster.length < 3000) { // RAISED LIMIT: merge prevention
       clusters.push(cluster);
     }
   }
@@ -87,7 +87,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const isEnamel = (r, g, b) => {
     const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     const notGum = !(r > g * 1.15 && r > b * 1.15);
-    return notGum && lum > 52;
+    return notGum && lum > 46; // WIDENED ENAMEL MASK
   };
 
   // 1. BUILD ENAMEL MASK
@@ -123,23 +123,26 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * 0.3 * strength;
+    let dy = (targetY - center.y) * 0.55 * strength; // BOOSTED VERTICAL FORCE
+    if (Math.abs(dy) < 0.4 && Math.abs(dy) > 0.01) {
+      dy = dy > 0 ? 0.4 : -0.4; // MINIMUM MOVEMENT GUARANTEE
+    }
     let dx = 0; // Lock horizontal to prevent jank
     
     // Protection limits
     dx = clamp(dx, -maxShiftX, maxShiftX);
     dy = clamp(dy, -maxShiftY, maxShiftY);
 
-    // 🚀 STABILIZED ROTATION (Controlled Side Correction)
+    // 🚀 BOOSTED ROTATION (Perceptible Side Correction)
     const norm = (center.x - centerX) / (boxW / 2);
-    let angle = norm * 0.0015;
+    let angle = norm * 0.0035; 
     const falloff = 1 - Math.abs(norm);
     angle *= (1 - falloff);
 
-    // 🔥 FRONT TOOTH LOCK (Preserve Smile Identity)
+    // 🔥 CORRECTED FRONT TOOTH LOCK (Allows Movement)
     if (Math.abs(center.x - centerX) < boxW * 0.1) {
-      angle *= 0.2;
-      dy *= 0.5;
+      angle *= 0.7;
+      dy *= 0.9;
     }
 
     angle += (Math.random() - 0.5) * 0.0005; // Natural jitter
@@ -166,10 +169,29 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const ni = niFlat * 4, oi = idx * 4;
       const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
 
+      const sx = clamp(x - dx - rotX, 0, boxW - 1);
+      const sy = clamp(y - dy - rotY, 0, boxH - 1);
+      const x1 = Math.floor(sx), x2 = clamp(x1 + 1, 0, boxW - 1);
+      const y1 = Math.floor(sy), y2 = clamp(y1 + 1, 0, boxH - 1);
+      const tx = sx - x1, ty = sy - y1;
+
+      const niFlat = ny * boxW + nx;
+      if (depthMap[niFlat] > center.y) continue;
+      depthMap[niFlat] = center.y;
+
+      const ni = niFlat * 4;
+      const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
+
       for (let c = 0; c < 3; c++) {
-        newData[ni + c] = clamp(sourceData[oi + c] - shadeAdjust, 0, 255);
+        const p00 = sourceData[(y1 * boxW + x1) * 4 + c];
+        const p10 = sourceData[(y1 * boxW + x2) * 4 + c];
+        const p01 = sourceData[(y2 * boxW + x1) * 4 + c];
+        const p11 = sourceData[(y2 * boxW + x2) * 4 + c];
+        const interX = p00 * (1 - tx) + p10 * tx;
+        const interY = p01 * (1 - tx) + p11 * tx;
+        newData[ni + c] = clamp((interX * (1 - ty) + interY * ty) - shadeAdjust, 0, 255);
       }
-      newData[ni + 3] = sourceData[oi + 3];
+      newData[ni + 3] = sourceData[(Math.round(sy) * boxW + Math.round(sx)) * 4 + 3];
     }
   });
 
