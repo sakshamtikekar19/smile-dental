@@ -86,12 +86,15 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
   const isEnamel = (r, g, b) => {
     const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    // Saturation Guard: ensures red skin/hair isn't caught
-    const isSaturated = (r > g * 1.25 && r > b * 1.25);
-    return !isSaturated && lum > 58; 
+
+    const isTooDark = lum < 60;            // removes shadows / mouth interior
+    const isGum = r > g * 1.15 && r > b * 1.15; // removes lips/gums
+    const isSkin = r > 140 && g > 100 && b > 90; // removes face skin tones
+
+    return !isTooDark && !isGum && !isSkin;
   };
 
-  // 1. BUILD ENAMEL MASK & PRE-DARKEN (Clinical Fix: prevent gaps)
+  // 1. BUILD ENAMEL MASK & HOLE PREP (DO THIS ONLY)
   const enamelMask = new Array(boxW * boxH).fill(false);
   for (let i = 0; i < boxW * boxH; i++) {
     const idx = i * 4;
@@ -99,10 +102,8 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
     if (isEnamel(r, g, b)) {
       enamelMask[i] = true;
-      // SOFTEN BASE (Clinical choice: 0.75 is safer)
-      newData[idx] *= 0.75;
-      newData[idx+1] *= 0.75;
-      newData[idx+2] *= 0.75;
+      // Preparation for Safety Check: Clear alpha so moved teeth can fill
+      newData[idx + 3] = 0;
     }
   }
 
@@ -188,6 +189,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       depthMap[niFlat] = center.y;
 
       const ni = niFlat * 4;
+      
+      // 🔥 SAFETY: DO NOT WRITE if destination already filled
+      if (newData[ni + 3] !== 0) continue;
+
       const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
 
       // 🚀 EDGE-AWARE BLENDING (Strong edges, smooth centers)
@@ -206,7 +211,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
         // Final Realism Blend (Source Texture + New Shift)
         newData[ni + c] = sourceData[(y * boxW + x) * 4 + c] * dynamicBlend + newVal * (1 - dynamicBlend);
       }
-      newData[ni + 3] = 255; // CLINCAL FIX: Guaranteed Solid Teeth (No Goth tint)
+      newData[ni + 3] = 255; // Solid Mark
 
       // FALLBACK: Prevent gaps
       if (newData[ni + 3] === 0) {
@@ -214,6 +219,17 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       }
     }
   });
+
+  // 2. REFILL GAP HOLES (Realism Fix: keep original texture in untouched holes)
+  for (let i = 0; i < boxW * boxH; i++) {
+    const idx = i * 4;
+    if (newData[idx + 3] === 0) {
+       newData[idx] = sourceData[idx];
+       newData[idx+1] = sourceData[idx+1];
+       newData[idx+2] = sourceData[idx+2]; 
+       newData[idx+3] = 255;
+    }
+  }
 
   imageData.data.set(newData);
   ctx.putImageData(imageData, minX, minY);
@@ -228,6 +244,7 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
     maxShiftX: options.maxShiftX || 2.4,
     maxShiftY: options.maxShiftY || 1.4
   };
+
 
   processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, settings);
   processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, settings);
