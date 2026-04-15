@@ -182,7 +182,15 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   });
 
   console.log("APPLYING ALIGNMENT DATA");
-  imageData.data.set(newData);
+  
+  // 🔥 PAINT RED BLOCK (FORCE VISIBILITY TEST)
+  for (let i = 0; i < imageData.data.length; i += 4) {
+    imageData.data[i] = 255;     // R
+    imageData.data[i + 1] = 0;   // G
+    imageData.data[i + 2] = 0;   // B
+    imageData.data[i + 3] = 255; // Alpha
+  }
+
   ctx.putImageData(imageData, minX, minY);
 }
 
