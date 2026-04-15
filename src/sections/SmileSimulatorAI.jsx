@@ -627,16 +627,21 @@ const SmileSimulatorAI = () => {
       const canvas = getSharedCanvas(iw, ih);
       const ctx = canvas.getContext("2d");
       const img = await loadImage(snapshotUrl);
-      ctx.drawImage(img, 0, 0);
+      ctx.clearRect(0, 0, iw, ih);
+      ctx.drawImage(img, 0, 0, iw, ih);
 
       setProcessingLog("Engineering modular simulation...");
       switch (treatment) {
-        case "whitening": applyWhitening(ctx, landmarks, iw, ih, 0.82); break;
+        case "whitening": 
+          applyWhitening(ctx, landmarks, iw, ih, 0.82); 
+          break;
         case "alignment": 
           applyAlignment(ctx, landmarks, iw, ih, { strength: alignmentStrength }); 
           applyWhitening(ctx, landmarks, iw, ih, 0.2); 
           break;
-        case "braces": applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
+        case "braces": 
+          applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
+          break;
         case "transformation": 
           applyAlignment(ctx, landmarks, iw, ih, { strength: alignmentStrength }); 
           applyWhitening(ctx, landmarks, iw, ih, 0.85); 
