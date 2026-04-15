@@ -90,10 +90,17 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     return notGum && lum > 46; // WIDENED ENAMEL MASK
   };
 
-  // 1. BUILD ENAMEL MASK
+  // 1. BUILD ENAMEL MASK & PRE-DARKEN (Realism Fix: keep texture alive)
   const enamelMask = new Array(boxW * boxH).fill(false);
   for (let i = 0; i < boxW * boxH; i++) {
-    if (isEnamel(sourceData[i*4], sourceData[i*4+1], sourceData[i*4+2])) enamelMask[i] = true;
+    const idx = i * 4;
+    if (isEnamel(sourceData[idx], sourceData[idx+1], sourceData[idx+2])) {
+      enamelMask[i] = true;
+      // SOFTEN BASE instead of deleting
+      newData[idx] *= 0.6;
+      newData[idx+1] *= 0.6;
+      newData[idx+2] *= 0.6;
+    }
   }
 
   // 2. SEGMENT INTO TEETH
@@ -175,6 +182,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const ni = niFlat * 4;
       const shadeAdjust = (dx * 0.2 + dy * 0.2) * 0.25;
 
+      const blend = 0.78; // ENAMEL TEXTURE PRESERVATION
       for (let c = 0; c < 3; c++) {
         const p00 = sourceData[(y1 * boxW + x1) * 4 + c];
         const p10 = sourceData[(y1 * boxW + x2) * 4 + c];
@@ -182,9 +190,17 @@ function processArch(ctx, landmarks, w, h, indices, options) {
         const p11 = sourceData[(y2 * boxW + x2) * 4 + c];
         const interX = p00 * (1 - tx) + p10 * tx;
         const interY = p01 * (1 - tx) + p11 * tx;
-        newData[ni + c] = clamp((interX * (1 - ty) + interY * ty) - shadeAdjust, 0, 255);
+        const newVal = clamp((interX * (1 - ty) + interY * ty) - shadeAdjust, 0, 255);
+        
+        // Final Realism Blend (Source Texture + New Shift)
+        newData[ni + c] = sourceData[(y * boxW + x) * 4 + c] * blend + newVal * (1 - blend);
       }
       newData[ni + 3] = sourceData[(Math.round(sy) * boxW + Math.round(sx)) * 4 + 3];
+
+      // FALLBACK: Prevent gaps
+      if (newData[ni + 3] === 0) {
+        for (let c = 0; c < 4; c++) newData[ni + c] = sourceData[(y * boxW + x) * 4 + c];
+      }
     }
   });
 
@@ -204,6 +220,13 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
 
   processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, settings);
   processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, settings);
+
+  // Final Texture Pass (Enamel Feel)
+  ctx.save();
+  ctx.globalAlpha = 0.08;
+  ctx.filter = "contrast(1.05) brightness(1.02)";
+  ctx.drawImage(ctx.canvas, 0, 0);
+  ctx.restore();
 
   // Clinical Radiance
   ctx.save();

@@ -624,7 +624,10 @@ const SmileSimulatorAI = () => {
       setProcessingLog("Engineering modular simulation...");
       switch (treatment) {
         case "whitening": applyWhitening(ctx, landmarks, iw, ih, 0.82); break;
-        case "alignment": applyAlignment(ctx, landmarks, iw, ih, 0.22); applyWhitening(ctx, landmarks, iw, ih, 0.2); break;
+        case "alignment": 
+          applyAlignment(ctx, landmarks, iw, ih, 0.22); 
+          applyWhitening(ctx, landmarks, iw, ih, 0.2); 
+          break;
         case "braces": applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
         case "transformation": applyAlignment(ctx, landmarks, iw, ih, 0.25); applyWhitening(ctx, landmarks, iw, ih, 0.85); applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); break;
       }
