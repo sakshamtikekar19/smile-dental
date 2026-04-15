@@ -452,19 +452,25 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
                     
     if (!isTooth) continue;
 
-    // ✨ CLINICAL RADIANCE (Luminance + Soft Blend Model)
-    // 1. Calculate Perceptual Luminance
-    const luminance = 0.3 * r + 0.59 * g + 0.11 * b;
-    const strength = 0.58 * maskValue * (intensity / 0.65);
+    // ✨ HYPER-REALISTIC ENAMEL SIMULATION
+    // 1. Rec.709 Perceptual Luminance (Preserves Gradients)
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    
+    // 2. Center-Glow Prevention (Anatomical Depth Calibration)
+    const centerX = boxW / 2;
+    const localX = (i / 4) % boxW;
+    const distFromCenter = Math.abs(localX - centerX) / centerX;
+    const realismWeight = 0.9 + distFromCenter * 0.2; // Corrects center dominance
+    
+    // 3. Realistic Radiant Target (235 Peak Enamel Tone)
+    const strength = 0.35 * maskValue * (intensity / 0.65) * realismWeight;
+    const target = luminance + (235 - luminance) * strength;
 
-    // 2. Target Radiance (High Precision)
-    const target = luminance + (255 - luminance) * strength;
-
-    // 3. Soft Whitening Blend (70% factor to prevent 'plastic' look)
-    const bf = 0.7; // Blend factor
+    // 4. Anatomical Soft Blend (45% factor for hyper-realism)
+    const bf = 0.45;
     data[i]     = Math.min(255, r + (target - r) * bf);
     data[i + 1] = Math.min(255, g + (target - g) * bf);
-    data[i + 2] = Math.min(255, b + (target - b) * bf + 4 * maskValue); // Subtle clinical pop
+    data[i + 2] = Math.min(255, b + (target - b) * bf);
   }
   ctx.putImageData(imageData, minX, minY);
 }
