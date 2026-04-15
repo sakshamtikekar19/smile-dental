@@ -86,23 +86,23 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
   const isEnamel = (r, g, b) => {
     const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    const notGum = !(r > g * 1.15 && r > b * 1.15);
-    return notGum && lum > 46; // WIDENED ENAMEL MASK
+    // Saturation Guard: ensures red skin/hair isn't caught
+    const isSaturated = (r > g * 1.25 && r > b * 1.25);
+    return !isSaturated && lum > 58; 
   };
 
-  // 1. BUILD ENAMEL MASK & PRE-DARKEN (Realism Fix: keep texture alive)
+  // 1. BUILD ENAMEL MASK & PRE-DARKEN (Clinical Fix: prevent gaps)
   const enamelMask = new Array(boxW * boxH).fill(false);
   for (let i = 0; i < boxW * boxH; i++) {
     const idx = i * 4;
     const r = sourceData[idx], g = sourceData[idx+1], b = sourceData[idx+2];
-    const isGap = (r < 90 && g < 90 && b < 90); // INTERDENTAL line protection
 
-    if (isEnamel(r, g, b) && !isGap) {
+    if (isEnamel(r, g, b)) {
       enamelMask[i] = true;
-      // SOFTEN BASE instead of deleting
-      newData[idx] *= 0.6;
-      newData[idx+1] *= 0.6;
-      newData[idx+2] *= 0.6;
+      // SOFTEN BASE (Clinical choice: 0.75 is safer)
+      newData[idx] *= 0.75;
+      newData[idx+1] *= 0.75;
+      newData[idx+2] *= 0.75;
     }
   }
 
@@ -203,13 +203,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
         const interY = p01 * (1 - tx) + p11 * tx;
         const newVal = clamp((interX * (1 - ty) + interY * ty) - shadeAdjust, 0, 255);
         
-        // 🌚 MICRO SHADOW RESTORE (Brings back depth)
-        const microShadow = (dx * 0.32 + dy * 0.32);
-        
         // Final Realism Blend (Source Texture + New Shift)
-        newData[ni + c] = clamp(sourceData[(y * boxW + x) * 4 + c] * dynamicBlend + newVal * (1 - dynamicBlend) - microShadow, 0, 255);
+        newData[ni + c] = sourceData[(y * boxW + x) * 4 + c] * dynamicBlend + newVal * (1 - dynamicBlend);
       }
-      newData[ni + 3] = sourceData[(Math.round(sy) * boxW + Math.round(sx)) * 4 + 3];
+      newData[ni + 3] = 255; // CLINCAL FIX: Guaranteed Solid Teeth (No Goth tint)
 
       // FALLBACK: Prevent gaps
       if (newData[ni + 3] === 0) {
