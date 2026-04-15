@@ -452,21 +452,23 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
                     
     if (!isTooth) continue;
 
-    // ✨ HYPER-REALISTIC ENAMEL SIMULATION
+    // ✨ FINAL ENAMEL MODEL (PRODUCTION SAFE)
     // 1. Rec.709 Perceptual Luminance (Preserves Gradients)
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     
-    // 2. Center-Glow Prevention (Anatomical Depth Calibration)
+    // 2. Deterministic Stability (Flicker-Free Depth)
     const centerX = boxW / 2;
     const localX = (i / 4) % boxW;
     const distFromCenter = Math.abs(localX - centerX) / centerX;
-    const realismWeight = 0.9 + distFromCenter * 0.2; // Corrects center dominance
+    const stabilityWeight = 1.0 - distFromCenter * 0.08;
+    if (stabilityWeight < 0.6) continue; // Safety gate
     
-    // 3. Realistic Radiant Target (235 Peak Enamel Tone)
-    const strength = 0.35 * maskValue * (intensity / 0.65) * realismWeight;
-    const target = luminance + (235 - luminance) * strength;
+    // 3. Final Radiant Target (Anti-Drift Luminance Lock)
+    const strength = 0.35 * maskValue * (intensity / 0.65);
+    let target = luminance + (235 - luminance) * strength;
+    target = Math.min(235, Math.max(luminance, target)); // 🔒 Clinical Lock
 
-    // 4. Anatomical Soft Blend (45% factor for hyper-realism)
+    // 4. Anatomical Soft Blend (45% texture preservation)
     const bf = 0.45;
     data[i]     = Math.min(255, r + (target - r) * bf);
     data[i + 1] = Math.min(255, g + (target - g) * bf);
