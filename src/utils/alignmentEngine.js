@@ -42,7 +42,7 @@ function segmentTeeth(mask, width, height) {
       }
     }
 
-    if (cluster.length > 80 && cluster.length < 1800) { // CLINICAL LIMIT: prevents side-tooth merging
+    if (cluster.length > 40 && cluster.length < 1800) { // LOWERED THRESHOLD: catches more teeth
       clusters.push(cluster);
     }
   }
@@ -123,6 +123,15 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   // 2. SEGMENT INTO TEETH
   let teethClusters = segmentTeeth(enamelMask, boxW, boxH);
   
+  // 🚨 FALLBACK: if segmentation fails, treat whole enamel as one cluster
+  if (!teethClusters || teethClusters.length === 0) {
+    const fallbackCluster = [];
+    for (let i = 0; i < enamelMask.length; i++) {
+      if (enamelMask[i]) fallbackCluster.push(i);
+    }
+    if (fallbackCluster.length > 0) teethClusters = [fallbackCluster];
+  }
+
   // Sort Left -> Right for consistent processing
   teethClusters.sort((a, b) => getCenter(a, boxW).x - getCenter(b, boxW).x);
 
