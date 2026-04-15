@@ -124,6 +124,14 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
     return output;
   };
 
+  const isEdgePixel = (sourceData, i, threshold = 25) => {
+    const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
+    const avg = (r + g + b) / 3;
+    return Math.abs(r - avg) > threshold ||
+           Math.abs(g - avg) > threshold ||
+           Math.abs(b - avg) > threshold;
+  };
+
   // 🧠 detect missing tooth regions
   let missingMask = detectMissingMask(sourceData, boxW, boxH);
   missingMask = expandMask(missingMask, boxW, boxH, 2);
@@ -135,7 +143,7 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
       const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
 
       const idxFlat = y * boxW + x;
-      if (!isEnamel(r, g, b) || missingMask[idxFlat]) continue;
+      if (!isEnamel(r, g, b) || missingMask[idxFlat] || isEdgePixel(sourceData, i)) continue;
 
       const gx = x + minX, gy = y + minY;
       
@@ -143,8 +151,8 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
       const dxRel = (gx - centerX) / (boxW / 2);
       const targetY = archMidY + (boxH * 0.015) * (dxRel * dxRel); 
       
-      let dy = (targetY - gy) * strength * 0.5;
-      let dx = (centerX - gx) * 0.015 * strength;
+      let dy = (targetY - gy) * strength * 0.25;
+      let dx = 0;
 
       // 🧠 MICRO-IMPERFECTION INJECTION
       const variation = addNaturalVariation(dx, dy, gx, gy);

@@ -578,12 +578,6 @@ const SmileSimulatorAI = () => {
         audio: false 
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play().catch(e => console.error("Camera play failed:", e));
-        };
-      }
     } catch (err) { 
       setError("Camera access denied. Please enable camera permissions in your settings.");
       setStep("entry");
@@ -641,6 +635,17 @@ const SmileSimulatorAI = () => {
     const timer = setTimeout(() => startHeavyProcessingPipeline(rawImageUrl), 150);
     return () => clearTimeout(timer);
   }, [rawImageUrl, isProcessing, startHeavyProcessingPipeline]);
+
+  // 🔥 CLINICAL FIX: Camera Lifecycle Sync (Prevents Black Screen on Reset)
+  useEffect(() => {
+    if (step === "camera" && streamRef.current && videoRef.current) {
+      const video = videoRef.current;
+      video.srcObject = streamRef.current;
+      video.onloadedmetadata = () => {
+        video.play().catch(e => console.error("Camera play failed:", e));
+      };
+    }
+  }, [step]);
 
   // 🔥 Robust Zoom Engine: Triggers drawing when result view mounts
   useEffect(() => {
