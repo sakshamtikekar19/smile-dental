@@ -134,14 +134,11 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * 0.55 * strength;
-    
-    // 👄 SMILE LINE NATURALIZATION (Avoids flat look)
-    const distFromCenter = Math.abs(gx - centerX) / (boxW / 2);
-    dy *= (0.8 + distFromCenter * 0.2);
+    let dy = (targetY - center.y) * 0.6;
 
-    if (Math.abs(dy) < 0.4 && Math.abs(dy) > 0.01) {
-      dy = dy > 0 ? 0.4 : -0.4; // MINIMUM MOVEMENT GUARANTEE
+    // ensure minimum visible shift
+    if (Math.abs(dy) < 0.5) {
+      dy = dy > 0 ? 0.5 : -0.5;
     }
     let dx = 0; // Lock horizontal to prevent jank
     
