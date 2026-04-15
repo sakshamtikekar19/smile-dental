@@ -94,11 +94,20 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     return !isTooDark && !isGum && !isSkin;
   };
 
-  // 1. BUILD ENAMEL MASK & OCCUPANCY MAP
+  // 1. BUILD ENAMEL MASK & OCCUPANCY MAP (Region Locked)
+  const mouthTop = archMidY - boxH * 0.25;
+  const mouthBottom = archMidY + boxH * 0.25;
+
   const enamelMask = new Array(boxW * boxH).fill(false);
   const occupancyMap = new Int8Array(boxW * boxH).fill(0); // Tracking for moved pixels
 
   for (let i = 0; i < boxW * boxH; i++) {
+    const y = Math.floor(i / boxW);
+    const globalY = y + minY;
+
+    // 🔒 REGION LOCK: Restrict to mouth band only
+    if (globalY < mouthTop || globalY > mouthBottom) continue;
+
     const idx = i * 4;
     const r = sourceData[idx], g = sourceData[idx+1], b = sourceData[idx+2];
 
