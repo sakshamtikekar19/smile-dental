@@ -566,6 +566,7 @@ const SmileSimulatorAI = () => {
   }, [step, detectionLoop, renderLoop]);
 
   const startCamera = async () => {
+    stopCamera(); // Clean up any zombie tracks before starting fresh
     setError(null);
     setProcessingLog("Opening secure camera feed...");
     setStep("camera");
@@ -595,6 +596,7 @@ const SmileSimulatorAI = () => {
   };
 
   const reset = () => {
+    stopCamera(); // Force hardware track disposal
     generationRef.current += 1; 
     setAfterImage(null); 
     setFinalLandmarks(null); 
@@ -756,8 +758,17 @@ const SmileSimulatorAI = () => {
             {step === "camera" && (
               <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
                 <div className="relative aspect-[4/5] md:aspect-video bg-black shadow-2xl rounded-[24px] md:rounded-[32px] overflow-hidden">
-                  <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
-                  <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+                  <video 
+                    key={`v-${generationRef.current}`}
+                    ref={videoRef} 
+                    className="w-full h-full object-cover" 
+                    playsInline muted autoPlay 
+                  />
+                  <canvas 
+                    key={`c-${generationRef.current}`}
+                    ref={canvasRef} 
+                    className="absolute inset-0 w-full h-full pointer-events-none" 
+                  />
                   
                   {/* 🦷 Small Teeth Placement Guidance Oval (Focused Alignment) */}
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
