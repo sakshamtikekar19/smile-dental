@@ -187,6 +187,12 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
   // 🔥 HARD SAFETY CHECK (DO THIS)
   console.log("CTX CHECK", ctx.canvas);
 
+  // 🔥 VISUAL CONFIRMATION
+  ctx.save();
+  ctx.fillStyle = "rgba(0,255,0,0.4)";
+  ctx.fillRect(20, 20, 150, 100);
+  ctx.restore();
+
   const settings = {
     strength: options.strength ?? 1.0,
     maxShiftX: options.maxShiftX || 2.4,
