@@ -335,41 +335,68 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   const data = imageData.data;
   const faceScale = boxH / 100;
 
-  // 🚀 MANDATE: CALCULATE SOFT MASK PURELY IN MEMORY (NO CANVAS)
-  const maskData = new Uint8Array(boxW * boxH);
-  for (let y = 0; y < boxH; y++) {
-    for (let x = 0; x < boxW; x++) {
-      const gx = x + minX;
-      const gy = y + minY;
-      
-      // Point-in-polygon (Winding number approximation for mouth)
-      let inside = false;
-      for (let i = 0, j = fullMouthIdx.length - 1; i < fullMouthIdx.length; j = i++) {
-        const pi = landmarks[fullMouthIdx[i]];
-        const pj = landmarks[fullMouthIdx[j]];
-        const pix = pi.x * w, piy = pi.y * h;
-        const pjx = pj.x * w, pjy = pj.y * h;
-        if (((piy > gy) !== (pjy > gy)) && (gx < (pjx - pix) * (gy - piy) / (pjy - piy) + pix)) {
-          inside = !inside;
-        }
-      }
-      if (inside) maskData[y * boxW + x] = 255;
+  // 🚀 RESTORED: DUAL-STAGE MASK (Ensures high-fidelity radiance)
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = boxW; maskCanvas.height = boxH;
+  const mctx = maskCanvas.getContext("2d");
+  mctx.translate(-minX, -minY);
+  mctx.fillStyle = "white";
+  mctx.beginPath();
+  points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
+  mctx.closePath();
+  mctx.fill();
+
+  const blurCanvas = document.createElement("canvas");
+  blurCanvas.width = boxW; blurCanvas.height = boxH;
+  const bctx = blurCanvas.getContext("2d");
+  bctx.filter = `blur(${Math.max(1, Math.round(1.2 * faceScale))}px)`;
+  bctx.drawImage(maskCanvas, 0, 0);
+
+  const maskData = bctx.getImageData(0, 0, boxW, boxH).data;
+  
+  // 🔍 Clinical Debug
+  let activePixels = 0;
+  for (let i = 0; i < maskData.length; i += 4) if (maskData[i] > 20) activePixels++;
+  console.log(`[Whitening Engine] Active Mask Pixels: ${activePixels} / Total: ${boxW * boxH}`);
+
+  // 🏥 Anatomical Bounds (Vertical Clamping)
+  const lipUpperY = landmarks[13].y * h;
+  const lipLowerY = landmarks[14].y * h;
+  const mouthHeight = lipLowerY - lipUpperY;
+
+  // 🚀 PASS 1: Build Binary Tooth Mask (Stoichiometry + Clamping)
+  const pixelCount = boxW * boxH;
+  const isToothMask = new Uint8Array(pixelCount);
+  for (let i = 0; i < data.length; i += 4) {
+    const idx = i / 4;
+    const maskValue = maskData[idx * 4] / 255;
+    if (maskValue < 0.05) continue;
+
+    const localY = Math.floor(idx / boxW) + minY;
+    if (localY < lipUpperY - mouthHeight * 0.05 || localY > lipLowerY + mouthHeight * 0.05) continue;
+
+    const r = data[i], g = data[i+1], b = data[i+2];
+    const brightness = (r+g+b)/3;
+    const isRedHeavy = r > g * 1.18 || r > b * 1.55; 
+    if (!isRedHeavy && brightness > 28 && Math.abs(r-g) < 55 && r < g * 1.35) {
+      isToothMask[idx] = 1;
     }
   }
 
-  // Soften Edges (Simple In-Place Box Blur on Mask)
-  const softenedMask = new Uint8Array(maskData);
-  const radius = Math.max(1, Math.round(1.5 * faceScale));
-  for (let y = radius; y < boxH - radius; y++) {
-    for (let x = radius; x < boxW - radius; x++) {
-      let sum = 0;
-      for (let dy = -radius; dy <= radius; dy++) {
-        for (let dx = -radius; dx <= radius; dx++) {
-          sum += maskData[(y + dy) * boxW + (x + dx)];
+  // 🚀 PASS 2: Mask Dilation (Expand into Interdental Gaps)
+  let dilatedMask = new Uint8Array(isToothMask);
+  for (let p = 0; p < 2; p++) {
+    const temp = new Uint8Array(dilatedMask);
+    for (let y = 1; y < boxH - 1; y++) {
+      for (let x = 1; x < boxW - 1; x++) {
+        const idx = y * boxW + x;
+        if (!dilatedMask[idx] && 
+            (dilatedMask[idx-1] || dilatedMask[idx+1] || dilatedMask[idx-boxW] || dilatedMask[idx+boxW])) {
+          temp[idx] = 1;
         }
       }
-      softenedMask[y * boxW + x] = sum / ((radius * 2 + 1) ** 2);
     }
+    dilatedMask = temp;
   }
   
   // 🔍 Clinical Debug
