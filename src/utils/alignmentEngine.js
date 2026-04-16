@@ -137,44 +137,41 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   // 3. RIGID MOVEMENT LOOP (Guaranteed Visibility)
   // [CLEAN SLATE]: Redundant reset removed to prevent ghosting.
 
-  teethClusters.forEach(cluster => {
+  teethClusters.forEach((cluster) => {
     const center = getCenter(cluster, boxW);
     const gx = center.x + minX;
 
-    // 🦷 Anatomical Parabolic Target Mapping (Enhanced Curvature)
-    const curveStrength = isLower ? 0.02 : 0.025;
     const dxRel = (gx - centerX) / (boxW / 2);
-    const targetYGlobal = isLower 
-      ? archMidY + (boxH * curveStrength) * (dxRel * dxRel)
-      : archMidY - (boxH * curveStrength) * (dxRel * dxRel);
+
+    // Stronger, visible smile curve (User-Calibrated 0.04)
+    const curveDirection = isLower ? 1 : -1;
+    const targetYGlobal = archMidY + curveDirection * (boxH * 0.04) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    // 🚀 Professional Continuous Movement (No Snapping)
+    // 🚀 BOOSTED MOVEMENT (THIS IS THE FIX)
     let dy = (targetY - center.y) * 0.8;
-    if (Math.abs(dy) < 0.8) {
-      dy *= 1.5;
+
+    // 🚨 MINIMUM MOVEMENT GUARANTEE
+    if (Math.abs(dy) < 2) {
+      dy = dy > 0 ? 2 : -2;
     }
 
-    cluster.forEach(idx => {
+    for (let idx of cluster) {
       const x = idx % boxW;
       const y = Math.floor(idx / boxW);
 
-      const nx = x;
-      const ny = Math.floor(y + dy);
+      const ny = Math.round(y + dy);
+      if (ny < 0 || ny >= boxH) continue;
 
-      if (nx < 0 || nx >= boxW || ny < 0 || ny >= boxH) return;
-
-      const ni = (ny * boxW + nx) * 4;
+      const ni = (ny * boxW + x) * 4;
       const oi = idx * 4;
 
-      // 🛡️ OVERLAP GUARD (Prevents color corruption)
-      if (newData[ni + 3] !== 0) return;
-
+      // overwrite safely
       newData[ni]     = sourceData[oi];
       newData[ni + 1] = sourceData[oi + 1];
       newData[ni + 2] = sourceData[oi + 2];
       newData[ni + 3] = 255;
-    });
+    }
   });
 
   // 🔥 RESTORE PIXELS (MANDATORY)
