@@ -106,7 +106,15 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     }
   }
 
-  // 2. BACKWARD MAPPING ALIGNMENT (Gap-Free Transformation)
+  // 🦷 TOOTH CENTERS (Anatomical influence points)
+  const teethCenters = indices.map(idx => ({
+    x: landmarks[idx].x * w - minX,
+    y: landmarks[idx].y * h - minY
+  }));
+
+  // 2. BACKWARD MAPPING ALIGNMENT (Proximity-Aware Transformation)
+  const influenceRadius = boxW * 0.08;
+
   for (let y = 0; y < boxH; y++) {
     for (let x = 0; x < boxW; x++) {
       const idx = y * boxW + x;
@@ -120,6 +128,17 @@ function processArch(ctx, landmarks, w, h, indices, options) {
         continue;
       }
 
+      // 🧠 FIND NEAREST TOOTH CENTER INFLUENCE
+      let minDistSq = Infinity;
+      for (let t of teethCenters) {
+        const dx = x - t.x;
+        const dy = y - t.y;
+        const dSq = dx * dx + dy * dy;
+        if (dSq < minDistSq) minDistSq = dSq;
+      }
+      const distNorm = Math.sqrt(minDistSq) / influenceRadius;
+      const weight = Math.exp(-distNorm * distNorm); // Exponential fall-off
+
       const gx = x + minX;
       const gy = y + minY;
       const dxRel = (gx - centerX) / (boxW / 2);
@@ -128,9 +147,9 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const curveDirection = isLower ? 1 : -1;
       const targetYGlobal = archMidY + curveDirection * (boxH * 0.04) * (dxRel * dxRel);
 
-      let dy = (targetYGlobal - gy) * 0.6;
-      if (Math.abs(dy) < 1.5) {
-        dy = dy > 0 ? 1.5 : -1.5;
+      let dy = (targetYGlobal - gy) * 0.7 * weight;
+      if (Math.abs(dy) < 1.2 && weight > 0.3) {
+        dy = dy > 0 ? 1.2 : -1.2;
       }
 
       // Backward Map: Find where this coordinate CAME FROM
