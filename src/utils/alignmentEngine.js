@@ -84,11 +84,8 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
   const sourceData = new Uint8ClampedArray(data);
-  const newData = new Uint8ClampedArray(sourceData.length);
+  const newData = new Uint8ClampedArray(sourceData);
 
-  // ❌ CLEAN START
-  for (let i = 0; i < newData.length; i++) { newData[i] = 0; }
-  
   const isLower = indices.includes(14) || indices.includes(324); 
   
   // 1. ANATOMICAL REGION MASK (Landmark-Driven)
@@ -120,13 +117,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const idx = y * boxW + x;
       const i = idx * 4;
 
-      if (!teethMask[idx]) {
-        newData[i]     = sourceData[i];
-        newData[i + 1] = sourceData[i + 1];
-        newData[i + 2] = sourceData[i + 2];
-        newData[i + 3] = 255;
-        continue;
-      }
+      if (!teethMask[idx]) continue;
 
       // 🧠 FIND NEAREST TOOTH CENTER INFLUENCE
       let minDistSq = Infinity;
@@ -137,7 +128,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
         if (dSq < minDistSq) minDistSq = dSq;
       }
       const distNorm = Math.sqrt(minDistSq) / influenceRadius;
-      const weight = Math.exp(-distNorm * distNorm); // Exponential fall-off
+      const weight = Math.exp(-distNorm * distNorm);
 
       const gx = x + minX;
       const gy = y + minY;
@@ -154,11 +145,18 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
       // Backward Map: Find where this coordinate CAME FROM
       const sy = clamp(y - dy, 0, boxH - 1);
-      const si = (Math.floor(sy) * boxW + x) * 4;
+      
+      const y1 = Math.floor(sy);
+      const y2 = Math.min(y1 + 1, boxH - 1);
+      const ty = sy - y1;
 
-      newData[i]     = sourceData[si];
-      newData[i + 1] = sourceData[si + 1];
-      newData[i + 2] = sourceData[si + 2];
+      const i1 = (y1 * boxW + x) * 4;
+      const i2 = (y2 * boxW + x) * 4;
+
+      // 🎯 BILINEAR INTERPOLATION (HD Texture Reconstruction)
+      newData[i]     = sourceData[i1] * (1 - ty) + sourceData[i2] * ty;
+      newData[i + 1] = sourceData[i1 + 1] * (1 - ty) + sourceData[i2 + 1] * ty;
+      newData[i + 2] = sourceData[i1 + 2] * (1 - ty) + sourceData[i2 + 2] * ty;
       newData[i + 3] = 255;
     }
   }
