@@ -551,12 +551,12 @@ const SmileSimulatorAI = () => {
       const t = selectedTreatment;
       if (t === "whitening") applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.65);
       if (t === "alignment") { 
-        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, { strength: alignmentStrength }); 
+        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, alignmentStrength); 
         applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.15); 
       }
       if (t === "braces") applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
       if (t === "transformation") { 
-        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, { strength: alignmentStrength }); 
+        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, alignmentStrength); 
         applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.75); 
         applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current); 
       }
@@ -632,14 +632,14 @@ const SmileSimulatorAI = () => {
           applyWhitening(ctx, landmarks, iw, ih, 0.82); 
           break;
         case "alignment": 
-          applyAlignment(ctx, landmarks, iw, ih, { strength: alignmentStrength }); 
+          applyAlignment(ctx, landmarks, iw, ih, alignmentStrength); 
           applyWhitening(ctx, landmarks, iw, ih, 0.2); 
           break;
         case "braces": 
           applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
         case "transformation": 
-          applyAlignment(ctx, landmarks, iw, ih, { strength: alignmentStrength }); 
+          applyAlignment(ctx, landmarks, iw, ih, alignmentStrength); 
           applyWhitening(ctx, landmarks, iw, ih, 0.85); 
           applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
