@@ -313,10 +313,21 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
 }
 
 function applyWhitening(ctx, landmarks, w, h) {
-  const imageData = ctx.getImageData(0, 0, w, h);
+  // 🦷 ANATOMICAL BOUNDARY (Mouth-Lock ONLY)
+  const mouthIndices = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  const pts = mouthIndices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  
+  const minX = Math.floor(Math.min(...xs)) - 15, maxX = Math.ceil(Math.max(...xs)) + 15;
+  const minY = Math.floor(Math.min(...ys)) - 15, maxY = Math.ceil(Math.max(...ys)) + 15;
+  const boxW = maxX - minX, boxH = maxY - minY;
+
+  if (boxW <= 0 || boxH <= 0) return;
+
+  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
   
-  // ✅ REAL ORIGINAL COPY (CRITICAL)
+  // ✅ REAL ORIGINAL COPY (Surgical Reference)
   const original = new Uint8ClampedArray(data);
 
   // --- SIMPLE + STABLE FILTER (RESTORED) ---
@@ -333,7 +344,7 @@ function applyWhitening(ctx, landmarks, w, h) {
     );
   }
 
-  // --- WHITENING LOOP (SIMPLE + CLEAN) ---
+  // --- WHITENING LOOP (MOUTH ONLY) ---
   for (let i = 0; i < data.length; i += 4) {
     const r = original[i];
     const g = original[i + 1];
@@ -346,7 +357,7 @@ function applyWhitening(ctx, landmarks, w, h) {
     data[i + 2] = Math.min(255, b * 1.10);
   }
 
-  ctx.putImageData(imageData, 0, 0);
+  ctx.putImageData(imageData, minX, minY);
 }
 
 
