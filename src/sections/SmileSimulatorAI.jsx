@@ -319,21 +319,18 @@ function applyWhitening(ctx, landmarks, w, h) {
   // ✅ REAL ORIGINAL COPY (CRITICAL)
   const original = new Uint8ClampedArray(data);
 
-  // --- BALANCED CLINICAL FILTER (FINAL VERSION) ---
+  // --- SIMPLE + STABLE FILTER (RESTORED) ---
   function isToothPixel(r, g, b) {
+    const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
-
-    const lum = (r + g + b) / 3;
     const sat = max - min;
 
-    const notDark = lum > 70;
-    const notTooBright = lum < 235;
-    const lowSat = sat < 55;
-    const notGum = !(r > g * 1.2);
-    const notSkin = !(r > 120 && g > 90 && b > 70);
-
-    return notDark && notTooBright && lowSat && notGum && notSkin;
+    return (
+      lum > 80 &&        // bright enough
+      sat < 70 &&        // not too colorful
+      !(r > g * 1.3)     // avoid gums/lips
+    );
   }
 
   // --- WHITENING LOOP (SIMPLE + CLEAN) ---
@@ -344,9 +341,9 @@ function applyWhitening(ctx, landmarks, w, h) {
 
     if (!isToothPixel(r, g, b)) continue;
 
-    data[i]     = Math.min(255, r * 1.08);
-    data[i + 1] = Math.min(255, g * 1.10);
-    data[i + 2] = Math.min(255, b * 1.15);
+    data[i]     = Math.min(255, r * 1.06);
+    data[i + 1] = Math.min(255, g * 1.08);
+    data[i + 2] = Math.min(255, b * 1.10);
   }
 
   ctx.putImageData(imageData, 0, 0);
