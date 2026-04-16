@@ -317,55 +317,76 @@ function applyWhitening(ctx, landmarks, w, h) {
   const innerLipIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   const innerPts = innerLipIndices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
   
+  // 🛡️ LOCK REGION (User-Calibrated Safety)
+  const mouthTopY = landmarks[13].y * h;
+  const mouthBottomY = landmarks[14].y * h;
+  const padding = (mouthBottomY - mouthTopY) * 0.35;
+  const regionTop = mouthTopY - padding;
+  const regionBottom = mouthBottomY + padding;
+
   const xs = innerPts.map(p => p.x), ys = innerPts.map(p => p.y);
-  const minX = Math.floor(Math.min(...xs)) - 5, maxX = Math.ceil(Math.max(...xs)) + 5;
-  const minY = Math.floor(Math.min(...ys)) - 5, maxY = Math.ceil(Math.max(...ys)) + 5;
+  const minX = Math.floor(Math.min(...xs)) - 10, maxX = Math.ceil(Math.max(...xs)) + 10;
+  const minY = Math.floor(Math.min(...ys)) - 10, maxY = Math.ceil(Math.max(...ys)) + 10;
   const boxW = maxX - minX, boxH = maxY - minY;
 
   if (boxW <= 0 || boxH <= 0) return;
 
-  // 🚀 ENGINE 4: Surgical Buffer Clipping 
-  // We process the mouth in a separate buffer to allow precise path clipping
+  // 🚀 ENGINE 5: Plaque-Neutralizing Buffer
   const offCanvas = document.createElement("canvas");
-  offCanvas.width = boxW;
-  offCanvas.height = boxH;
+  offCanvas.width = boxW; offCanvas.height = boxH;
   const octx = offCanvas.getContext("2d");
-
-  // 1. Draw original mouth into buffer
   octx.drawImage(ctx.canvas, minX, minY, boxW, boxH, 0, 0, boxW, boxH);
+  
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
-  const original = new Uint8ClampedArray(data);
 
-  // --- STABLE FILTER ---
+  // --- CLEAN TOOTH MASK ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    return lum > 80 && sat < 70 && !(r > g * 1.3);
+    return lum > 75 && sat < 65 && !(r > g * 1.25);
   }
 
-  // 2. Apply whitening inside buffer
-  for (let i = 0; i < data.length; i += 4) {
-    const r = original[i], g = original[i + 1], b = original[i + 2];
-    if (!isToothPixel(r, g, b)) continue;
-    data[i] = Math.min(255, r * 1.06);
-    data[i + 1] = Math.min(255, g * 1.08);
-    data[i + 2] = Math.min(255, b * 1.10);
+  // --- WHITENING LOOP (Region-Locked + Plaque Clean) ---
+  for (let y = 0; y < boxH; y++) {
+    const globalY = minY + y;
+    // 🔒 Y-Axis Lock
+    if (globalY < regionTop || globalY > regionBottom) continue;
+
+    for (let x = 0; x < boxW; x++) {
+      const i = (y * boxW + x) * 4;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+
+      if (!isToothPixel(r, g, b)) continue;
+
+      // 🧪 PLAQUE REDUCTION (Neutralize Yellow)
+      const yellowFactor = r - b;
+      let nr = r, ng = g, nb = b;
+
+      if (yellowFactor > 10) {
+        nr *= 0.97; // reduce red tint
+        ng *= 1.03; // balance green
+        nb *= 1.08; // boost blue to neutralize yellow
+      }
+
+      // ✨ FINAL NATURAL LIFT
+      data[i]     = Math.min(255, nr * 1.06);
+      data[i + 1] = Math.min(255, ng * 1.08);
+      data[i + 2] = Math.min(255, nb * 1.12);
+    }
   }
   octx.putImageData(imageData, 0, 0);
 
-  // 3. FINAL CLIP: Draw buffer back onto main canvas ONLY inside the lip-path
+  // 4. FINAL CLIP: Drawing Buffer through Surgical Path
   ctx.save();
   const path = new Path2D();
   path.moveTo(innerPts[0].x, innerPts[0].y);
-  for (let i = 1; i < innerPts.length; i++) {
-    path.lineTo(innerPts[i].x, innerPts[i].y);
-  }
+  for (let i = 1; i < innerPts.length; i++) path.lineTo(innerPts[i].x, innerPts[i].y);
   path.closePath();
 
-  ctx.clip(path); // 🔒 Surgical Lock: Whiten ONLY the teeth opening
+  ctx.clip(path); // Double-Shield: No Lip Bleed
   ctx.drawImage(offCanvas, minX, minY);
   ctx.restore();
 }
