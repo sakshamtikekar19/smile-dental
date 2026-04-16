@@ -313,21 +313,10 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
 }
 
 function applyWhitening(ctx, landmarks, w, h) {
-  // 🦷 ANATOMICAL BOUNDARY (Nuclear Lock to Mouth Only)
-  const mouthIndices = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-  const pts = mouthIndices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
-  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-  
-  const minX = Math.floor(Math.min(...xs)) - 10, maxX = Math.ceil(Math.max(...xs)) + 10;
-  const minY = Math.floor(Math.min(...ys)) - 10, maxY = Math.ceil(Math.max(...ys)) + 10;
-  const boxW = maxX - minX, boxH = maxY - minY;
-
-  if (boxW <= 0 || boxH <= 0) return;
-
-  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
+  const imageData = ctx.getImageData(0, 0, w, h);
   const data = imageData.data;
 
-  // --- STRICT TOOTH FILTER ---
+  // --- STRICT STOICHIOMETRIC FILTER ---
   const isToothPixel = (r, g, b) => {
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
@@ -335,33 +324,32 @@ function applyWhitening(ctx, landmarks, w, h) {
     const lum = (r + g + b) / 3;
 
     // RELAXED filters to catch natural enamel
-    if (lum < 35) return false;                    // allow more shadows
-    if (r > g * 1.35 && r > b * 1.35) return false; // remove lips/gums
-    if (sat > 75) return false;                   // remove skin tones
-
+    if (lum < 35) return false;                    
+    if (r > g * 1.35 && r > b * 1.35) return false; 
+    if (sat > 75) return false;                   
     return true;
   };
 
-  // --- SAFE WHITENING LOOP (Anchored to Box) ---
+  // --- SAFE GLOBAL SCAN (Hard Lock Logic) ---
   for (let i = 0; i < data.length; i += 4) {
-    let r = data[i];
-    let g = data[i + 1];
-    let b = data[i + 2];
+    const originalR = data[i];
+    const originalG = data[i + 1];
+    const originalB = data[i + 2];
 
-    if (!isToothPixel(r, g, b)) continue;
-
-    // --- NATURAL WHITENING (Boosted) ---
-    r = r * 1.08 + 12;
-    g = g * 1.08 + 12;
-    b = b * 1.15 + 15;
-
-    // clamp
-    data[i]     = Math.min(255, r);
-    data[i + 1] = Math.min(255, g);
-    data[i + 2] = Math.min(255, b);
+    if (isToothPixel(originalR, originalG, originalB)) {
+      // NATURAL WHITENING LIFT (User Calibrated)
+      data[i]     = Math.min(255, originalR * 1.05 + 8);
+      data[i + 1] = Math.min(255, originalG * 1.05 + 8);
+      data[i + 2] = Math.min(255, originalB * 1.12 + 10);
+    } else {
+      // 🔒 HARD LOCK — restore original pixel explicitly
+      data[i]     = originalR;
+      data[i + 1] = originalG;
+      data[i + 2] = originalB;
+    }
   }
 
-  ctx.putImageData(imageData, minX, minY);
+  ctx.putImageData(imageData, 0, 0);
 }
 
 
