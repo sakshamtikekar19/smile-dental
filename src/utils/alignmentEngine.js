@@ -208,7 +208,7 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
   ctx.drawImage(ctx.canvas, 0, 0);
   ctx.restore();
 
-  // 🔥 ULTIMATE TEST: Lime Visibility Box
+  // 🔥 DIAGNOSTIC: Lime Visibility Box
   ctx.save();
   ctx.strokeStyle = "lime";
   ctx.lineWidth = 5;

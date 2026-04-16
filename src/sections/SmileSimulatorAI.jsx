@@ -750,7 +750,7 @@ const SmileSimulatorAI = () => {
           </div>
         </AnimatedSection>
 
-        <div className="max-w-4xl mx-auto rounded-[32px] md:rounded-[40px] flex flex-col justify-center min-h-[400px] md:min-h-[500px]">
+        <div className="max-w-4xl mx-auto rounded-[32px] md:rounded-[40px] relative flex flex-col justify-center min-h-[400px] md:min-h-[500px]">
           <AnimatePresence mode="wait">
             {step === "entry" && (
               <motion.div key="entry" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className="w-full">
@@ -775,13 +775,11 @@ const SmileSimulatorAI = () => {
               <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
                 <div className="relative aspect-[4/5] md:aspect-video bg-black shadow-2xl rounded-[24px] md:rounded-[32px] overflow-hidden">
                   <video 
-                    key={`v-${generationRef.current}`}
                     ref={videoRef} 
                     className="w-full h-full object-cover" 
                     playsInline muted autoPlay 
                   />
                   <canvas 
-                    key={`c-${generationRef.current}`}
                     ref={canvasRef} 
                     className="absolute inset-0 w-full h-full pointer-events-none" 
                   />
@@ -812,17 +810,6 @@ const SmileSimulatorAI = () => {
                     </button>
                   </div>
                 </div>
-              </motion.div>
-            )}
-
-            {isProcessing && (
-              <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-20 px-8">
-                <div className="w-24 h-24 mx-auto mb-8 relative">
-                   <div className="absolute inset-0 border-4 border-zinc-100 rounded-full" />
-                   <div className="absolute inset-0 border-4 border-brand-gold rounded-full border-t-transparent animate-spin" />
-                </div>
-                <h3 className="text-2xl font-serif text-zinc-900 mb-2">{processingLog}</h3>
-                <p className="text-zinc-400 text-sm">Our clinical AI is reconstructing your smile profile...</p>
               </motion.div>
             )}
 
@@ -909,7 +896,26 @@ const SmileSimulatorAI = () => {
                 </div>
               </motion.div>
             )}
+          </AnimatePresence>
 
+          {/* 🚀 Processing Overlay (Floating layer to prevent camera unmount) */}
+          <AnimatePresence>
+            {isProcessing && (
+              <motion.div 
+                key="processing" 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1 }} 
+                exit={{ opacity: 0 }} 
+                className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md rounded-[32px] md:rounded-[40px] text-center p-8"
+              >
+                <div className="w-20 h-20 md:w-24 md:h-24 mb-6 md:mb-8 relative">
+                   <div className="absolute inset-0 border-4 border-zinc-100/50 rounded-full" />
+                   <div className="absolute inset-0 border-4 border-brand-gold rounded-full border-t-transparent animate-spin" />
+                </div>
+                <h3 className="text-xl md:text-2xl font-serif text-zinc-900 mb-1 md:mb-2">{processingLog}</h3>
+                <p className="text-zinc-500 text-xs md:text-sm max-w-xs">Our clinical AI is reconstructing your smile profile...</p>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       </div>
