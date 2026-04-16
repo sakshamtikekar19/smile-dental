@@ -43,7 +43,7 @@ function segmentTeeth(mask, width, height) {
       }
     }
 
-    if (cluster.length > 40 && cluster.length < 2500) { 
+    if (cluster.length > 20 && cluster.length < 200000) { 
       clusters.push(cluster);
     }
   }
