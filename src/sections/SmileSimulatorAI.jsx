@@ -6,7 +6,7 @@ import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
 import { clipToWhiteningMask, eraseAboveUpperLip } from "../utils/bracesClipFixed";
 import { buildBracesPack } from "../utils/bracesGeometryFixed";
-import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
+import { applyAlignment as applyProfessionalAlignment, segmentTeeth } from "../utils/alignmentEngine";
 import { TEETH_WHITEN_MASK_INDICES } from "../utils/teethWhitenMaskIndices";
 
 
@@ -318,7 +318,7 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
 /**
  * ENGINE 2: CLINICAL WHITENING (Color Only)
  */
-function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
+function applyWhitening(ctx, landmarks, w, h, intensity = 1.0) {
   // 🦷 ANATOMICAL INDICES (Consolidated Visible Map)
   const upperArchIdx = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291];
   const lowerArchIdx = [291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 61];
@@ -326,116 +326,59 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   
   const points = fullMouthIdx.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
-  const minX = Math.floor(Math.min(...xs)), maxX = Math.ceil(Math.max(...xs));
-  const minY = Math.floor(Math.min(...ys)), maxY = Math.ceil(Math.max(...ys));
+  const minX = Math.floor(Math.min(...xs)) - 20, maxX = Math.ceil(Math.max(...xs)) + 20;
+  const minY = Math.floor(Math.min(...ys)) - 20, maxY = Math.ceil(Math.max(...ys)) + 20;
   const boxW = maxX - minX, boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
 
   const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
-  const faceScale = boxH / 100;
 
-  // 🚀 RESTORED: DUAL-STAGE MASK (Ensures high-fidelity radiance)
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = boxW; maskCanvas.height = boxH;
-  const mctx = maskCanvas.getContext("2d");
-  mctx.translate(-minX, -minY);
-  mctx.fillStyle = "white";
-  mctx.beginPath();
-  points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
-  mctx.closePath();
-  mctx.fill();
+  // 🛡️ 1. Unified Enamel Filter (User Mandate: PARITY WITH ALIGNMENT)
+  const isToothPixel = (r, g, b) => {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max === 0 ? 0 : ((max - min) / max) * 100;
+    const brightness = (r + g + b) / 3;
+    const isRedHeavy = r > g * 1.25 && r > b * 1.25;
+    return !isRedHeavy && saturation < 60 && brightness > 60;
+  };
 
-  const blurCanvas = document.createElement("canvas");
-  blurCanvas.width = boxW; blurCanvas.height = boxH;
-  const bctx = blurCanvas.getContext("2d");
-  bctx.filter = `blur(${Math.max(1, Math.round(1.2 * faceScale))}px)`;
-  bctx.drawImage(maskCanvas, 0, 0);
-
-  const maskData = bctx.getImageData(0, 0, boxW, boxH).data;
-  
-  // 🔍 Clinical Debug
-  let activePixels = 0;
-  for (let i = 0; i < maskData.length; i += 4) if (maskData[i] > 20) activePixels++;
-  console.log(`[Whitening Engine] Active Mask Pixels: ${activePixels} / Total: ${boxW * boxH}`);
-
-  // 🏥 Anatomical Bounds (Vertical Clamping)
-  const lipUpperY = landmarks[13].y * h;
-  const lipLowerY = landmarks[14].y * h;
-  const mouthHeight = lipLowerY - lipUpperY;
-
-  // 🚀 PASS 1: Build Binary Tooth Mask (Stoichiometry + Clamping)
-  const pixelCount = boxW * boxH;
-  const isToothMask = new Uint8Array(pixelCount);
-  for (let i = 0; i < data.length; i += 4) {
-    const idx = i / 4;
-    const maskValue = maskData[idx * 4] / 255;
-    if (maskValue < 0.05) continue;
-
-    const localY = Math.floor(idx / boxW) + minY;
-    if (localY < lipUpperY - mouthHeight * 0.05 || localY > lipLowerY + mouthHeight * 0.05) continue;
-
-    const r = data[i], g = data[i+1], b = data[i+2];
-    const brightness = (r+g+b)/3;
-    const isRedHeavy = r > g * 1.22 || r > b * 1.55; 
-    if (!isRedHeavy && brightness > 22 && Math.abs(r-g) < 48 && r < g * 1.35) {
-      isToothMask[idx] = 1;
-    }
-  }
-
-  // 🚀 PASS 2: Mask Dilation (Expand into Interdental Gaps)
-  let dilatedMask = new Uint8Array(isToothMask);
-  for (let p = 0; p < 3; p++) {
-    const temp = new Uint8Array(dilatedMask);
-    for (let y = 1; y < boxH - 1; y++) {
-      for (let x = 1; x < boxW - 1; x++) {
-        const idx = y * boxW + x;
-        if (!dilatedMask[idx] && 
-            (dilatedMask[idx-1] || dilatedMask[idx+1] || dilatedMask[idx-boxW] || dilatedMask[idx+boxW])) {
-          temp[idx] = 1;
-        }
+  // 🦷 2. Build Enamel Mask for Segmentation
+  const enamelMask = new Uint8Array(boxW * boxH);
+  for (let y = 0; y < boxH; y++) {
+    for (let x = 0; x < boxW; x++) {
+      const idx = y * boxW + x;
+      const i = idx * 4;
+      if (isToothPixel(data[i], data[i+1], data[i+2])) {
+        enamelMask[idx] = 1;
       }
     }
-    dilatedMask = temp;
   }
-  
-  // 🚀 PASS 3: Composite Reconstruction (Cleaning + Whitening)
-  const centerX = boxW / 2;
-  for (let i = 0; i < data.length; i += 4) {
-    const idx = i / 4;
-    const inOriginalMask = isToothMask[idx];
-    const isGapZone = !inOriginalMask && dilatedMask[idx];
-    if (!inOriginalMask && !isGapZone) continue;
 
-    const r = data[i], g = data[i + 1], b = data[i + 2];
-    const avg = (r + g + b) / 3;
-    const maskValue = maskData[idx * 4] / 255; // 🏥 ANATOMICAL BARRIER (0 = Outside Lips)
-    if (maskValue < 0.1) continue; // 🛡️ NUCLEAR LOCK: No effect outside lip line
+  // 🏥 3. Segment into individual teeth (Sharing clinical intelligence)
+  const teethClusters = segmentTeeth(enamelMask, boxW, boxH);
 
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  // 🦷 4. TOOTH-BY-TOOTH WHITENING (The Fix)
+  teethClusters.forEach(cluster => {
+    cluster.forEach(idx => {
+      const i = idx * 4;
+      let r = data[i], g = data[i+1], b = data[i+2];
 
-    if (dilatedMask[idx]) {
-      // 🦷 Main Enamel Whitening (On Dilated Mask)
-      const strength = 0.35 * maskValue * (intensity / 0.65);
-      let target = luminance + (235 - luminance) * strength;
-      
-      // 💊 Clinical Shadow Compensation: Boost shadows to prevent 'Patchiness'
-      if (avg < 85) target += (85 - avg) * 0.4;
+      // --- NATURAL WHITENING (Direct Anatomical Lift) ---
+      const lift = 18 * intensity; 
+      const neutralize = 0.92;
 
-      target = Math.min(235, Math.max(luminance, target));
-      const bf = 0.45;
-      data[i]     = Math.min(255, r + (target - r) * bf);
-      data[i + 1] = Math.min(255, g + (target - g) * bf);
-      data[i + 2] = Math.min(255, b + (target - b) * bf);
-    } 
-    else if (isGapZone && avg > 65) { // 🛡️ SHADOW SHIELD: Strict void protection
-      // 🦷 Interdental Plaque Reduction
-      const clean = avg + (240 - avg) * 0.35;
-      data[i]     = r * 0.4 + clean * 0.6;
-      data[i + 1] = g * 0.4 + clean * 0.6;
-      data[i + 2] = b * 0.4 + clean * 0.6;
-    }
-  }
+      r = r + lift;
+      g = g + lift;
+      b = b * neutralize + lift;
+
+      data[i]   = Math.min(255, r);
+      data[i+1] = Math.min(255, g);
+      data[i+2] = Math.min(255, b);
+    });
+  });
+
   ctx.putImageData(imageData, minX, minY);
 }
 

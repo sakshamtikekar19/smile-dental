@@ -13,7 +13,7 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 /**
  * 🦷 TOOTH SEGMENTATION ENGINE (Flood Fill Clustering)
  */
-function segmentTeeth(mask, width, height) {
+export function segmentTeeth(mask, width, height) {
   const visited = new Uint8Array(mask.length);
   const clusters = [];
   const dirs = [-1, 1, -width, width];
