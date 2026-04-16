@@ -312,8 +312,19 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   });
 }
 
-function applyWhitening(ctx, w, h) {
-  const imageData = ctx.getImageData(0, 0, w, h);
+function applyWhitening(ctx, landmarks, w, h) {
+  // 🦷 ANATOMICAL BOUNDARY (Nuclear Lock to Mouth Only)
+  const mouthIndices = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  const pts = mouthIndices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  
+  const minX = Math.floor(Math.min(...xs)) - 10, maxX = Math.ceil(Math.max(...xs)) + 10;
+  const minY = Math.floor(Math.min(...ys)) - 10, maxY = Math.ceil(Math.max(...ys)) + 10;
+  const boxW = maxX - minX, boxH = maxY - minY;
+
+  if (boxW <= 0 || boxH <= 0) return;
+
+  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
 
   // --- STRICT TOOTH FILTER ---
@@ -331,7 +342,7 @@ function applyWhitening(ctx, w, h) {
     return true;
   };
 
-  // --- SAFE WHITENING LOOP ---
+  // --- SAFE WHITENING LOOP (Anchored to Box) ---
   for (let i = 0; i < data.length; i += 4) {
     let r = data[i];
     let g = data[i + 1];
@@ -553,13 +564,13 @@ const SmileSimulatorAI = () => {
       switch (treatment) {
         case "whitening": 
           setProcessingLog("Applying stoichiometry whitening...");
-          applyWhitening(pctx, iw, ih); 
+          applyWhitening(pctx, landmarks, iw, ih); 
           break;
         case "alignment": 
           setProcessingLog("Reconstructing dental anatomy...");
           applyAlignment(pctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Finalizing enamel texture...");
-          applyWhitening(pctx, iw, ih); 
+          applyWhitening(pctx, landmarks, iw, ih); 
           break;
         case "braces": 
           setProcessingLog("Positioning clinical brackets...");
@@ -569,7 +580,7 @@ const SmileSimulatorAI = () => {
           setProcessingLog("Aligning full dental arch...");
           applyAlignment(pctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Enhancing stoichiometric radiance...");
-          applyWhitening(pctx, iw, ih); 
+          applyWhitening(pctx, landmarks, iw, ih); 
           setProcessingLog("Bonding medical-grade braces...");
           applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
