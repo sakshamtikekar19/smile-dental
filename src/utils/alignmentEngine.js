@@ -92,25 +92,23 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const isLower = indices.includes(14) || indices.includes(324); 
   const enamelMask = new Uint8Array(boxW * boxH);
 
-  // 1. SURGICAL ENAMEL SCAN (Tightened for Gum/Lip rejection)
+  // 1. SURGICAL ENAMEL SCAN (User-Hardened Robust Detection)
   console.time("enamel_scan");
   for (let y = 0; y < boxH; y++) {
     for (let x = 0; x < boxW; x++) {
       const idx = y * boxW + x;
       const r = sourceData[idx * 4], g = sourceData[idx * 4 + 1], b = sourceData[idx * 4 + 2];
       
-      const brightness = (r + g + b) / 3;
-      const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       
-      // 🛡️ REJECT GUMS (Red-Heavy or Oversaturated)
-      const isRedHeavy = r > g * 1.25 || r > b * 1.55; 
-      const isToothTone = saturation < 65 && brightness > 35;
+      // 🏥 ROBUST DETECTION: Accept teeth (Desaturated), Reject Lips/Gums (Red-Heavy)
+      const isEnamel = lum > 60 && !(r > g * 1.3 && r > b * 1.3);
       
       // 🏥 ANATOMICAL SAFETY: Exclude pixels beyond the lip transition line
       const globalY = y + minY;
       const verticalSafety = isLower ? (globalY > archMidY - 4) : (globalY < archMidY + 4);
 
-      if (!isRedHeavy && isToothTone && verticalSafety) {
+      if (isEnamel && verticalSafety) {
         enamelMask[idx] = 1;
       }
     }
@@ -138,16 +136,18 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const center = getCenter(cluster, boxW);
     const gx = center.x + minX;
 
-    // 🦷 Anatomical Parabolic Target Mapping
+    // 🦷 Anatomical Parabolic Target Mapping (Enhanced Curvature)
+    const curveStrength = isLower ? 0.02 : 0.025;
     const dxRel = (gx - centerX) / (boxW / 2);
-    const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
+    const targetYGlobal = isLower 
+      ? archMidY + (boxH * curveStrength) * (dxRel * dxRel)
+      : archMidY - (boxH * curveStrength) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * 1.5; 
-
-    // force visible movement
-    if (Math.abs(dy) < 2) {
-      dy = dy > 0 ? 2 : -2;
+    // 🚀 Professional Continuous Movement (No Snapping)
+    let dy = (targetY - center.y) * 0.8;
+    if (Math.abs(dy) < 0.8) {
+      dy *= 1.5;
     }
 
     cluster.forEach(idx => {
@@ -162,7 +162,9 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const ni = (ny * boxW + nx) * 4;
       const oi = idx * 4;
 
-      // 🔥 DIRECT COPY ONLY
+      // 🛡️ OVERLAP GUARD (Prevents color corruption)
+      if (newData[ni + 3] !== 0) return;
+
       newData[ni]     = sourceData[oi];
       newData[ni + 1] = sourceData[oi + 1];
       newData[ni + 2] = sourceData[oi + 2];
