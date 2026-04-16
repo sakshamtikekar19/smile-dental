@@ -325,8 +325,8 @@ function applyWhitening(ctx, landmarks, w, h) {
   const regionBottom = mouthBottomY + padding;
 
   const xs = innerPts.map(p => p.x), ys = innerPts.map(p => p.y);
-  const minX = Math.floor(Math.min(...xs)) - 10, maxX = Math.ceil(Math.max(...xs)) + 10;
-  const minY = Math.floor(Math.min(...ys)) - 10, maxY = Math.ceil(Math.max(...ys)) + 10;
+  const minX = Math.floor(Math.min(...xs)) - 2, maxX = Math.ceil(Math.max(...xs)) + 2;
+  const minY = Math.floor(Math.min(...ys)) - 2, maxY = Math.ceil(Math.max(...ys)) + 2;
   const boxW = maxX - minX, boxH = maxY - minY;
 
   if (boxW <= 0 || boxH <= 0) return;
@@ -340,13 +340,13 @@ function applyWhitening(ctx, landmarks, w, h) {
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
 
-  // --- CLINICAL FILTER (RELAXED FOR HIGH IMPACT) ---
+  // --- CLINICAL FILTER (TIGHTENED FOR GUM PROTECTION) ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    return lum > 60 && sat < 75 && !(r > g * 1.35);
+    return lum > 75 && sat < 60 && !(r > g * 1.35);
   }
 
   // --- WHITENING LOOP (Region-Locked + Gradient Lift) ---
@@ -373,12 +373,12 @@ function applyWhitening(ctx, landmarks, w, h) {
         nb *= (1.0 + (0.10 * gradient)); 
       }
 
-      // ✨ STEP 3: HIGH-IMPACT Luminous Lift
-      const lift = 35 * gradient;
+      // ✨ STEP 3: REFINED Luminous Lift
+      const lift = 22 * gradient;
       
-      data[i]     = Math.min(255, nr + lift * 0.8);
-      data[i + 1] = Math.min(255, ng + lift * 0.9);
-      data[i + 2] = Math.min(255, nb + lift * 1.3); // Blue brilliance gleam
+      data[i]     = Math.min(255, nr + lift * 0.7);
+      data[i + 1] = Math.min(255, ng + lift * 0.8);
+      data[i + 2] = Math.min(255, nb + lift * 1.1); // Blue brilliance
     }
   }
   octx.putImageData(imageData, 0, 0);
