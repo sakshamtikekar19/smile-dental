@@ -313,6 +313,48 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   });
 }
 
+function applyWhitening(ctx, landmarks, w, h) {
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+
+  // --- STRICT TOOTH FILTER ---
+  const isToothPixel = (r, g, b) => {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const sat = max === 0 ? 0 : (max - min) / max * 100;
+    const lum = (r + g + b) / 3;
+
+    // HARD filters
+    if (lum < 65) return false;                    // remove shadows
+    if (r > g * 1.2 && r > b * 1.2) return false; // remove lips/gums
+    if (sat > 55) return false;                   // remove skin tones
+
+    return true;
+  };
+
+  // --- SAFE WHITENING LOOP ---
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+
+    if (!isToothPixel(r, g, b)) continue;
+
+    // --- NATURAL WHITENING ---
+    // reduce yellow instead of blasting brightness
+    r = r * 1.05 + 8;
+    g = g * 1.05 + 8;
+    b = b * 1.12 + 10;
+
+    // clamp
+    data[i]     = Math.min(255, r);
+    data[i + 1] = Math.min(255, g);
+    data[i + 2] = Math.min(255, b);
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+}
+
 
 
 /**
@@ -577,13 +619,13 @@ const SmileSimulatorAI = () => {
       switch (treatment) {
         case "whitening": 
           setProcessingLog("Applying stoichiometry whitening...");
-          applyWhitening(pctx, landmarks, iw, ih, 0.82); 
+          applyWhitening(pctx, landmarks, iw, ih); 
           break;
         case "alignment": 
           setProcessingLog("Reconstructing dental anatomy...");
           applyAlignment(pctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Finalizing enamel texture...");
-          applyWhitening(pctx, landmarks, iw, ih, 0.2); 
+          applyWhitening(pctx, landmarks, iw, ih); 
           break;
         case "braces": 
           setProcessingLog("Positioning clinical brackets...");
@@ -593,7 +635,7 @@ const SmileSimulatorAI = () => {
           setProcessingLog("Aligning full dental arch...");
           applyAlignment(pctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Enhancing stoichiometric radiance...");
-          applyWhitening(pctx, landmarks, iw, ih, 0.85); 
+          applyWhitening(pctx, landmarks, iw, ih); 
           setProcessingLog("Bonding medical-grade braces...");
           applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
