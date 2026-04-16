@@ -84,7 +84,13 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
   const sourceData = new Uint8ClampedArray(data);
-  const newData = new Uint8ClampedArray(sourceData);
+  const newData = new Uint8ClampedArray(sourceData.length);
+
+  // ❌ DO NOT prefill with sourceData
+  // start empty
+  for (let i = 0; i < newData.length; i++) {
+    newData[i] = 0;
+  }
   const depthMap = new Float32Array(boxW * boxH).fill(-1);
 
     const isEnamel = (r, g, b) => {
@@ -118,10 +124,6 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
     if (isEnamel(r, g, b)) {
       enamelMask[i] = 1;
-      // Soft erasure: dim the 'old' tooth area instead of hard-erasing to beige
-      newData[idx] *= 0.85;     
-      newData[idx+1] *= 0.85;
-      newData[idx+2] *= 0.85;
     }
   }
   console.timeEnd("enamel_scan");
@@ -147,14 +149,8 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
   teethClusters.forEach(cluster => {
     const center = getCenter(cluster, boxW);
-    const gx = center.x + minX;
 
-    const dxRel = (gx - centerX) / (boxW / 2);
-    const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
-    const targetY = targetYGlobal - minY;
-
-    const dx = 0;
-    let dy = (targetY - center.y) * 1.5; 
+    let dy = (targetY - center.y) * 1.5;
 
     // force visible movement
     if (Math.abs(dy) < 2) {
@@ -166,18 +162,31 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const y = Math.floor(idx / boxW);
 
       const nx = x;
-      const ny = y + dy;
+      const ny = Math.floor(y + dy);
 
       if (nx < 0 || nx >= boxW || ny < 0 || ny >= boxH) return;
 
-      const ni = (Math.floor(ny) * boxW + Math.floor(nx)) * 4;
+      const ni = (ny * boxW + nx) * 4;
       const oi = idx * 4;
 
-      for (let c = 0; c < 4; c++) {
-        newData[ni + c] = sourceData[oi + c];
-      }
+      // 🔥 DIRECT COPY ONLY
+      newData[ni]     = sourceData[oi];
+      newData[ni + 1] = sourceData[oi + 1];
+      newData[ni + 2] = sourceData[oi + 2];
+      newData[ni + 3] = 255;
     });
   });
+
+  // 🔥 RESTORE PIXELS (MANDATORY)
+  // restore untouched pixels
+  for (let i = 0; i < newData.length; i += 4) {
+    if (newData[i + 3] === 0) {
+      newData[i]     = sourceData[i];
+      newData[i + 1] = sourceData[i + 1];
+      newData[i + 2] = sourceData[i + 2];
+      newData[i + 3] = 255;
+    }
+  }
 
   imageData.data.set(newData);
   ctx.putImageData(imageData, minX, minY);
