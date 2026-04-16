@@ -87,15 +87,17 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const newData = new Uint8ClampedArray(sourceData);
   const depthMap = new Float32Array(boxW * boxH).fill(-1);
 
-  const isEnamel = (r, g, b) => {
-    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const isEnamel = (r, g, b) => {
+      const brightness = (r + g + b) / 3;
+      const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+      
+      const isRedHeavy = r > g * 1.22 || r > b * 1.5; 
+      const isTooDark = brightness < 45;
+      const isSkinTone = r > 165 && g > 120 && b > 100 && r > g && g > b;
 
-    const isTooDark = lum < 42;            // RESTORED: Catch shadowed teeth
-    const isGum = r > g * 1.25 && r > b * 1.25; // CALIBRATED: Allows warm tooth tones
-    const isSkin = r > 150 && g > 110 && b > 100; // PRECISE: Protects facial skin
-
-    return !isTooDark && !isGum && !isSkin;
-  };
+      // Tight clinical enamel bounds: White/Grey/Yellowish, low saturation
+      return brightness > 45 && brightness < 250 && !isRedHeavy && !isSkinTone && saturation < 65;
+    };
 
   // 1. BUILD ENAMEL MASK & OCCUPANCY MAP (Region Locked)
   const mouthTop = archMidY - boxH * 0.25;
@@ -116,9 +118,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
     if (isEnamel(r, g, b)) {
       enamelMask[i] = 1;
-      newData[idx] = 180;     
-      newData[idx+1] = 160;
-      newData[idx+2] = 150;
+      // Soft erasure: dim the 'old' tooth area instead of hard-erasing to beige
+      newData[idx] *= 0.85;     
+      newData[idx+1] *= 0.85;
+      newData[idx+2] *= 0.85;
     }
   }
   console.timeEnd("enamel_scan");
