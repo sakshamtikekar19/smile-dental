@@ -99,10 +99,15 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const idx = y * boxW + x;
       const r = sourceData[idx * 4], g = sourceData[idx * 4 + 1], b = sourceData[idx * 4 + 2];
       
-      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      
-      // 🏥 ROBUST DETECTION: Accept teeth (Desaturated), Reject Lips/Gums (Red-Heavy)
-      const isEnamel = lum > 60 && !(r > g * 1.3 && r > b * 1.3);
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max === 0 ? 0 : ((max - min) / max) * 100;
+      const brightness = (r + g + b) / 3;
+
+      const isRedHeavy = r > g * 1.25 && r > b * 1.25;
+
+      // 🏥 FINAL LOCKED FILTER: Clinic-Grade Precision
+      const isEnamel = !isRedHeavy && saturation < 60 && brightness > 60;
       
       // 🏥 ANATOMICAL SAFETY: Exclude pixels beyond the lip transition line
       const globalY = y + minY;
