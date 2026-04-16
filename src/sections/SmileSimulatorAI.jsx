@@ -319,40 +319,38 @@ function applyWhitening(ctx, landmarks, w, h) {
   // ✅ REAL ORIGINAL COPY (CRITICAL) - Immutable Reference
   const original = new Uint8ClampedArray(data);
 
-  // --- STRICT STOICHIOMETRIC FILTER ---
+  // --- FINAL STABLE FILTER ---
   const isToothPixel = (r, g, b) => {
-    // 🔒 RED REJECTION (Mandate: Stop lip bleed)
-    if (b < r) return false; 
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
+    // remove dark areas (mouth, hair, shadows)
+    if (lum < 55) return false;
+
+    // remove gums/lips (red dominant)
+    if (r > g * 1.2 && r > b * 1.2) return false;
+
+    // remove very saturated skin tones
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max === 0 ? 0 : (max - min) / max * 100;
-    const lum = (r + g + b) / 3;
 
-    // RELAXED filters to catch natural enamel
-    if (lum < 35) return false;                    
-    if (r > g * 1.35 && r > b * 1.35) return false; 
-    if (sat > 75) return false;                   
+    if (sat > 65) return false;
+
     return true;
   };
 
-  // --- SURGICAL BIT-LEVEL SCAN (From Original Buffer) ---
+  // --- WHITENING LOOP (FINAL) ---
   for (let i = 0; i < data.length; i += 4) {
     const r = original[i];
     const g = original[i + 1];
     const b = original[i + 2];
 
-    if (isToothPixel(r, g, b)) {
-      // NATURAL WHITENING LIFT (User Calibrated)
-      data[i]     = Math.min(255, r * 1.05 + 8);
-      data[i + 1] = Math.min(255, g * 1.05 + 8);
-      data[i + 2] = Math.min(255, b * 1.12 + 10);
-    } else {
-      // 🔒 TRUE RESTORE (from original buffer)
-      data[i]     = original[i];
-      data[i + 1] = original[i + 1];
-      data[i + 2] = original[i + 2];
-    }
+    if (!isToothPixel(r, g, b)) continue;
+
+    // NATURAL whitening (visible but safe)
+    data[i]     = Math.min(255, r * 1.08 + 10);
+    data[i + 1] = Math.min(255, g * 1.08 + 10);
+    data[i + 2] = Math.min(255, b * 1.15 + 12);
   }
 
   ctx.putImageData(imageData, 0, 0);
