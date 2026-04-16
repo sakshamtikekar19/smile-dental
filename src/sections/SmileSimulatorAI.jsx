@@ -409,22 +409,28 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
 
     const r = data[i], g = data[i + 1], b = data[i + 2];
     const avg = (r + g + b) / 3;
-    const maskValue = maskData[idx * 4] / 255;
+    const maskValue = maskData[idx * 4] / 255; // 🏥 ANATOMICAL BARRIER (0 = Outside Lips)
+    if (maskValue < 0.1) continue; // 🛡️ NUCLEAR LOCK: No effect outside lip line
+
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
     if (dilatedMask[idx]) {
       // 🦷 Main Enamel Whitening (On Dilated Mask)
       const strength = 0.35 * maskValue * (intensity / 0.65);
       let target = luminance + (235 - luminance) * strength;
+      
+      // 💊 Clinical Shadow Compensation: Boost shadows to prevent 'Patchiness'
+      if (avg < 85) target += (85 - avg) * 0.4;
+
       target = Math.min(235, Math.max(luminance, target));
       const bf = 0.45;
       data[i]     = Math.min(255, r + (target - r) * bf);
       data[i + 1] = Math.min(255, g + (target - g) * bf);
       data[i + 2] = Math.min(255, b + (target - b) * bf);
     } 
-    else if (isGapZone && avg > 45) { // 🛡️ SHADOW SHIELD: Only clean if it's not a dark void
+    else if (isGapZone && avg > 65) { // 🛡️ SHADOW SHIELD: Strict void protection
       // 🦷 Interdental Plaque Reduction
-      const clean = avg + (240 - avg) * 0.4;
+      const clean = avg + (240 - avg) * 0.35;
       data[i]     = r * 0.4 + clean * 0.6;
       data[i + 1] = g * 0.4 + clean * 0.6;
       data[i + 2] = b * 0.4 + clean * 0.6;
