@@ -138,8 +138,6 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const isLower = indices.includes(14);
 
   // 3. RIGID MOVEMENT LOOP (Guaranteed Visibility)
-  const newData = new Uint8ClampedArray(sourceData);
-
   // set target buffer (important base)
   for (let i = 0; i < newData.length; i++) {
     newData[i] = sourceData[i];
