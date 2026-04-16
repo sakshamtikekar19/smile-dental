@@ -361,20 +361,20 @@ function applyWhitening(ctx, landmarks, w, h) {
 
       if (!isToothPixel(r, g, b)) continue;
 
-      // 🧪 PLAQUE REDUCTION (Neutralize Yellow)
+      // 🧪 ENHANCED YELLOW NEUTRALIZATION
       const yellowFactor = r - b;
       let nr = r, ng = g, nb = b;
 
-      if (yellowFactor > 10) {
-        nr *= 0.97; // reduce red tint
-        ng *= 1.03; // balance green
-        nb *= 1.08; // boost blue to neutralize yellow
+      if (yellowFactor > 5) {
+        nr *= 0.95; // deeper red reduction to kill warm stains
+        ng *= 1.02; // subtle green balance
+        nb *= 1.12; // stronger blue boost to neutralize yellow
       }
 
-      // ✨ FINAL NATURAL LIFT
-      data[i]     = Math.min(255, nr * 1.06);
-      data[i + 1] = Math.min(255, ng * 1.08);
-      data[i + 2] = Math.min(255, nb * 1.12);
+      // ✨ SOFT CLINICAL LIFT (Reduced Intensity)
+      data[i]     = Math.min(255, nr * 1.03);
+      data[i + 1] = Math.min(255, ng * 1.04);
+      data[i + 2] = Math.min(255, nb * 1.06);
     }
   }
   octx.putImageData(imageData, 0, 0);
