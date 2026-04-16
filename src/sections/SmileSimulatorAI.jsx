@@ -811,12 +811,14 @@ const SmileSimulatorAI = () => {
                 <div className="relative aspect-[4/5] md:aspect-video bg-black shadow-2xl rounded-[24px] md:rounded-[32px] overflow-hidden">
                   <video 
                     ref={videoRef} 
+                    style={{ position: 'absolute', top: 0, left: 0 }}
                     className="w-full h-full object-cover" 
                     playsInline muted autoPlay 
                   />
                   <canvas 
                     ref={canvasRef} 
-                    className="absolute inset-0 w-full h-full pointer-events-none" 
+                    style={{ position: 'absolute', top: 0, left: 0, zIndex: 10 }}
+                    className="w-full h-full pointer-events-none" 
                   />
                   
                   {/* 🦷 Small Teeth Placement Guidance Oval (Focused Alignment) */}
