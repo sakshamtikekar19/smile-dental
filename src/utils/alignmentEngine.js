@@ -100,22 +100,22 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       const r = sourceData[idx * 4], g = sourceData[idx * 4 + 1], b = sourceData[idx * 4 + 2];
       const gy = y + minY;
 
-      // 🦷 Anatomical Enamel Filter (User Drop-In)
+      // 🦷 Horizontal Band Lock + Simple Color (User Definitive)
       const isEnamel = (function() {
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        const s = max - min;
-        const l = (r + g + b) / 3;
+        const lum = (r + g + b) / 3;
+        if (lum < 60) return false;
 
-        if (l < 40) return false;
-        if (r > g * 1.35 && r > b * 1.35) return false;
-        if (s > 80) return false;
+        // 🔥 HARD REGION LOCK (Physical Safe Zone)
+        const upperBandTop = archMidY - boxH * 0.25;
+        const upperBandBottom = archMidY + boxH * 0.05;
 
-        // 🔥 REGION LOCK (Anatomical Barrier)
-        if (isLower && gy < archMidY) return false;
-        if (!isLower && gy > archMidY) return false;
+        const lowerBandTop = archMidY - boxH * 0.05;
+        const lowerBandBottom = archMidY + boxH * 0.25;
 
-        return true;
+        const inUpper = gy > upperBandTop && gy < upperBandBottom;
+        const inLower = gy > lowerBandTop && gy < lowerBandBottom;
+
+        return inUpper || inLower;
       })();
 
       if (isEnamel) {
