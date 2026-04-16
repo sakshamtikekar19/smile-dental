@@ -362,23 +362,35 @@ function applyWhitening(ctx, landmarks, w, h) {
 
       // 🦷 STEP 1: Anatomical Arch Gradient (Realism Key)
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
-      const gradient = 1.0 - (distFromCenter * 0.35); // Front = 100% lift, Sides = 65% lift
+      const gradient = 1.0 - (distFromCenter * 0.35);
 
       // 🧪 STEP 2: Stoichiometric Stain Neutralization
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
-
       if (yellowStrength > 8) {
         nr *= (1.0 - (0.05 * gradient)); 
-        nb *= (1.0 + (0.10 * gradient)); 
+        nb *= (1.0 + (0.08 * gradient)); 
       }
 
-      // ✨ STEP 3: REFINED Luminous Lift
-      const lift = 22 * gradient;
-      
-      data[i]     = Math.min(255, nr + lift * 0.7);
-      data[i + 1] = Math.min(255, ng + lift * 0.8);
-      data[i + 2] = Math.min(255, nb + lift * 1.1); // Blue brilliance
+      // 🧠 STEP 3: REALISM BLEND (Drop-In)
+      const blend = 0.65; 
+      const wr = Math.min(255, nr * 1.05);
+      const wg = Math.min(255, ng * 1.07);
+      const wb = Math.min(255, nb * 1.10);
+
+      let fr = r * (1 - blend) + wr * blend;
+      let fg = g * (1 - blend) + wg * blend;
+      let fb = b * (1 - blend) + wb * blend;
+
+      // ✨ STEP 4: CONTRAST RESTORE (Depth Lock)
+      const contrast = 1.04;
+      fr = (fr - 128) * contrast + 128;
+      fg = (fg - 128) * contrast + 128;
+      fb = (fb - 128) * contrast + 128;
+
+      data[i]     = Math.max(0, Math.min(255, fr));
+      data[i + 1] = Math.max(0, Math.min(255, fg));
+      data[i + 2] = Math.max(0, Math.min(255, fb));
     }
   }
   octx.putImageData(imageData, 0, 0);
