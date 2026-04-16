@@ -312,7 +312,22 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   });
 }
 
-function applyWhitening(ctx, landmarks, w, h) {
+/**
+ * 🚫 DO NOT MODIFY THIS FUNCTION 🚫
+ * 
+ * This whitening engine is FINAL + LOCKED.
+ * 
+ * Rules:
+ * - Do NOT change thresholds
+ * - Do NOT change blending
+ * - Do NOT refactor logic
+ * - Do NOT optimize
+ * 
+ * Only allowed: CALL this function
+ * 
+ * Any modification will break realism.
+ */
+const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
   // 🦷 ANATOMICAL MOUTH BOUNDARY
   const innerLipIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   const innerPts = innerLipIndices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
@@ -407,7 +422,7 @@ function applyWhitening(ctx, landmarks, w, h) {
   ctx.clip(path); // Double-Shield: No Lip Bleed
   ctx.drawImage(offCanvas, minX, minY);
   ctx.restore();
-}
+});
 
 
 
