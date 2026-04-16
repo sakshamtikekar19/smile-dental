@@ -553,15 +553,15 @@ const SmileSimulatorAI = () => {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     if (latestLandmarksRef.current) {
       const t = selectedTreatment;
-      if (t === "whitening") applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.65);
+      if (t === "whitening") { /* applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.65); */ }
       if (t === "alignment") { 
         applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, { strength: alignmentStrength }); 
-        applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.15); 
+        // applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.15); 
       }
       if (t === "braces") applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
       if (t === "transformation") { 
         applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, { strength: alignmentStrength }); 
-        applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.75); 
+        // applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.75); 
         applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current); 
       }
     }
@@ -633,18 +633,18 @@ const SmileSimulatorAI = () => {
       setProcessingLog("Engineering modular simulation...");
       switch (treatment) {
         case "whitening": 
-          applyWhitening(ctx, landmarks, iw, ih, 0.82); 
+          // applyWhitening(ctx, landmarks, iw, ih, 0.82); 
           break;
         case "alignment": 
           applyAlignment(ctx, landmarks, iw, ih, { strength: alignmentStrength }); 
-          applyWhitening(ctx, landmarks, iw, ih, 0.2); 
+          // applyWhitening(ctx, landmarks, iw, ih, 0.2); 
           break;
         case "braces": 
           applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
         case "transformation": 
           applyAlignment(ctx, landmarks, iw, ih, { strength: alignmentStrength }); 
-          applyWhitening(ctx, landmarks, iw, ih, 0.85); 
+          // applyWhitening(ctx, landmarks, iw, ih, 0.85); 
           applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
       }
