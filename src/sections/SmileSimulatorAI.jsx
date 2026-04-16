@@ -356,72 +356,7 @@ function applyWhitening(ctx, w, h) {
 
 
 
-/**
- * ENGINE 2: CLINICAL WHITENING (Color Only)
- */
-function applyWhitening(ctx, landmarks, w, h, intensity = 1.0) {
-  // 🦷 ANATOMICAL INDICES (Consolidated Visible Map)
-  const upperArchIdx = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291];
-  const lowerArchIdx = [291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 61];
-  const fullMouthIdx = [...upperArchIdx, ...lowerArchIdx];
-  
-  const points = fullMouthIdx.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
-  const xs = points.map(p => p.x), ys = points.map(p => p.y);
-  const minX = Math.floor(Math.min(...xs)) - 20, maxX = Math.ceil(Math.max(...xs)) + 20;
-  const minY = Math.floor(Math.min(...ys)) - 20, maxY = Math.ceil(Math.max(...ys)) + 20;
-  const boxW = maxX - minX, boxH = maxY - minY;
-  if (boxW <= 0 || boxH <= 0) return;
 
-  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
-  const data = imageData.data;
-
-  // 🛡️ 1. Unified Enamel Filter (User Mandate: PARITY WITH ALIGNMENT)
-  const isToothPixel = (r, g, b) => {
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const saturation = max === 0 ? 0 : ((max - min) / max) * 100;
-    const brightness = (r + g + b) / 3;
-    const isRedHeavy = r > g * 1.25 && r > b * 1.25;
-    return !isRedHeavy && saturation < 60 && brightness > 60;
-  };
-
-  // 🦷 2. Build Enamel Mask for Segmentation
-  const enamelMask = new Uint8Array(boxW * boxH);
-  for (let y = 0; y < boxH; y++) {
-    for (let x = 0; x < boxW; x++) {
-      const idx = y * boxW + x;
-      const i = idx * 4;
-      if (isToothPixel(data[i], data[i+1], data[i+2])) {
-        enamelMask[idx] = 1;
-      }
-    }
-  }
-
-  // 🏥 3. Segment into individual teeth (Sharing clinical intelligence)
-  const teethClusters = segmentTeeth(enamelMask, boxW, boxH);
-
-  // 🦷 4. TOOTH-BY-TOOTH WHITENING (The Fix)
-  teethClusters.forEach(cluster => {
-    cluster.forEach(idx => {
-      const i = idx * 4;
-      let r = data[i], g = data[i+1], b = data[i+2];
-
-      // --- NATURAL WHITENING (Direct Anatomical Lift) ---
-      const lift = 18 * intensity; 
-      const neutralize = 0.92;
-
-      r = r + lift;
-      g = g + lift;
-      b = b * neutralize + lift;
-
-      data[i]   = Math.min(255, r);
-      data[i+1] = Math.min(255, g);
-      data[i+2] = Math.min(255, b);
-    });
-  });
-
-  ctx.putImageData(imageData, minX, minY);
-}
 
 /**
  * ENGINE 3: BRACES (Visual Only)
