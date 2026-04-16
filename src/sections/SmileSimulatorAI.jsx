@@ -320,8 +320,8 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
  */
 function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   // 🦷 ANATOMICAL INDICES (Consolidated Visible Map)
-  const upperArchIdx = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
-  const lowerArchIdx = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
+  const upperArchIdx = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291];
+  const lowerArchIdx = [291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 61];
   const fullMouthIdx = [...upperArchIdx, ...lowerArchIdx];
   
   const points = fullMouthIdx.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
@@ -377,8 +377,8 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
 
     const r = data[i], g = data[i+1], b = data[i+2];
     const brightness = (r+g+b)/3;
-    const isRedHeavy = r > g * 1.13 || r > b * 1.5;
-    if (!isRedHeavy && brightness > 40 && Math.abs(r-g) < 45 && r < g * 1.25) {
+    const isRedHeavy = r > g * 1.18 || r > b * 1.55; 
+    if (!isRedHeavy && brightness > 28 && Math.abs(r-g) < 55 && r < g * 1.35) {
       isToothMask[idx] = 1;
     }
   }
@@ -414,11 +414,7 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
 
     if (dilatedMask[idx]) {
       // 🦷 Main Enamel Whitening (On Dilated Mask)
-      const centerX = boxW / 2;
       const localX = idx % boxW;
-      const distFromCenter = Math.abs(localX - centerX) / centerX;
-      const stabilityWeight = 1.0 - distFromCenter * 0.08;
-      if (stabilityWeight < 0.6) continue;
 
       const strength = 0.35 * maskValue * (intensity / 0.65);
       let target = luminance + (235 - luminance) * strength;

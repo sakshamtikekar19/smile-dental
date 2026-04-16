@@ -5,8 +5,8 @@
  * 3. Shadow Consistency & Depth Mapping
  */
 
-const UPPER_ARCH_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
-const LOWER_ARCH_INDICES = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
+const UPPER_ARCH_INDICES = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291];
+const LOWER_ARCH_INDICES = [291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 61];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -73,8 +73,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const archMidY = points.reduce((s, p) => s + p.y, 0) / points.length;
 
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
-  const minX = Math.floor(Math.min(...xs)) - 30, maxX = Math.ceil(Math.max(...xs)) + 30;
-  const minY = Math.floor(Math.min(...ys)) - 30, maxY = Math.ceil(Math.max(...ys)) + 30;
+  const horizontalPadding = (Math.max(...xs) - Math.min(...xs)) * 0.15; // 15% Padding
+  const verticalPadding = 35;
+  const minX = Math.floor(Math.min(...xs)) - horizontalPadding, maxX = Math.ceil(Math.max(...xs)) + horizontalPadding;
+  const minY = Math.floor(Math.min(...ys)) - verticalPadding, maxY = Math.ceil(Math.max(...ys)) + verticalPadding;
   const boxW = maxX - minX, boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
 
@@ -113,10 +115,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
     if (isEnamel(r, g, b)) {
       enamelMask[i] = true;
-      // Softly darken old position to show transformation area
-      newData[idx] *= 0.85;
-      newData[idx+1] *= 0.85;
-      newData[idx+2] *= 0.85;
+      // 🦷 ERASURE PASS: Clear the original position to prevent ghosting
+      newData[idx] = 180;     // Fill with neutral background-ish tone
+      newData[idx+1] = 160;
+      newData[idx+2] = 150;
     }
   }
 
@@ -138,10 +140,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const isLower = indices.includes(14);
 
   // 3. RIGID MOVEMENT LOOP (Guaranteed Visibility)
-  // set target buffer (important base)
-  for (let i = 0; i < newData.length; i++) {
-    newData[i] = sourceData[i];
-  }
+  // [CLEAN SLATE]: Redundant reset removed to prevent ghosting.
 
   teethClusters.forEach(cluster => {
     const center = getCenter(cluster, boxW);
