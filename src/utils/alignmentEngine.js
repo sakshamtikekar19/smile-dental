@@ -149,6 +149,12 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
   teethClusters.forEach(cluster => {
     const center = getCenter(cluster, boxW);
+    const gx = center.x + minX;
+
+    // 🦷 Anatomical Parabolic Target Mapping
+    const dxRel = (gx - centerX) / (boxW / 2);
+    const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
+    const targetY = targetYGlobal - minY;
 
     let dy = (targetY - center.y) * 1.5;
 
