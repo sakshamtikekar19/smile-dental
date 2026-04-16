@@ -181,7 +181,6 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     }
   });
 
-  console.log("APPLYING ALIGNMENT DATA");
   imageData.data.set(newData);
   ctx.putImageData(imageData, minX, minY);
 }
@@ -190,7 +189,6 @@ function processArch(ctx, landmarks, w, h, indices, options) {
  * Main Entry Point - Multi-Arch Rigid Recovery
  */
 export function applyAlignment(ctx, landmarks, w, h, options = {}) {
-  console.log("ALIGNMENT RUNNING");
   const settings = {
     strength: options.strength ?? 1.0,
     maxShiftX: options.maxShiftX || 2.4,
