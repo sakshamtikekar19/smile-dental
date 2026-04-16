@@ -156,11 +156,11 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * 1.15; 
+    let dy = (targetY - center.y) * 1.5; 
 
     // force visible movement
-    if (Math.abs(dy) < 1) {
-      dy = dy > 0 ? 1 : -1;
+    if (Math.abs(dy) < 2) {
+      dy = dy > 0 ? 2 : -2;
     }
 
     cluster.forEach(idx => {

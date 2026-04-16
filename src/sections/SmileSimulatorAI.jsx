@@ -635,7 +635,7 @@ const SmileSimulatorAI = () => {
       switch (treatment) {
         case "whitening": 
           setProcessingLog("Applying stoichiometry whitening...");
-          applyWhitening(ctx, landmarks, iw, ih, 0.65); 
+          applyWhitening(ctx, landmarks, iw, ih, 0.82); 
           break;
         case "alignment": 
           setProcessingLog("Reconstructing dental anatomy...");
@@ -651,7 +651,7 @@ const SmileSimulatorAI = () => {
           setProcessingLog("Aligning full dental arch...");
           applyAlignment(ctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Enhancing stoichiometric radiance...");
-          applyWhitening(ctx, landmarks, iw, ih, 0.70); 
+          applyWhitening(ctx, landmarks, iw, ih, 0.85); 
           setProcessingLog("Bonding medical-grade braces...");
           applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
