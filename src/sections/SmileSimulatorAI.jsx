@@ -340,19 +340,18 @@ function applyWhitening(ctx, landmarks, w, h) {
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
 
-  // --- CLEAN TOOTH MASK ---
+  // --- CLINICAL FILTER (RELAXED FOR HIGH IMPACT) ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    return lum > 75 && sat < 65 && !(r > g * 1.25);
+    return lum > 60 && sat < 75 && !(r > g * 1.35);
   }
 
   // --- WHITENING LOOP (Region-Locked + Gradient Lift) ---
   for (let y = 0; y < boxH; y++) {
     const globalY = minY + y;
-    // 🔒 Y-Axis Lock
     if (globalY < regionTop || globalY > regionBottom) continue;
 
     for (let x = 0; x < boxW; x++) {
@@ -370,16 +369,16 @@ function applyWhitening(ctx, landmarks, w, h) {
       let nr = r, ng = g, nb = b;
 
       if (yellowStrength > 8) {
-        nr *= (1.0 - (0.05 * gradient)); // subtle red reduction
-        nb *= (1.0 + (0.08 * gradient)); // subtle blue boost to clean yellow
+        nr *= (1.0 - (0.05 * gradient)); 
+        nb *= (1.0 + (0.10 * gradient)); 
       }
 
-      // ✨ STEP 3: Luminous Lift (Preserves Texture)
-      const lift = 15 * gradient;
+      // ✨ STEP 3: HIGH-IMPACT Luminous Lift
+      const lift = 35 * gradient;
       
-      data[i]     = Math.min(255, nr + lift * 0.7);
-      data[i + 1] = Math.min(255, ng + lift * 0.8);
-      data[i + 2] = Math.min(255, nb + lift * 1.1); // Blue brilliance
+      data[i]     = Math.min(255, nr + lift * 0.8);
+      data[i + 1] = Math.min(255, ng + lift * 0.9);
+      data[i + 2] = Math.min(255, nb + lift * 1.3); // Blue brilliance gleam
     }
   }
   octx.putImageData(imageData, 0, 0);
