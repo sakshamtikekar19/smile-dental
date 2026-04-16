@@ -626,24 +626,32 @@ const SmileSimulatorAI = () => {
       ctx.clearRect(0, 0, iw, ih);
       ctx.drawImage(img, 0, 0, iw, ih);
 
-      setProcessingLog("Engineering modular simulation...");
+      console.time("simulation_render");
       switch (treatment) {
         case "whitening": 
+          setProcessingLog("Applying stoichiometry whitening...");
           applyWhitening(ctx, landmarks, iw, ih, 0.82); 
           break;
         case "alignment": 
+          setProcessingLog("Reconstructing dental anatomy...");
           applyAlignment(ctx, landmarks, iw, ih, alignmentStrength); 
+          setProcessingLog("Finalizing enamel texture...");
           applyWhitening(ctx, landmarks, iw, ih, 0.2); 
           break;
         case "braces": 
+          setProcessingLog("Positioning clinical brackets...");
           applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
         case "transformation": 
+          setProcessingLog("Aligning full dental arch...");
           applyAlignment(ctx, landmarks, iw, ih, alignmentStrength); 
+          setProcessingLog("Enhancing stoichiometric radiance...");
           applyWhitening(ctx, landmarks, iw, ih, 0.85); 
+          setProcessingLog("Bonding medical-grade braces...");
           applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
       }
+      console.timeEnd("simulation_render");
 
       const finalUrl = canvas.toDataURL("image/jpeg", 0.93);
       setAfterImage(finalUrl);
@@ -652,7 +660,11 @@ const SmileSimulatorAI = () => {
       setStep("result");
       setIsProcessing(false);
       stopCamera();
-    } catch (err) { setError(err.message); setIsProcessing(false); }
+    } catch (err) { 
+      console.error("[CRITICAL] Processing Pipeline Failed:", err);
+      setError(`Simulation Failed: ${err.message || "Anatomical conflict detected. Please retry in better lighting."}`); 
+      setIsProcessing(false); 
+    }
   }, []);
 
   useEffect(() => {

@@ -14,16 +14,19 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
  * 🦷 TOOTH SEGMENTATION ENGINE (Flood Fill Clustering)
  */
 function segmentTeeth(mask, width, height) {
-  const visited = new Array(mask.length).fill(false);
+  const visited = new Uint8Array(mask.length);
   const clusters = [];
   const dirs = [-1, 1, -width, width];
+  let iterations = 0;
+  const MAX_ITERATIONS = 500000; // Safeguard against unexpected infinite loops
 
   for (let i = 0; i < mask.length; i++) {
     if (!mask[i] || visited[i]) continue;
+    if (++iterations > MAX_ITERATIONS) break;
 
     let queue = [i];
     let cluster = [];
-    visited[i] = true;
+    visited[i] = 1;
 
     while (queue.length) {
       const curr = queue.pop();
@@ -31,18 +34,16 @@ function segmentTeeth(mask, width, height) {
 
       for (let d of dirs) {
         const ni = curr + d;
-        // Check bounds and connectivity
         if (ni >= 0 && ni < mask.length && mask[ni] && !visited[ni]) {
-          // Prevent wrapping around the canvas edges
           if (Math.abs((curr % width) - (ni % width)) <= 1) {
-            visited[ni] = true;
+            visited[ni] = 1;
             queue.push(ni);
           }
         }
       }
     }
 
-    if (cluster.length > 40 && cluster.length < 1800) { // LOWERED THRESHOLD: catches more teeth
+    if (cluster.length > 40 && cluster.length < 2500) { 
       clusters.push(cluster);
     }
   }
@@ -100,32 +101,32 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const mouthTop = archMidY - boxH * 0.25;
   const mouthBottom = archMidY + boxH * 0.25;
 
-  const enamelMask = new Array(boxW * boxH).fill(false);
-  const occupancyMap = new Int8Array(boxW * boxH).fill(0); // Tracking for moved pixels
+  const enamelMask = new Uint8Array(boxW * boxH);
+  const occupancyMap = new Int8Array(boxW * boxH).fill(0); 
 
+  console.time("enamel_scan");
   for (let i = 0; i < boxW * boxH; i++) {
     const y = Math.floor(i / boxW);
     const globalY = y + minY;
 
-    // 🔒 REGION LOCK: Restrict to mouth band only
     if (globalY < mouthTop || globalY > mouthBottom) continue;
 
     const idx = i * 4;
     const r = sourceData[idx], g = sourceData[idx+1], b = sourceData[idx+2];
 
     if (isEnamel(r, g, b)) {
-      enamelMask[i] = true;
-      // 🦷 ERASURE PASS: Clear the original position to prevent ghosting
-      newData[idx] = 180;     // Fill with neutral background-ish tone
+      enamelMask[i] = 1;
+      newData[idx] = 180;     
       newData[idx+1] = 160;
       newData[idx+2] = 150;
     }
   }
+  console.timeEnd("enamel_scan");
 
-  // 2. SEGMENT INTO TEETH
+  console.time("segmentation");
   let teethClusters = segmentTeeth(enamelMask, boxW, boxH);
+  console.timeEnd("segmentation");
   
-  // 🚨 FALLBACK: if segmentation fails, treat whole enamel as one cluster
   if (!teethClusters || teethClusters.length === 0) {
     const fallbackCluster = [];
     for (let i = 0; i < enamelMask.length; i++) {
@@ -134,7 +135,6 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     if (fallbackCluster.length > 0) teethClusters = [fallbackCluster];
   }
 
-  // Sort Left -> Right for consistent processing
   teethClusters.sort((a, b) => getCenter(a, boxW).x - getCenter(b, boxW).x);
 
   const isLower = indices.includes(14);
