@@ -361,20 +361,34 @@ function applyWhitening(ctx, landmarks, w, h) {
 
       if (!isToothPixel(r, g, b)) continue;
 
-      // 🧪 ENHANCED YELLOW NEUTRALIZATION
-      const yellowFactor = r - b;
-      let nr = r, ng = g, nb = b;
+      // 🧪 STEP 1 — Detect "yellow plaque zones"
+      const yellowStrength = r - b;   // higher = more yellow
+      const midTone = (r + g + b) / 3;
 
-      if (yellowFactor > 5) {
-        nr *= 0.95; // deeper red reduction to kill warm stains
-        ng *= 1.02; // subtle green balance
-        nb *= 1.12; // stronger blue boost to neutralize yellow
+      // 🔥 STEP 2 — APPLY CONTROLLED CORRECTION
+      let nr = r;
+      let ng = g;
+      let nb = b;
+
+      // ONLY target yellow-ish pixels
+      if (yellowStrength > 12 && midTone < 200) {
+        // 🧠 reduce yellow WITHOUT killing depth
+        nr *= 0.96;     // reduce red slightly
+        ng *= 1.02;     // balance green
+        nb *= 1.10;     // boost blue (neutralize yellow)
+
+        // ⚠️ preserve natural shadows (don't flatten gaps)
+        const contrastProtect = midTone < 120 ? 0.98 : 1.0;
+
+        nr *= contrastProtect;
+        ng *= contrastProtect;
+        nb *= contrastProtect;
       }
 
-      // ✨ ULTRA-SOFT CLINICAL LIFT (Texture Priority)
-      data[i]     = Math.min(255, nr * 1.015);
-      data[i + 1] = Math.min(255, ng * 1.02);
-      data[i + 2] = Math.min(255, nb * 1.04);
+      // ✨ STEP 3 — FINAL WHITENING (light touch)
+      data[i]     = Math.min(255, nr * 1.05);
+      data[i + 1] = Math.min(255, ng * 1.07);
+      data[i + 2] = Math.min(255, nb * 1.10);
     }
   }
   octx.putImageData(imageData, 0, 0);
