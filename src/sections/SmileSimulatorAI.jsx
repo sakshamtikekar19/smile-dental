@@ -364,12 +364,14 @@ function applyWhitening(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: Stoichiometric Stain Neutralization
+      // 🧪 STEP 2: Aggressive Mid-Arch Neutralization (Stain Clearing)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
-      if (yellowStrength > 8) {
-        nr *= (1.0 - (0.05 * gradient)); 
-        nb *= (1.0 + (0.08 * gradient)); 
+      if (yellowStrength > 5) {
+        const neutralizingPower = 1.0 * gradient;
+        nr *= (1.0 - (0.12 * neutralizingPower)); // reduce red stains in center
+        ng *= (1.0 - (0.04 * neutralizingPower)); // subtle green dampening
+        nb *= (1.0 + (0.18 * neutralizingPower)); // strong blue boost to kill yellow
       }
 
       // 🧠 STEP 3: REALISM BLEND (Drop-In)
