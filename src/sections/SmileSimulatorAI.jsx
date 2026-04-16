@@ -402,12 +402,13 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   // 🚀 PASS 3: Composite Reconstruction (Cleaning + Whitening)
   const centerX = boxW / 2;
   for (let i = 0; i < data.length; i += 4) {
+    const idx = i / 4;
     const inOriginalMask = isToothMask[idx];
     const isGapZone = !inOriginalMask && dilatedMask[idx];
     if (!inOriginalMask && !isGapZone) continue;
 
     const r = data[i], g = data[i + 1], b = data[i + 2];
-    const maskValue = softenedMask[idx] / 255;
+    const maskValue = maskData[idx * 4] / 255;
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     const avg = (r+g+b)/3;
 
@@ -812,16 +813,23 @@ const SmileSimulatorAI = () => {
                   
                   <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-6 z-10 pointer-events-none">
                     <p className="text-white/70 text-[10px] uppercase tracking-[0.3em] font-bold drop-shadow-md">Live AI Simulation</p>
+                    {error && <p className="text-red-400 text-[10px] font-bold bg-black/40 px-3 py-1 rounded-full backdrop-blur-md animate-pulse">{error}</p>}
                   </div>
 
                   <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10">
                     <button onClick={() => {
                       const canvas = canvasRef.current;
                       if (canvas) {
+                        setProcessingLog("Capturing high-res dental scan...");
+                        setIsProcessing(true);
                         pendingTreatmentRef.current = selectedTreatment;
                         setActiveTreatment(selectedTreatment);
-                        setRawImageUrl(canvas.toDataURL("image/jpeg", 0.95));
-                        setIsProcessing(true);
+                        
+                        // 🔥 MOBILE OPTIMIZATION: Async Blob Capture
+                        canvas.toBlob((blob) => {
+                          const url = URL.createObjectURL(blob);
+                          setRawImageUrl(url);
+                        }, "image/jpeg", 0.9);
                       }
                     }} className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center group active:scale-95 transition-transform">
                       <div className="h-14 w-14 rounded-full bg-white group-hover:bg-brand-gold transition-colors" />
