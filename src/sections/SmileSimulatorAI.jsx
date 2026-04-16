@@ -653,6 +653,7 @@ const SmileSimulatorAI = () => {
       }
       console.timeEnd("simulation_render");
 
+      const finalUrl = procCanvas.toDataURL("image/jpeg", 0.93);
       setAfterImage(finalUrl);
       setBeforeImage(snapshotUrl);
       setFinalLandmarks(landmarks);
