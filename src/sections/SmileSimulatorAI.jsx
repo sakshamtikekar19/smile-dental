@@ -399,55 +399,9 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     dilatedMask = temp;
   }
   
-  // 🔍 Clinical Debug
-  let activePixels = 0;
-  for (let i = 0; i < maskData.length; i += 4) if (maskData[i] > 20) activePixels++;
-  console.log(`[Whitening Engine] Active Mask Pixels: ${activePixels} / Total: ${boxW * boxH}`);
-
-  // 🏥 Anatomical Bounds (Vertical Clamping)
-  const lipUpperY = landmarks[13].y * h;
-  const lipLowerY = landmarks[14].y * h;
-  const mouthHeight = lipLowerY - lipUpperY;
-
-  // 🚀 PASS 1: Build Binary Tooth Mask (Stoichiometry + Clamping)
-  const pixelCount = boxW * boxH;
-  const isToothMask = new Uint8Array(pixelCount);
-  for (let i = 0; i < data.length; i += 4) {
-    const idx = i / 4;
-    const maskValue = softenedMask[idx] / 255;
-    if (maskValue < 0.05) continue;
-
-    const localY = Math.floor(idx / boxW) + minY;
-    if (localY < lipUpperY - mouthHeight * 0.05 || localY > lipLowerY + mouthHeight * 0.05) continue;
-
-    const r = data[i], g = data[i+1], b = data[i+2];
-    const brightness = (r+g+b)/3;
-    const isRedHeavy = r > g * 1.18 || r > b * 1.55; 
-    if (!isRedHeavy && brightness > 28 && Math.abs(r-g) < 55 && r < g * 1.35) {
-      isToothMask[idx] = 1;
-    }
-  }
-
-  // 🚀 PASS 2: Mask Dilation (Expand into Interdental Gaps)
-  let dilatedMask = new Uint8Array(isToothMask);
-  for (let p = 0; p < 2; p++) {
-    const temp = new Uint8Array(dilatedMask);
-    for (let y = 1; y < boxH - 1; y++) {
-      for (let x = 1; x < boxW - 1; x++) {
-        const idx = y * boxW + x;
-        if (!dilatedMask[idx] && 
-            (dilatedMask[idx-1] || dilatedMask[idx+1] || dilatedMask[idx-boxW] || dilatedMask[idx+boxW])) {
-          temp[idx] = 1;
-        }
-      }
-    }
-    dilatedMask = temp;
-  }
-
   // 🚀 PASS 3: Composite Reconstruction (Cleaning + Whitening)
   const centerX = boxW / 2;
   for (let i = 0; i < data.length; i += 4) {
-    const idx = i / 4;
     const inOriginalMask = isToothMask[idx];
     const isGapZone = !inOriginalMask && dilatedMask[idx];
     if (!inOriginalMask && !isGapZone) continue;
