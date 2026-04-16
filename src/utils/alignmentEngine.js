@@ -151,11 +151,11 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     const targetY = targetYGlobal - minY;
 
     const dx = 0;
-    let dy = (targetY - center.y) * strength * 0.8;
+    let dy = (targetY - center.y) * 1.5; 
 
     // force visible movement
-    if (Math.abs(dy) < 1 && Math.abs(dy) > 0.01) {
-      dy = dy > 0 ? 1 : -1;
+    if (Math.abs(dy) < 2) {
+      dy = dy > 0 ? 2 : -2;
     }
 
     cluster.forEach(idx => {
@@ -202,19 +202,4 @@ export function applyAlignment(ctx, landmarks, w, h, options = {}) {
 
   processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, settings);
   processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, settings);
-
-  // Final Texture Pass (Dental Realism Pass)
-  ctx.save();
-  ctx.globalAlpha = 0.05;
-  ctx.filter = "contrast(1.03) brightness(1.01)";
-  ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
-
-  // Clinical Radiance
-  ctx.save();
-  ctx.globalAlpha = 0.035;
-  ctx.filter = "blur(0.4px) brightness(1.01)";
-  ctx.drawImage(ctx.canvas, 0, 0);
-  ctx.restore();
-
 }
