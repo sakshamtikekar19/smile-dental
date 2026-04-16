@@ -334,10 +334,10 @@ function applyWhitening(ctx, landmarks, w, h) {
     const sat = max === 0 ? 0 : (max - min) / max * 100;
     const lum = (r + g + b) / 3;
 
-    // HARD filters
-    if (lum < 65) return false;                    // remove shadows
-    if (r > g * 1.2 && r > b * 1.2) return false; // remove lips/gums
-    if (sat > 55) return false;                   // remove skin tones
+    // RELAXED filters to catch natural enamel
+    if (lum < 35) return false;                    // allow more shadows
+    if (r > g * 1.35 && r > b * 1.35) return false; // remove lips/gums
+    if (sat > 75) return false;                   // remove skin tones
 
     return true;
   };
@@ -350,11 +350,10 @@ function applyWhitening(ctx, landmarks, w, h) {
 
     if (!isToothPixel(r, g, b)) continue;
 
-    // --- NATURAL WHITENING ---
-    // reduce yellow instead of blasting brightness
-    r = r * 1.05 + 8;
-    g = g * 1.05 + 8;
-    b = b * 1.12 + 10;
+    // --- NATURAL WHITENING (Boosted) ---
+    r = r * 1.08 + 12;
+    g = g * 1.08 + 12;
+    b = b * 1.15 + 15;
 
     // clamp
     data[i]     = Math.min(255, r);
@@ -362,7 +361,7 @@ function applyWhitening(ctx, landmarks, w, h) {
     data[i + 2] = Math.min(255, b);
   }
 
-  ctx.putImageData(imageData, 0, 0);
+  ctx.putImageData(imageData, minX, minY);
 }
 
 
