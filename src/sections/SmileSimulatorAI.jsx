@@ -614,51 +614,45 @@ const SmileSimulatorAI = () => {
 
       const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       
-      // 🔥 1. SINGLE SOURCE OF TRUTH (MANDATE: USE VISIBLE CANVAS ONLY)
-      const canvas = canvasRef.current;
-      if (!canvas) throw new Error("Hardware reference lost.");
-      const ctx = canvas.getContext("2d");
-      
-      // Sync resolution to high-res capture
-      canvas.width = iw;
-      canvas.height = ih;
+      // 🔥 ARCHITECTURAL FIX: Use private buffer for simulation (No Live-UI Desync)
+      const procCanvas = document.createElement("canvas");
+      procCanvas.width = iw;
+      procCanvas.height = ih;
+      const pctx = procCanvas.getContext("2d");
 
       const img = await loadImage(snapshotUrl);
       
       // 🔥 2. FINAL PIPELINE (LOCK THIS IN)
-      ctx.clearRect(0, 0, iw, ih);
-      
-      // draw captured image
-      ctx.drawImage(img, 0, 0, iw, ih);
+      pctx.clearRect(0, 0, iw, ih);
+      pctx.drawImage(img, 0, 0, iw, ih);
 
       console.time("simulation_render");
       switch (treatment) {
         case "whitening": 
           setProcessingLog("Applying stoichiometry whitening...");
-          applyWhitening(ctx, landmarks, iw, ih, 0.82); 
+          applyWhitening(pctx, landmarks, iw, ih, 0.82); 
           break;
         case "alignment": 
           setProcessingLog("Reconstructing dental anatomy...");
-          applyAlignment(ctx, landmarks, iw, ih, alignmentStrength); 
+          applyAlignment(pctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Finalizing enamel texture...");
-          applyWhitening(ctx, landmarks, iw, ih, 0.2); 
+          applyWhitening(pctx, landmarks, iw, ih, 0.2); 
           break;
         case "braces": 
           setProcessingLog("Positioning clinical brackets...");
-          applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
+          applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
         case "transformation": 
           setProcessingLog("Aligning full dental arch...");
-          applyAlignment(ctx, landmarks, iw, ih, alignmentStrength); 
+          applyAlignment(pctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Enhancing stoichiometric radiance...");
-          applyWhitening(ctx, landmarks, iw, ih, 0.85); 
+          applyWhitening(pctx, landmarks, iw, ih, 0.85); 
           setProcessingLog("Bonding medical-grade braces...");
-          applyBracesEffect(ctx, landmarks, iw, ih, bracesImageRef.current); 
+          applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
       }
       console.timeEnd("simulation_render");
 
-      const finalUrl = canvas.toDataURL("image/jpeg", 0.93);
       setAfterImage(finalUrl);
       setBeforeImage(snapshotUrl);
       setFinalLandmarks(landmarks);
