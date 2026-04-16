@@ -4,10 +4,9 @@ import { Camera, X, CheckCircle2, Info, RefreshCw } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
-import { clipToWhiteningMask, eraseAboveUpperLip } from "../utils/bracesClipFixed";
+import { eraseAboveUpperLip } from "../utils/bracesClipFixed";
 import { buildBracesPack } from "../utils/bracesGeometryFixed";
-import { applyAlignment as applyProfessionalAlignment, segmentTeeth } from "../utils/alignmentEngine";
-import { TEETH_WHITEN_MASK_INDICES } from "../utils/teethWhitenMaskIndices";
+import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
 
 
 // ── Environment ──────────────────────────────────────────────────────────────
@@ -313,7 +312,7 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
   });
 }
 
-function applyWhitening(ctx, landmarks, w, h) {
+function applyWhitening(ctx, w, h) {
   const imageData = ctx.getImageData(0, 0, w, h);
   const data = imageData.data;
 
@@ -619,13 +618,13 @@ const SmileSimulatorAI = () => {
       switch (treatment) {
         case "whitening": 
           setProcessingLog("Applying stoichiometry whitening...");
-          applyWhitening(pctx, landmarks, iw, ih); 
+          applyWhitening(pctx, iw, ih); 
           break;
         case "alignment": 
           setProcessingLog("Reconstructing dental anatomy...");
           applyAlignment(pctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Finalizing enamel texture...");
-          applyWhitening(pctx, landmarks, iw, ih); 
+          applyWhitening(pctx, iw, ih); 
           break;
         case "braces": 
           setProcessingLog("Positioning clinical brackets...");
@@ -635,7 +634,7 @@ const SmileSimulatorAI = () => {
           setProcessingLog("Aligning full dental arch...");
           applyAlignment(pctx, landmarks, iw, ih, alignmentStrength); 
           setProcessingLog("Enhancing stoichiometric radiance...");
-          applyWhitening(pctx, landmarks, iw, ih); 
+          applyWhitening(pctx, iw, ih); 
           setProcessingLog("Bonding medical-grade braces...");
           applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current); 
           break;
