@@ -316,10 +316,10 @@ function applyWhitening(ctx, landmarks, w, h) {
   const imageData = ctx.getImageData(0, 0, w, h);
   const data = imageData.data;
   
-  // ✅ REAL ORIGINAL COPY (CRITICAL) - Immutable Reference
+  // ✅ REAL ORIGINAL COPY (CRITICAL)
   const original = new Uint8ClampedArray(data);
 
-  // --- BALANCED CLINICAL FILTER ---
+  // --- BALANCED CLINICAL FILTER (FINAL VERSION) ---
   function isToothPixel(r, g, b) {
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
@@ -327,16 +327,16 @@ function applyWhitening(ctx, landmarks, w, h) {
     const lum = (r + g + b) / 3;
     const sat = max - min;
 
-    const notDark = lum > 70;          // remove shadows
-    const notTooBright = lum < 235;    // avoid blown highlights
-    const lowSat = sat < 55;           // teeth are neutral
-    const notGum = !(r > g * 1.2);     // reject red tones
-    const notSkin = !(r > 120 && g > 90 && b > 70); // skin tone guard
+    const notDark = lum > 70;
+    const notTooBright = lum < 235;
+    const lowSat = sat < 55;
+    const notGum = !(r > g * 1.2);
+    const notSkin = !(r > 120 && g > 90 && b > 70);
 
     return notDark && notTooBright && lowSat && notGum && notSkin;
   }
 
-  // --- WHITENING LOOP (FINAL) ---
+  // --- WHITENING LOOP (SIMPLE + CLEAN) ---
   for (let i = 0; i < data.length; i += 4) {
     const r = original[i];
     const g = original[i + 1];
@@ -344,7 +344,6 @@ function applyWhitening(ctx, landmarks, w, h) {
 
     if (!isToothPixel(r, g, b)) continue;
 
-    // clean natural whitening (NO artifacts)
     data[i]     = Math.min(255, r * 1.08);
     data[i + 1] = Math.min(255, g * 1.10);
     data[i + 2] = Math.min(255, b * 1.15);
@@ -464,15 +463,15 @@ const SmileSimulatorAI = () => {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     if (latestLandmarksRef.current) {
       const t = selectedTreatment;
-      if (t === "whitening") applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.65);
+      if (t === "whitening") applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
       if (t === "alignment") { 
         applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, alignmentStrength); 
-        applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.15); 
+        applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height); 
       }
       if (t === "braces") applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
       if (t === "transformation") { 
         applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, alignmentStrength); 
-        applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height, 0.75); 
+        applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height); 
         applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current); 
       }
     }
