@@ -371,10 +371,10 @@ function applyWhitening(ctx, landmarks, w, h) {
         nb *= 1.12; // stronger blue boost to neutralize yellow
       }
 
-      // ✨ SOFT CLINICAL LIFT (Reduced Intensity)
-      data[i]     = Math.min(255, nr * 1.03);
-      data[i + 1] = Math.min(255, ng * 1.04);
-      data[i + 2] = Math.min(255, nb * 1.06);
+      // ✨ ULTRA-SOFT CLINICAL LIFT (Texture Priority)
+      data[i]     = Math.min(255, nr * 1.015);
+      data[i + 1] = Math.min(255, ng * 1.02);
+      data[i + 2] = Math.min(255, nb * 1.04);
     }
   }
   octx.putImageData(imageData, 0, 0);
