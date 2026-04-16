@@ -349,7 +349,7 @@ function applyWhitening(ctx, landmarks, w, h) {
     return lum > 75 && sat < 65 && !(r > g * 1.25);
   }
 
-  // --- WHITENING LOOP (Region-Locked + Plaque Clean) ---
+  // --- WHITENING LOOP (Region-Locked + Gradient Lift) ---
   for (let y = 0; y < boxH; y++) {
     const globalY = minY + y;
     // 🔒 Y-Axis Lock
@@ -361,34 +361,25 @@ function applyWhitening(ctx, landmarks, w, h) {
 
       if (!isToothPixel(r, g, b)) continue;
 
-      // 🧪 STEP 1 — Detect "yellow plaque zones"
-      const yellowStrength = r - b;   // higher = more yellow
-      const midTone = (r + g + b) / 3;
+      // 🦷 STEP 1: Anatomical Arch Gradient (Realism Key)
+      const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
+      const gradient = 1.0 - (distFromCenter * 0.35); // Front = 100% lift, Sides = 65% lift
 
-      // 🔥 STEP 2 — APPLY CONTROLLED CORRECTION
-      let nr = r;
-      let ng = g;
-      let nb = b;
+      // 🧪 STEP 2: Stoichiometric Stain Neutralization
+      const yellowStrength = r - b;
+      let nr = r, ng = g, nb = b;
 
-      // ONLY target yellow-ish pixels
-      if (yellowStrength > 12 && midTone < 200) {
-        // 🧠 reduce yellow WITHOUT killing depth
-        nr *= 0.96;     // reduce red slightly
-        ng *= 1.02;     // balance green
-        nb *= 1.10;     // boost blue (neutralize yellow)
-
-        // ⚠️ preserve natural shadows (don't flatten gaps)
-        const contrastProtect = midTone < 120 ? 0.98 : 1.0;
-
-        nr *= contrastProtect;
-        ng *= contrastProtect;
-        nb *= contrastProtect;
+      if (yellowStrength > 8) {
+        nr *= (1.0 - (0.05 * gradient)); // subtle red reduction
+        nb *= (1.0 + (0.08 * gradient)); // subtle blue boost to clean yellow
       }
 
-      // ✨ STEP 3 — FINAL WHITENING (light touch)
-      data[i]     = Math.min(255, nr * 1.05);
-      data[i + 1] = Math.min(255, ng * 1.07);
-      data[i + 2] = Math.min(255, nb * 1.10);
+      // ✨ STEP 3: Luminous Lift (Preserves Texture)
+      const lift = 15 * gradient;
+      
+      data[i]     = Math.min(255, nr + lift * 0.7);
+      data[i + 1] = Math.min(255, ng + lift * 0.8);
+      data[i + 2] = Math.min(255, nb + lift * 1.1); // Blue brilliance
     }
   }
   octx.putImageData(imageData, 0, 0);
