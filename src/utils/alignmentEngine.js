@@ -90,103 +90,56 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   for (let i = 0; i < newData.length; i++) { newData[i] = 0; }
   
   const isLower = indices.includes(14) || indices.includes(324); 
-  const enamelMask = new Uint8Array(boxW * boxH);
+  
+  // 1. ANATOMICAL REGION MASK (Landmark-Driven)
+  const teethMask = new Uint8Array(boxW * boxH);
+  const bandHalfHeight = boxH * 0.12; 
+  const upperY = archMidY - bandHalfHeight;
+  const lowerY = archMidY + bandHalfHeight;
 
-  // 1. SURGICAL ENAMEL SCAN (User-Hardened Robust Detection)
-  console.time("enamel_scan");
   for (let y = 0; y < boxH; y++) {
-    for (let x = 0; x < boxW; x++) {
-      const idx = y * boxW + x;
-      const r = sourceData[idx * 4], g = sourceData[idx * 4 + 1], b = sourceData[idx * 4 + 2];
-      const gy = y + minY;
-
-      // 🦷 Horizontal Band Lock + Simple Color (User Definitive)
-      const isEnamel = (function() {
-        const lum = (r + g + b) / 3;
-        if (lum < 60) return false;
-
-        // 🔥 HARD REGION LOCK (Physical Safe Zone)
-        const upperBandTop = archMidY - boxH * 0.25;
-        const upperBandBottom = archMidY + boxH * 0.05;
-
-        const lowerBandTop = archMidY - boxH * 0.05;
-        const lowerBandBottom = archMidY + boxH * 0.25;
-
-        const inUpper = gy > upperBandTop && gy < upperBandBottom;
-        const inLower = gy > lowerBandTop && gy < lowerBandBottom;
-
-        return inUpper || inLower;
-      })();
-
-      if (isEnamel) {
-        enamelMask[idx] = 1;
+    const gy = y + minY;
+    if (gy > upperY && gy < lowerY) {
+      for (let x = 0; x < boxW; x++) {
+        teethMask[y * boxW + x] = 1;
       }
     }
   }
-  console.timeEnd("enamel_scan");
 
-  console.time("segmentation");
-  let teethClusters = segmentTeeth(enamelMask, boxW, boxH);
-  console.log("TEETH COUNT (" + (isLower ? "LOWER" : "UPPER") + "):", teethClusters.length);
-  console.timeEnd("segmentation");
-  
-  if (!teethClusters || teethClusters.length === 0) {
-    const fallbackCluster = [];
-    for (let i = 0; i < enamelMask.length; i++) {
-      if (enamelMask[i]) fallbackCluster.push(i);
-    }
-    if (fallbackCluster.length > 0) teethClusters = [fallbackCluster];
-  }
+  // 2. BACKWARD MAPPING ALIGNMENT (Gap-Free Transformation)
+  for (let y = 0; y < boxH; y++) {
+    for (let x = 0; x < boxW; x++) {
+      const idx = y * boxW + x;
+      const i = idx * 4;
 
-  teethClusters.sort((a, b) => getCenter(a, boxW).x - getCenter(b, boxW).x);
+      if (!teethMask[idx]) {
+        newData[i]     = sourceData[i];
+        newData[i + 1] = sourceData[i + 1];
+        newData[i + 2] = sourceData[i + 2];
+        newData[i + 3] = 255;
+        continue;
+      }
 
-  // 3. RIGID MOVEMENT LOOP (Guaranteed Visibility)
-  // [CLEAN SLATE]: Redundant reset removed to prevent ghosting.
+      const gx = x + minX;
+      const gy = y + minY;
+      const dxRel = (gx - centerX) / (boxW / 2);
 
-  teethClusters.forEach((cluster) => {
-    const center = getCenter(cluster, boxW);
-    const gx = center.x + minX;
+      // Stronger Smile Curve (Anatomically Balanced)
+      const curveDirection = isLower ? 1 : -1;
+      const targetYGlobal = archMidY + curveDirection * (boxH * 0.04) * (dxRel * dxRel);
 
-    const dxRel = (gx - centerX) / (boxW / 2);
+      let dy = (targetYGlobal - gy) * 0.6;
+      if (Math.abs(dy) < 1.5) {
+        dy = dy > 0 ? 1.5 : -1.5;
+      }
 
-    // Stronger, visible smile curve (User-Calibrated 0.04)
-    const curveDirection = isLower ? 1 : -1;
-    const targetYGlobal = archMidY + curveDirection * (boxH * 0.04) * (dxRel * dxRel);
-    const targetY = targetYGlobal - minY;
+      // Backward Map: Find where this coordinate CAME FROM
+      const sy = clamp(y - dy, 0, boxH - 1);
+      const si = (Math.floor(sy) * boxW + x) * 4;
 
-    // 🚀 BOOSTED MOVEMENT (THIS IS THE FIX)
-    let dy = (targetY - center.y) * 0.8;
-
-    // 🚨 MINIMUM MOVEMENT GUARANTEE
-    if (Math.abs(dy) < 2) {
-      dy = dy > 0 ? 2 : -2;
-    }
-
-    for (let idx of cluster) {
-      const x = idx % boxW;
-      const y = Math.floor(idx / boxW);
-
-      const ny = Math.round(y + dy);
-      if (ny < 0 || ny >= boxH) continue;
-
-      const ni = (ny * boxW + x) * 4;
-      const oi = idx * 4;
-
-      // overwrite safely
-      newData[ni]     = sourceData[oi];
-      newData[ni + 1] = sourceData[oi + 1];
-      newData[ni + 2] = sourceData[oi + 2];
-      newData[ni + 3] = 255;
-    }
-  });
-
-  // 🔥 RESTORE PIXELS (MANDATORY)
-  // restore untouched pixels
-  for (let i = 0; i < newData.length; i += 4) {
-    if (newData[i + 3] === 0) {
-      newData[i]     = sourceData[i];
-      newData[i + 1] = sourceData[i + 1];
-      newData[i + 2] = sourceData[i + 2];
+      newData[i]     = sourceData[si];
+      newData[i + 1] = sourceData[si + 1];
+      newData[i + 2] = sourceData[si + 2];
       newData[i + 3] = 255;
     }
   }
