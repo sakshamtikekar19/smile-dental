@@ -101,13 +101,12 @@ function processArch(ctx, landmarks, w, h, indices, options) {
       
       const max = Math.max(r, g, b);
       const min = Math.min(r, g, b);
-      const saturation = max === 0 ? 0 : ((max - min) / max) * 100;
-      const brightness = (r + g + b) / 3;
+      const sat = max === 0 ? 0 : ((max - min) / max) * 100;
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
-      const isRedHeavy = r > g * 1.25 && r > b * 1.25;
-
-      // 🏥 FINAL LOCKED FILTER: Clinic-Grade Precision
-      const isEnamel = !isRedHeavy && saturation < 60 && brightness > 60;
+      // 🏥 FINAL FORGIVING FILTER: Detects shadow enamel while rejecting skin
+      const isRedHeavy = r > g * 1.3 && r > b * 1.3;
+      const isEnamel = lum > 45 && sat < 60 && !isRedHeavy;
       
       // 🏥 ANATOMICAL SAFETY: Exclude pixels beyond the lip transition line
       const globalY = y + minY;
@@ -122,6 +121,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
   console.time("segmentation");
   let teethClusters = segmentTeeth(enamelMask, boxW, boxH);
+  console.log("TEETH COUNT (" + (isLower ? "LOWER" : "UPPER") + "):", teethClusters.length);
   console.timeEnd("segmentation");
   
   if (!teethClusters || teethClusters.length === 0) {
