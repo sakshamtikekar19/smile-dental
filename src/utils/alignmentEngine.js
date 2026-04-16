@@ -86,44 +86,33 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const sourceData = new Uint8ClampedArray(data);
   const newData = new Uint8ClampedArray(sourceData.length);
 
-  // ❌ DO NOT prefill with sourceData
-  // start empty
-  for (let i = 0; i < newData.length; i++) {
-    newData[i] = 0;
-  }
-  const depthMap = new Float32Array(boxW * boxH).fill(-1);
+  // ❌ CLEAN START
+  for (let i = 0; i < newData.length; i++) { newData[i] = 0; }
+  
+  const isLower = indices.includes(14) || indices.includes(324); 
+  const enamelMask = new Uint8Array(boxW * boxH);
 
-    const isEnamel = (r, g, b) => {
+  // 1. SURGICAL ENAMEL SCAN (Tightened for Gum/Lip rejection)
+  console.time("enamel_scan");
+  for (let y = 0; y < boxH; y++) {
+    for (let x = 0; x < boxW; x++) {
+      const idx = y * boxW + x;
+      const r = sourceData[idx * 4], g = sourceData[idx * 4 + 1], b = sourceData[idx * 4 + 2];
+      
       const brightness = (r + g + b) / 3;
       const saturation = Math.max(r, g, b) - Math.min(r, g, b);
       
-      const isRedHeavy = r > g * 1.22 || r > b * 1.5; 
-      const isTooDark = brightness < 45;
-      const isSkinTone = r > 165 && g > 120 && b > 100 && r > g && g > b;
+      // 🛡️ REJECT GUMS (Red-Heavy or Oversaturated)
+      const isRedHeavy = r > g * 1.25 || r > b * 1.55; 
+      const isToothTone = saturation < 65 && brightness > 35;
+      
+      // 🏥 ANATOMICAL SAFETY: Exclude pixels beyond the lip transition line
+      const globalY = y + minY;
+      const verticalSafety = isLower ? (globalY > archMidY - 4) : (globalY < archMidY + 4);
 
-      // Tight clinical enamel bounds: White/Grey/Yellowish, low saturation
-      return brightness > 45 && brightness < 250 && !isRedHeavy && !isSkinTone && saturation < 65;
-    };
-
-  // 1. BUILD ENAMEL MASK & OCCUPANCY MAP (Region Locked)
-  const mouthTop = archMidY - boxH * 0.25;
-  const mouthBottom = archMidY + boxH * 0.25;
-
-  const enamelMask = new Uint8Array(boxW * boxH);
-  const occupancyMap = new Int8Array(boxW * boxH).fill(0); 
-
-  console.time("enamel_scan");
-  for (let i = 0; i < boxW * boxH; i++) {
-    const y = Math.floor(i / boxW);
-    const globalY = y + minY;
-
-    if (globalY < mouthTop || globalY > mouthBottom) continue;
-
-    const idx = i * 4;
-    const r = sourceData[idx], g = sourceData[idx+1], b = sourceData[idx+2];
-
-    if (isEnamel(r, g, b)) {
-      enamelMask[i] = 1;
+      if (!isRedHeavy && isToothTone && verticalSafety) {
+        enamelMask[idx] = 1;
+      }
     }
   }
   console.timeEnd("enamel_scan");
@@ -141,8 +130,6 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   }
 
   teethClusters.sort((a, b) => getCenter(a, boxW).x - getCenter(b, boxW).x);
-
-  const isLower = indices.includes(14);
 
   // 3. RIGID MOVEMENT LOOP (Guaranteed Visibility)
   // [CLEAN SLATE]: Redundant reset removed to prevent ghosting.

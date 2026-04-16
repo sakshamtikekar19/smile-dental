@@ -377,8 +377,8 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
 
     const r = data[i], g = data[i+1], b = data[i+2];
     const brightness = (r+g+b)/3;
-    const isRedHeavy = r > g * 1.18 || r > b * 1.55; 
-    if (!isRedHeavy && brightness > 28 && Math.abs(r-g) < 55 && r < g * 1.35) {
+    const isRedHeavy = r > g * 1.25 || r > b * 1.55; 
+    if (!isRedHeavy && brightness > 35 && Math.abs(r-g) < 45 && r < g * 1.35) {
       isToothMask[idx] = 1;
     }
   }
