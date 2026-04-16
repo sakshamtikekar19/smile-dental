@@ -377,15 +377,15 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
 
     const r = data[i], g = data[i+1], b = data[i+2];
     const brightness = (r+g+b)/3;
-    const isRedHeavy = r > g * 1.25 || r > b * 1.55; 
-    if (!isRedHeavy && brightness > 35 && Math.abs(r-g) < 45 && r < g * 1.35) {
+    const isRedHeavy = r > g * 1.22 || r > b * 1.55; 
+    if (!isRedHeavy && brightness > 22 && Math.abs(r-g) < 48 && r < g * 1.35) {
       isToothMask[idx] = 1;
     }
   }
 
   // 🚀 PASS 2: Mask Dilation (Expand into Interdental Gaps)
   let dilatedMask = new Uint8Array(isToothMask);
-  for (let p = 0; p < 2; p++) {
+  for (let p = 0; p < 3; p++) {
     const temp = new Uint8Array(dilatedMask);
     for (let y = 1; y < boxH - 1; y++) {
       for (let x = 1; x < boxW - 1; x++) {
@@ -408,14 +408,12 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     if (!inOriginalMask && !isGapZone) continue;
 
     const r = data[i], g = data[i + 1], b = data[i + 2];
+    const avg = (r + g + b) / 3;
     const maskValue = maskData[idx * 4] / 255;
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    const avg = (r+g+b)/3;
 
     if (dilatedMask[idx]) {
       // 🦷 Main Enamel Whitening (On Dilated Mask)
-      const localX = idx % boxW;
-
       const strength = 0.35 * maskValue * (intensity / 0.65);
       let target = luminance + (235 - luminance) * strength;
       target = Math.min(235, Math.max(luminance, target));
@@ -424,8 +422,8 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
       data[i + 1] = Math.min(255, g + (target - g) * bf);
       data[i + 2] = Math.min(255, b + (target - b) * bf);
     } 
-    else if (isGapZone) {
-      // 🦷 Interdental Plaque Reduction (On surrounding 'Halo')
+    else if (isGapZone && avg > 45) { // 🛡️ SHADOW SHIELD: Only clean if it's not a dark void
+      // 🦷 Interdental Plaque Reduction
       const clean = avg + (240 - avg) * 0.4;
       data[i]     = r * 0.4 + clean * 0.6;
       data[i + 1] = g * 0.4 + clean * 0.6;
