@@ -37,8 +37,8 @@ async function initFaceLandmarker() {
         },
         runningMode: "IMAGE",
         numFaces: 1,
-        minFaceDetectionConfidence: 0.1,
-        minFacePresenceConfidence: 0.1,
+        minFaceDetectionConfidence: 0.01,
+        minFacePresenceConfidence: 0.01,
       });
       return _faceLandmarkerInstance;
     } catch {
@@ -541,9 +541,16 @@ const SmileSimulatorAI = () => {
     const generation = ++generationRef.current;
     try {
       setProcessingLog("Landmarking facial anatomy...");
-      const landmarks = await detectLandmarks(imageUrl);
+      let landmarks = await detectLandmarks(imageUrl);
+      
+      // 🔥 RESILIENCE FALLBACK: If static detection fails, use the last known live landmarks
+      if (!landmarks && latestLandmarksRef.current) {
+        console.warn("[AI] Static detection failed. Falling back to live anatomical anchors.");
+        landmarks = latestLandmarksRef.current;
+      }
+
       if (generation !== generationRef.current) return;
-      if (!landmarks) throw new Error("Face not clear enough. Tips: Use better lighting and look directly at camera.");
+      if (!landmarks) throw new Error("Please look directly at camera. Face not detected.");
 
       const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       
