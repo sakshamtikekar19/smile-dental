@@ -98,21 +98,27 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     for (let x = 0; x < boxW; x++) {
       const idx = y * boxW + x;
       const r = sourceData[idx * 4], g = sourceData[idx * 4 + 1], b = sourceData[idx * 4 + 2];
-      
-      const max = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      const sat = max === 0 ? 0 : ((max - min) / max) * 100;
-      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const gy = y + minY;
 
-      // 🏥 FINAL FORGIVING FILTER: Detects shadow enamel while rejecting skin
-      const isRedHeavy = r > g * 1.3 && r > b * 1.3;
-      const isEnamel = lum > 45 && sat < 60 && !isRedHeavy;
-      
-      // 🏥 ANATOMICAL SAFETY: Exclude pixels beyond the lip transition line
-      const globalY = y + minY;
-      const verticalSafety = isLower ? (globalY > archMidY - 4) : (globalY < archMidY + 4);
+      // 🦷 Anatomical Enamel Filter (User Drop-In)
+      const isEnamel = (function() {
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const s = max - min;
+        const l = (r + g + b) / 3;
 
-      if (isEnamel && verticalSafety) {
+        if (l < 40) return false;
+        if (r > g * 1.35 && r > b * 1.35) return false;
+        if (s > 80) return false;
+
+        // 🔥 REGION LOCK (Anatomical Barrier)
+        if (isLower && gy < archMidY) return false;
+        if (!isLower && gy > archMidY) return false;
+
+        return true;
+      })();
+
+      if (isEnamel) {
         enamelMask[idx] = 1;
       }
     }
