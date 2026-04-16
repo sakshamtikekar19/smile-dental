@@ -821,15 +821,6 @@ const SmileSimulatorAI = () => {
                     className="w-full h-full pointer-events-none" 
                   />
                   
-                  {/* 🦷 Anatomical Teeth Placement Guidance (The 'Oval') */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                    <div className="relative w-[50%] md:w-[32%] aspect-[1.8/1] border-[3px] border-dashed border-white/50 rounded-[500px] flex items-center justify-center">
-                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full border border-white/20 rounded-[500px] animate-pulse" />
-                      <span className="text-white/60 text-[8px] md:text-[9px] uppercase tracking-[0.3em] font-bold mt-20 md:mt-24">Align Teeth</span>
-                    </div>
-                  </div>
-                  
-
                   <div className="absolute top-10 left-0 right-0 flex flex-col items-center gap-6 z-10 pointer-events-none">
                     <p className="text-white/70 text-[10px] uppercase tracking-[0.3em] font-bold drop-shadow-md">Live AI Simulation</p>
                   </div>
