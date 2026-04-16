@@ -138,47 +138,45 @@ function processArch(ctx, landmarks, w, h, indices, options) {
   const isLower = indices.includes(14);
 
   // 3. RIGID MOVEMENT LOOP (Guaranteed Visibility)
-  teethClusters.forEach((cluster) => {
-    const center = getCenter(cluster, boxW);
+  const newData = new Uint8ClampedArray(sourceData);
 
+  // set target buffer (important base)
+  for (let i = 0; i < newData.length; i++) {
+    newData[i] = sourceData[i];
+  }
+
+  teethClusters.forEach(cluster => {
+    const center = getCenter(cluster, boxW);
     const gx = center.x + minX;
-    const gy = center.y + minY;
-    
-    // Calculate target vertical pos
+
     const dxRel = (gx - centerX) / (boxW / 2);
     const targetYGlobal = isLower ? archMidY + (boxH * 0.01) * (dxRel * dxRel) : archMidY - (boxH * 0.012) * (dxRel * dxRel);
     const targetY = targetYGlobal - minY;
 
-    let dy = (targetY - center.y) * strength;
+    const dx = 0;
+    let dy = (targetY - center.y) * strength * 0.8;
 
-    // force visible movement floor
-    if (Math.abs(dy) < 0.8 && Math.abs(dy) > 0.01) {
-      dy = dy > 0 ? 0.8 : -0.8;
+    // force visible movement
+    if (Math.abs(dy) < 1 && Math.abs(dy) > 0.01) {
+      dy = dy > 0 ? 1 : -1;
     }
-    const dx = 0; 
 
-    for (let idx of cluster) {
+    cluster.forEach(idx => {
       const x = idx % boxW;
       const y = Math.floor(idx / boxW);
 
-      let nx = Math.round(x + dx);
-      let ny = Math.round(y + dy);
+      const nx = x;
+      const ny = y + dy;
 
-      // 🚨 Ensure movement actually happens (No rounding-to-zero)
-      if (nx === x && ny === y) {
-        if (dy !== 0) ny = y + (dy > 0 ? 1 : -1);
-      }
+      if (nx < 0 || nx >= boxW || ny < 0 || ny >= boxH) return;
 
-      if (nx < 0 || nx >= boxW || ny < 0 || ny >= boxH) continue;
-
-      const ni = (ny * boxW + nx) * 4;
+      const ni = (Math.floor(ny) * boxW + Math.floor(nx)) * 4;
       const oi = idx * 4;
 
-      // Direct Write for Max Visibility
       for (let c = 0; c < 4; c++) {
         newData[ni + c] = sourceData[oi + c];
       }
-    }
+    });
   });
 
   imageData.data.set(newData);
