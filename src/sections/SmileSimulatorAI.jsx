@@ -335,24 +335,42 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   const data = imageData.data;
   const faceScale = boxH / 100;
 
-  // 🚀 HARDENED DUAL-STAGE MASK (Ensures Hydration)
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = boxW; maskCanvas.height = boxH;
-  const mctx = maskCanvas.getContext("2d");
-  mctx.translate(-minX, -minY);
-  mctx.fillStyle = "white";
-  mctx.beginPath();
-  points.forEach((p, i) => i === 0 ? mctx.moveTo(p.x, p.y) : mctx.lineTo(p.x, p.y));
-  mctx.closePath();
-  mctx.fill();
+  // 🚀 MANDATE: CALCULATE SOFT MASK PURELY IN MEMORY (NO CANVAS)
+  const maskData = new Uint8Array(boxW * boxH);
+  for (let y = 0; y < boxH; y++) {
+    for (let x = 0; x < boxW; x++) {
+      const gx = x + minX;
+      const gy = y + minY;
+      
+      // Point-in-polygon (Winding number approximation for mouth)
+      let inside = false;
+      for (let i = 0, j = fullMouthIdx.length - 1; i < fullMouthIdx.length; j = i++) {
+        const pi = landmarks[fullMouthIdx[i]];
+        const pj = landmarks[fullMouthIdx[j]];
+        const pix = pi.x * w, piy = pi.y * h;
+        const pjx = pj.x * w, pjy = pj.y * h;
+        if (((piy > gy) !== (pjy > gy)) && (gx < (pjx - pix) * (gy - piy) / (pjy - piy) + pix)) {
+          inside = !inside;
+        }
+      }
+      if (inside) maskData[y * boxW + x] = 255;
+    }
+  }
 
-  const blurCanvas = document.createElement("canvas");
-  blurCanvas.width = boxW; blurCanvas.height = boxH;
-  const bctx = blurCanvas.getContext("2d");
-  bctx.filter = `blur(${Math.max(1, Math.round(1.2 * faceScale))}px)`;
-  bctx.drawImage(maskCanvas, 0, 0);
-
-  const maskData = bctx.getImageData(0, 0, boxW, boxH).data;
+  // Soften Edges (Simple In-Place Box Blur on Mask)
+  const softenedMask = new Uint8Array(maskData);
+  const radius = Math.max(1, Math.round(1.5 * faceScale));
+  for (let y = radius; y < boxH - radius; y++) {
+    for (let x = radius; x < boxW - radius; x++) {
+      let sum = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          sum += maskData[(y + dy) * boxW + (x + dx)];
+        }
+      }
+      softenedMask[y * boxW + x] = sum / ((radius * 2 + 1) ** 2);
+    }
+  }
   
   // 🔍 Clinical Debug
   let activePixels = 0;
@@ -369,7 +387,7 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
   const isToothMask = new Uint8Array(pixelCount);
   for (let i = 0; i < data.length; i += 4) {
     const idx = i / 4;
-    const maskValue = maskData[i] / 255;
+    const maskValue = softenedMask[idx] / 255;
     if (maskValue < 0.05) continue;
 
     const localY = Math.floor(idx / boxW) + minY;
@@ -408,7 +426,7 @@ function applyWhitening(ctx, landmarks, w, h, intensity = 0.6) {
     if (!inOriginalMask && !isGapZone) continue;
 
     const r = data[i], g = data[i + 1], b = data[i + 2];
-    const maskValue = maskData[i] / 255;
+    const maskValue = softenedMask[idx] / 255;
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     const avg = (r+g+b)/3;
 
@@ -480,14 +498,7 @@ function drawBracesOverlay(ctx, landmarks, w, h, bracesImage) {
   ctx.restore();
 }
 
-// ── Shared Engine Canvas ──────────────────────────────
-let _sharedMainCanvas = null;
-function getSharedCanvas(iw, ih) {
-  if (!_sharedMainCanvas) _sharedMainCanvas = document.createElement('canvas');
-  _sharedMainCanvas.width = iw;
-  _sharedMainCanvas.height = ih;
-  return _sharedMainCanvas;
-}
+// ── Shared Engine Buffers Removed (Mandate: Passing Real Context Only) ───────
 
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("entry"); // 🔥 Starts with explicit user action
@@ -620,10 +631,22 @@ const SmileSimulatorAI = () => {
       if (!landmarks) throw new Error("Face not clear enough. Tips: Use better lighting and look directly at camera.");
 
       const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
-      const canvas = getSharedCanvas(iw, ih);
+      
+      // 🔥 1. SINGLE SOURCE OF TRUTH (MANDATE: USE VISIBLE CANVAS ONLY)
+      const canvas = canvasRef.current;
+      if (!canvas) throw new Error("Hardware reference lost.");
       const ctx = canvas.getContext("2d");
+      
+      // Sync resolution to high-res capture
+      canvas.width = iw;
+      canvas.height = ih;
+
       const img = await loadImage(snapshotUrl);
+      
+      // 🔥 2. FINAL PIPELINE (LOCK THIS IN)
       ctx.clearRect(0, 0, iw, ih);
+      
+      // draw captured image
       ctx.drawImage(img, 0, 0, iw, ih);
 
       console.time("simulation_render");

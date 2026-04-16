@@ -184,6 +184,9 @@ function processArch(ctx, landmarks, w, h, indices, options) {
  * Main Entry Point - Multi-Arch Rigid Recovery
  */
 export function applyAlignment(ctx, landmarks, w, h, options = {}) {
+  // 🔥 HARD SAFETY CHECK (DO THIS)
+  console.log("CTX CHECK", ctx.canvas);
+
   const settings = {
     strength: options.strength ?? 1.0,
     maxShiftX: options.maxShiftX || 2.4,
