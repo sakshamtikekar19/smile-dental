@@ -315,9 +315,15 @@ function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
 function applyWhitening(ctx, landmarks, w, h) {
   const imageData = ctx.getImageData(0, 0, w, h);
   const data = imageData.data;
+  
+  // ✅ REAL ORIGINAL COPY (CRITICAL) - Immutable Reference
+  const original = new Uint8ClampedArray(data);
 
   // --- STRICT STOICHIOMETRIC FILTER ---
   const isToothPixel = (r, g, b) => {
+    // 🔒 RED REJECTION (Mandate: Stop lip bleed)
+    if (b < r) return false; 
+
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max === 0 ? 0 : (max - min) / max * 100;
@@ -330,22 +336,22 @@ function applyWhitening(ctx, landmarks, w, h) {
     return true;
   };
 
-  // --- SAFE GLOBAL SCAN (Hard Lock Logic) ---
+  // --- SURGICAL BIT-LEVEL SCAN (From Original Buffer) ---
   for (let i = 0; i < data.length; i += 4) {
-    const originalR = data[i];
-    const originalG = data[i + 1];
-    const originalB = data[i + 2];
+    const r = original[i];
+    const g = original[i + 1];
+    const b = original[i + 2];
 
-    if (isToothPixel(originalR, originalG, originalB)) {
+    if (isToothPixel(r, g, b)) {
       // NATURAL WHITENING LIFT (User Calibrated)
-      data[i]     = Math.min(255, originalR * 1.05 + 8);
-      data[i + 1] = Math.min(255, originalG * 1.05 + 8);
-      data[i + 2] = Math.min(255, originalB * 1.12 + 10);
+      data[i]     = Math.min(255, r * 1.05 + 8);
+      data[i + 1] = Math.min(255, g * 1.05 + 8);
+      data[i + 2] = Math.min(255, b * 1.12 + 10);
     } else {
-      // 🔒 HARD LOCK — restore original pixel explicitly
-      data[i]     = originalR;
-      data[i + 1] = originalG;
-      data[i + 2] = originalB;
+      // 🔒 TRUE RESTORE (from original buffer)
+      data[i]     = original[i];
+      data[i + 1] = original[i + 1];
+      data[i + 2] = original[i + 2];
     }
   }
 
