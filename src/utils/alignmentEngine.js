@@ -19,10 +19,10 @@ function processArch(ctx, landmarks, w, h, indices) {
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
 
   // 1. CALCULATE BOUNDS
-  const minX = Math.floor(Math.min(...xs)) - 5;
-  const maxX = Math.ceil(Math.max(...xs)) + 5;
-  const minY = Math.floor(Math.min(...ys)) - 35; 
-  const maxY = Math.ceil(Math.max(...ys)) + 35;
+  const minX = Math.floor(Math.min(...xs)) - 30;
+  const maxX = Math.ceil(Math.max(...xs)) + 30;
+  const minY = Math.floor(Math.min(...ys)) - 45; 
+  const maxY = Math.ceil(Math.max(...ys)) + 45;
   const boxW = maxX - minX, boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
 
@@ -34,24 +34,17 @@ function processArch(ctx, landmarks, w, h, indices) {
   const sourceData = new Uint8ClampedArray(data);
   const newData = new Uint8ClampedArray(sourceData);
 
-  // REGION LOCK BAND (Surgical Anchor)
-  const bandHalfH = boxH * 0.10;
-  const upperLockY = archMidY - bandHalfH;
-  const lowerLockY = archMidY + bandHalfH;
-
   // TOOTH CENTERS (Influence Anchors)
   const centers = points.map(p => ({ x: p.x - minX, y: p.y - minY, gx: p.x }));
-  const radiusSq = Math.pow(boxW * 0.12, 2);
+  const radiusSq = Math.pow(boxW * 0.15, 2); // Influence radius
 
   for (let y = 0; y < boxH; y++) {
     const gy = y + minY;
-    // Strict Region Lock
-    if (gy < upperLockY || gy > lowerLockY) continue;
-
+    
     for (let x = 0; x < boxW; x++) {
       const gx = x + minX;
 
-      // A. WEIGHT PIXEL INFLUENCE (Gaussian) + NEAREST TARGETING
+      // A. WEIGHT PIXEL INFLUENCE (Precise Gaussian)
       let minDistSq = Infinity;
       let nearestTooth = null;
       for (let i = 0; i < centers.length; i++) {
@@ -62,44 +55,50 @@ function processArch(ctx, landmarks, w, h, indices) {
           nearestTooth = centers[i];
         }
       }
+      
+      // Clinical Weight: Only move what is VERY close to a landmark
       let weight = Math.exp(-minDistSq / radiusSq);
-      weight = Math.max(0.4, weight);
+      
+      // HARD RADIUS CUTOFF: Protect Lips/Mustache
+      // If weight is too low, don't move at all
+      if (weight < 0.15) continue;
+      
+      // Normalize weight range for smoother blending at edges [0.15, 1.0] -> [0, 1.0]
+      const smoothWeight = (weight - 0.15) / 0.85;
 
       // B. PARABOLIC ARCH ALIGNMENT (Vertical Force)
       const dxRel = (gx - centerX) / (boxW / 2);
       const targetY = archMidY + (boxH * 0.035) * (dxRel * dxRel);
       
-      let dy = (targetY - gy) * 1.1 * weight;
-      if (Math.abs(dy) < 1.5 && weight > 0.4) {
-        dy = Math.sign(dy) * 1.5;
-      }
-
+      let dy = (targetY - gy) * 1.1 * smoothWeight;
+      
       // C. TRUE TOOTH TARGETING (Horizontal Alignment)
-      // Reference: targetSnapX is nearestTooth.gx within global space
-      let dx = (nearestTooth.gx - gx) * 0.35 * weight;
-      dx = clamp(dx, -2.5, 2.5);
+      let dx = (nearestTooth.gx - gx) * 0.35 * smoothWeight;
+      dx = clamp(dx, -3.0, 3.0);
 
-      // D. MICRO-ROTATION (High-Torque Pass)
-      const angle = dxRel * 0.16 * weight;
+      // D. MICRO-ROTATION
+      const angle = dxRel * 0.16 * smoothWeight;
       const cosA = Math.cos(angle);
       const sinA = Math.sin(angle);
       
       const cx = nearestTooth.x;
       const cy = nearestTooth.y;
 
-      // Backward Coordinate Mapping
+      // Backward Coordinate Mapping (Sub-pixel precise)
       const sx_rot = cosA * (x - cx) - sinA * (y - cy) + cx;
       const sy_rot = sinA * (x - cx) + cosA * (y - cy) + cy;
 
-      // Apply primary displacements
-      const sx = sx_rot - dx;
-      const sy = sy_rot - dy;
+      // Combined displacement vector
+      let sx = sx_rot - dx;
+      let sy = sy_rot - dy;
 
-      // E. BILINEAR INTERPOLATION (Backward Sampling)
-      const x1 = Math.floor(sx), x2 = Math.min(x1 + 1, boxW - 1), tx = sx - x1;
-      const y1 = Math.floor(sy), y2 = Math.min(y1 + 1, boxH - 1), ty = sy - y1;
+      // E. COORDINATE SAFETY CLAMP (Prevents Black Streaks)
+      sx = clamp(sx, 0, boxW - 1.001);
+      sy = clamp(sy, 0, boxH - 1.001);
 
-      if (x1 < 0 || x1 >= boxW || y1 < 0 || y1 >= boxH) continue;
+      // F. BILINEAR INTERPOLATION (Backward Sampling)
+      const x1 = Math.floor(sx), x2 = x1 + 1, tx = sx - x1;
+      const y1 = Math.floor(sy), y2 = y1 + 1, ty = sy - y1;
 
       const i00 = (y1 * boxW + x1) * 4;
       const i10 = (y1 * boxW + x2) * 4;
@@ -116,7 +115,7 @@ function processArch(ctx, landmarks, w, h, indices) {
       newData[outIdx]     = lerp(sourceData[i00], sourceData[i10], sourceData[i01], sourceData[i11], tx, ty);
       newData[outIdx + 1] = lerp(sourceData[i00+1], sourceData[i10+1], sourceData[i01+1], sourceData[i11+1], tx, ty);
       newData[outIdx + 2] = lerp(sourceData[i00+2], sourceData[i10+2], sourceData[i01+2], sourceData[i11+2], tx, ty);
-      newData[outIdx + 3] = sourceData[outIdx + 3];
+      // Keep original alpha
     }
   }
 
