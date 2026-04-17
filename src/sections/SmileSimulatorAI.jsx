@@ -379,27 +379,33 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const r = data[i], g = data[i + 1], b = data[i + 2];
       const lum = (r + g + b) / 3;
 
-      if (!isToothPixel(r, g, b)) continue;
+      // 🚫 HARD GUARD (VERY IMPORTANT)
+      const isTooth = (
+        r > 120 && g > 110 && b > 90 &&   // bright enamel
+        r < 240 && g < 240 && b < 240     // avoid highlights
+      );
+      if (!isTooth) continue;
 
       // 🦷 STEP 1: Anatomical Arch Gradient (Realism Key)
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: Surgical Plaque-Desaturation (CLEANS THE YELLOW)
+      // 🧪 STEP 2: NATURAL PLAQUE REDUCTION (NO BLUE SHIFT)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
-      
+
       if (yellowStrength > 10) {
-        const cleanup = 1.2 * gradient;
-        // 🎯 CHROMATIC BALANCING: Avoid spectral outliers (No Blue/Purple)
-        // Bring Red down moderately and boost Blue subtly to reach white
-        nr *= (1.0 - (0.09 * cleanup)); 
-        ng *= (1.0 - (0.04 * cleanup));
-        nb *= (1.0 + (0.11 * cleanup)); 
+        const cleanup = 1.1 * gradient;
+        // reduce yellow safely
+        nr *= (1.0 - (0.06 * cleanup));
+        ng *= (1.0 - (0.03 * cleanup));
+
+        // ❌ DO NOT BOOST BLUE - instead gently balance towards neutral
+        nb = nb + (nr - nb) * 0.08;
       }
 
-      // 🧠 STEP 3: REALISM BLEND (48% for TEXTURE)
-      const blend = 0.48; 
+      // 🧠 STEP 3: REALISM BLEND (0.58)
+      const blend = 0.58; 
       const wr = Math.min(255, nr * 1.04);
       const wg = Math.min(255, ng * 1.04);
       const wb = Math.min(255, nb * 1.04);
@@ -408,8 +414,8 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       let fg = g * (1 - blend) + wg * blend;
       let fb = b * (1 - blend) + wb * blend;
 
-      // ✨ STEP 4: CONTRAST RESTORE (Depth Lock)
-      const contrast = 1.04;
+      // ✨ STEP 4: CONTRAST RESTORE (Depth Lock - Reduced for Naturalism)
+      const contrast = 1.02;
       fr = (fr - 128) * contrast + 128;
       fg = (fg - 128) * contrast + 128;
       fb = (fb - 128) * contrast + 128;
