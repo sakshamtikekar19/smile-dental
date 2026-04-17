@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, X, CheckCircle2, Info, RefreshCw } from "lucide-react";
+import { Camera, RefreshCw } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
@@ -10,7 +10,6 @@ import { applyAlignment as applyProfessionalAlignment } from "../utils/alignment
 
 // ── Environment ──────────────────────────────────────────────────────────────
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-const AI_SMILE_API = import.meta.env.VITE_AI_SMILE_API || (IS_LOCAL_HOST ? "http://localhost:5000/api/smile" : null);
 
 // ── MediaPipe singleton (shared, loaded once) ────────────────────────────────
 let _faceLandmarkerInstance = null;
@@ -252,7 +251,6 @@ function TreatmentDockButton({ treatment, active, onSelect }) {
 // ── Main Component ───────────────────────────────────────────────────────────
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("entry");
-  const alignmentStrength = 0.22;
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
   const [activeTreatment, setActiveTreatment] = useState("whitening");
   const [beforeImage, setBeforeImage] = useState(null);
@@ -260,7 +258,6 @@ const SmileSimulatorAI = () => {
   const [error, setError] = useState(null);
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [zoomLoading, setZoomLoading] = useState(false);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
   const [cameraStream, setCameraStream] = useState(null);
@@ -274,7 +271,7 @@ const SmileSimulatorAI = () => {
   const requestRef = useRef(null);
   const renderRequestRef = useRef(null);
   const bracesImageRef = useRef(null);
-  const zoomCanvasRef = useRef(null);
+  const localCanvasRef = useRef(null);
 
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
@@ -334,7 +331,7 @@ const SmileSimulatorAI = () => {
       div.style.width = `${s.w}px`; div.style.height = `${s.w * 0.75}px`;
       div.style.transform = `translate(-50%, -10%) rotate(${s.ang}deg)`;
 
-      const sCanvas = div.querySelector('canvas');
+      const sCanvas = localCanvasRef.current;
       if (sCanvas) {
         if (sCanvas.width !== Math.floor(s.w)) { sCanvas.width = Math.floor(s.w); sCanvas.height = Math.floor(s.w * 0.75); }
         const sctx = sCanvas.getContext("2d");
@@ -469,7 +466,7 @@ const SmileSimulatorAI = () => {
                 </div>
 
                 <div ref={stabilizerRef} id="alignment-stabilizer" className="absolute z-20 pointer-events-none" style={{ clipPath: 'ellipse(50% 45% at 50% 50%)' }}>
-                  <canvas className="w-full h-full" />
+                  <canvas ref={localCanvasRef} className="w-full h-full" />
                 </div>
                 <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-30">
                   <button onClick={() => {

@@ -22,11 +22,15 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
 
-  // 1. CALCULATE SURGICAL BOUNDS
-  const minX = Math.floor(Math.min(...xs)) - 10;
-  const maxX = Math.ceil(Math.max(...xs)) + 10;
-  const minY = Math.floor(Math.min(...ys)) - 20; 
-  const maxY = Math.ceil(Math.max(...ys)) + 20;
+  const mouthW = Math.max(...xs) - Math.min(...xs);
+  const padH = mouthW * 0.08;
+  const padV = mouthW * 0.12;
+
+  // 1. CALCULATE DYNAMIC BOUNDS
+  const minX = Math.floor(Math.min(...xs)) - padH;
+  const maxX = Math.ceil(Math.max(...xs)) + padH;
+  const minY = Math.floor(Math.min(...ys)) - padV; 
+  const maxY = Math.ceil(Math.max(...ys)) + padV;
   const boxW = maxX - minX, boxH = maxY - minY;
   
   if (boxW <= 0 || boxH <= 0) return;
@@ -35,8 +39,8 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   const archMidY = ys.reduce((s, p) => s + p, 0) / ys.length;
 
   // 👄 LIP SHIELD ANCHORS
-  const lipUpperY = (landmarks[13].y * vH) - anchor.y + (ctx.canvas.height * 0.1);
-  const lipLowerY = (landmarks[14].y * vH) - anchor.y + (ctx.canvas.height * 0.1);
+  const lipUpperY = (landmarks[13].y * vH) - anchor.y + (ctx.canvas.width * 0.1);
+  const lipLowerY = (landmarks[14].y * vH) - anchor.y + (ctx.canvas.width * 0.1);
 
   const safeX = Math.max(0, minX);
   const safeY = Math.max(0, minY);
@@ -60,29 +64,26 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
       const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
       const lum = (r + g + b) / 3;
       
-      // Strict Enamel Filter (Avoid Skin/Mustache)
-      const isEnamel = (lum > 80 && lum < 235 && r > 90 && g > 85 && (r - b) < 45);
+      // Strict Enamel Filter (Relaxed for natural variations)
+      const isEnamel = (lum > 75 && lum < 240 && r > 85 && g > 80 && (r - b) < 65);
       if (!isEnamel) continue;
 
       // 👄 SKIN SHIELD: Scale strength to 0 near lips
       const distToLip = Math.min(Math.abs(globalY - lipUpperY), Math.abs(globalY - lipLowerY));
-      const skinShield = Math.max(0, Math.min(1.0, (distToLip - 4) / 12));
+      const skinShield = Math.max(0, Math.min(1.0, (distToLip - 2) / 10));
       if (skinShield <= 0) continue;
 
       // 🧠 ARCH PHYSICS
-      const dxRel = (globalX - centerX) / (safeW / 1.8);
+      const dxRel = (globalX - centerX) / (safeW / 1.7);
       const curve = dxRel * dxRel;
       
-      // Vertical Goal: Straightened Curve
-      const targetY = archMidY + (safeH * 0.05) * curve;
+      const targetY = archMidY + (safeH * 0.045) * curve;
 
-      // 💥 VERTICAL VECTOR (Pulls toward target)
-      let dy = (targetY - globalY) * 1.55 * skinShield;
-      dy += Math.sin(globalX * 0.06) * 0.5; // Natural Jitter
+      let dy = (targetY - globalY) * 1.5 * skinShield;
+      dy += Math.sin(globalX * 0.05) * 0.4; 
 
-      // 💥 HORIZONTAL VECTOR (straightens crooked overlap)
-      let dx = -dxRel * 3.2 * (1 - Math.abs(dxRel)) * skinShield;
-      dx += (dx > 0 ? 0.4 : -0.4); 
+      let dx = -dxRel * 2.8 * (1 - Math.abs(dxRel)) * skinShield;
+      dx += (dx > 0 ? 0.3 : -0.3); 
 
       // 🎯 SAMPLING
       const sx = Math.max(0, Math.min(safeW - 1, x - dx));
