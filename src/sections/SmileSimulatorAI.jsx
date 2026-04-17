@@ -371,7 +371,7 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
 
     for (let x = 0; x < boxW; x++) {
       const idx = (y * boxW + x) * 4;
-      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2]; const lum = (r + g + b) / 3;
 
       // 🚫 HARD GUARD (VERY IMPORTANT)
       const isTooth = 
