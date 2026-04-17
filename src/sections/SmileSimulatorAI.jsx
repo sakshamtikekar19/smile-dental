@@ -361,7 +361,8 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    return lum > 75 && sat < 60 && !(r > g * 1.35);
+    // Tighter saturation check + stronger red rejection to shield gums
+    return lum > 80 && sat < 45 && !(r > g * 1.45);
   }
 
   // --- WHITENING LOOP (Region-Locked + Gradient Lift) ---
@@ -372,6 +373,7 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
     for (let x = 0; x < boxW; x++) {
       const i = (y * boxW + x) * 4;
       const r = data[i], g = data[i + 1], b = data[i + 2];
+      const lum = (r + g + b) / 3;
 
       if (!isToothPixel(r, g, b)) continue;
 
@@ -384,9 +386,12 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       let nr = r, ng = g, nb = b;
       if (yellowStrength > 5) {
         const neutralizingPower = 1.0 * gradient;
-        nr *= (1.0 - (0.12 * neutralizingPower)); // reduce red stains in center
-        ng *= (1.0 - (0.04 * neutralizingPower)); // subtle green dampening
-        nb *= (1.0 + (0.18 * neutralizingPower)); // strong blue boost to kill yellow
+        // 🛡️ BLUE-GUARD: Only aggressive on bright enamel, halved for shadows/gums
+        const blueIntensity = lum > 110 ? 0.18 : 0.09;
+        
+        nr *= (1.0 - (0.10 * neutralizingPower)); 
+        ng *= (1.0 - (0.04 * neutralizingPower)); 
+        nb *= (1.0 + (blueIntensity * neutralizingPower)); 
       }
 
       // 🧠 STEP 3: REALISM BLEND (Drop-In)
