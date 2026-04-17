@@ -301,15 +301,10 @@ async function detectLandmarks(imageSrc) {
 }
 
 /**
- * ENGINE 1: ANATOMICAL ALIGNMENT (Geometry Only)
+ * ENGINE 1: ANATOMICAL ALIGNMENT (Upgraded Parabolic Geometry)
  */
-function applyAlignment(ctx, landmarks, w, h, strength = 0.22) {
-  applyProfessionalAlignment(ctx, landmarks, w, h, {
-    strength: strength * 4.5, // CALIBRATED SIGNAL
-    maxShiftX: 2.6,
-    maxShiftY: 1.6,
-    smoothing: 0.3
-  });
+function applyAlignment(ctx, landmarks, w, h) {
+  applyProfessionalAlignment(ctx, landmarks, w, h);
 }
 
 /**
@@ -404,33 +399,19 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       // tighter + more clinical
       const isEdge = edgeStrength > 22 && edgeStrength < 80;
 
-      // 🦷 STEP 1: Anatomical Arch Gradient (Realism Key)
+      // 🧪 STEP 1: Anatomical Arch Gradient (Realism Key)
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: NATURAL PLAQUE REDUCTION (NO BLUE SHIFT)
+      // 🧪 STEP 2: NATURAL PLAQUE REDUCTION (RESTORED)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
 
-      // plaque = yellow + slightly darker + edge
-      const isPlaque =
-        yellowStrength > 5 &&
-        lumC > 70 &&
-        lumC < 140 &&
-        isEdge;
-
+      const isPlaque = yellowStrength > 5 && lumC > 70 && lumC < 140 && isEdge;
       if (isPlaque) {
-        // gentle cleaning (NOT whitening)
-        nr *= 0.95;
-        ng *= 0.98;
-        nb = nb + (nr - nb) * 0.04;
-
-        // ✨ TINY POLISH
-        nr *= 1.005;
-        ng *= 1.005;
-        nb *= 1.005;
+        nr *= 0.95; ng *= 0.98; nb = nb + (nr - nb) * 0.04;
+        nr *= 1.005; ng *= 1.005; nb *= 1.005;
       } else if (yellowStrength > 10) {
-        // Normal cleaning for non-edge yellow spots
         const cleanup = 1.1 * gradient;
         nr *= (1.0 - (0.06 * cleanup));
         ng *= (1.0 - (0.03 * cleanup));

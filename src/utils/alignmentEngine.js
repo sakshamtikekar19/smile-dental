@@ -1,162 +1,116 @@
 /**
- * ALIGNMENT ENGINE: Rigid Tooth Segmentation & Transformation
- * 1. Connectivity-based Segmentation (Tooth Clustering)
- * 2. Object-Oriented Rigid Movement (Translation + Rotation)
- * 3. Shadow Consistency & Depth Mapping
+ * ALIGNMENT ENGINE: Clinical Orthodontic Transformation (Geometry Only)
+ * 1. Landmark-Based Influence (Gaussian Falloff)
+ * 2. Parabolic Arch Alignment
+ * 3. Micro-Rotation Alignment (Tilt Correction)
  */
 
-const UPPER_ARCH_INDICES = [61, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 291];
-const LOWER_ARCH_INDICES = [291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78, 61];
+const UPPER_ARCH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
+const LOWER_ARCH_INDICES = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 /**
- * 🦷 TOOTH SEGMENTATION ENGINE (Flood Fill Clustering)
- */
-function segmentTeeth(mask, width, height) {
-  const visited = new Uint8Array(mask.length);
-  const clusters = [];
-  const dirs = [-1, 1, -width, width];
-  let iterations = 0;
-  const MAX_ITERATIONS = 500000; // Safeguard against unexpected infinite loops
-
-  for (let i = 0; i < mask.length; i++) {
-    if (!mask[i] || visited[i]) continue;
-    if (++iterations > MAX_ITERATIONS) break;
-
-    let queue = [i];
-    let cluster = [];
-    visited[i] = 1;
-
-    while (queue.length) {
-      const curr = queue.pop();
-      cluster.push(curr);
-
-      for (let d of dirs) {
-        const ni = curr + d;
-        if (ni >= 0 && ni < mask.length && mask[ni] && !visited[ni]) {
-          if (Math.abs((curr % width) - (ni % width)) <= 1) {
-            visited[ni] = 1;
-            queue.push(ni);
-          }
-        }
-      }
-    }
-
-    if (cluster.length > 20 && cluster.length < 200000) { 
-      clusters.push(cluster);
-    }
-  }
-  return clusters;
-}
-
-/**
- * Calculates geometric center of a tooth cluster
- */
-function getCenter(cluster, width) {
-  let sx = 0, sy = 0;
-  for (let idx of cluster) {
-    sx += idx % width;
-    sy += Math.floor(idx / width);
-  }
-  return { x: sx / cluster.length, y: sy / cluster.length };
-}
-
-/**
  * 🚀 Internal transformation pass for a specific arch
  */
-function processArch(ctx, landmarks, w, h, indices, options) {
-  const { rotation = 0, scale = 1.0 } = options;
-
-  let points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
-  const midPoint = Math.floor(points.length / 2);
-  
-  // Midline anchor
-  const centerX = points[midPoint].x;
-  const archMidY = points.reduce((s, p) => s + p.y, 0) / points.length;
-
+function processArch(ctx, landmarks, w, h, indices) {
+  const points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
-  const horizontalPadding = (Math.max(...xs) - Math.min(...xs)) * 0.15; 
-  const verticalPadding = 35;
-  const minX = Math.floor(Math.min(...xs)) - horizontalPadding, maxX = Math.ceil(Math.max(...xs)) + horizontalPadding;
-  const minY = Math.floor(Math.min(...ys)) - verticalPadding, maxY = Math.ceil(Math.max(...ys)) + verticalPadding;
+
+  // 1. CALCULATE BOUNDS
+  const minX = Math.floor(Math.min(...xs)) - 5;
+  const maxX = Math.ceil(Math.max(...xs)) + 5;
+  const minY = Math.floor(Math.min(...ys)) - 35; 
+  const maxY = Math.ceil(Math.max(...ys)) + 35;
   const boxW = maxX - minX, boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
+
+  const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const archMidY = ys.reduce((s, p) => s + p, 0) / ys.length;
 
   const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
   const sourceData = new Uint8ClampedArray(data);
   const newData = new Uint8ClampedArray(sourceData);
 
-  const isLower = indices.includes(14) || indices.includes(324); 
-  
-  // 1. ANATOMICAL REGION MASK (Landmark-Driven)
-  const teethMask = new Uint8Array(boxW * boxH);
-  const bandHalfHeight = boxH * 0.12; 
-  const upperY = archMidY - bandHalfHeight;
-  const lowerY = archMidY + bandHalfHeight;
+  // REGION LOCK BAND (Surgical Anchor)
+  const bandHalfH = boxH * 0.10;
+  const upperLockY = archMidY - bandHalfH;
+  const lowerLockY = archMidY + bandHalfH;
+
+  // TOOTH CENTERS (Influence Anchors)
+  const centers = points.map(p => ({ x: p.x - minX, y: p.y - minY }));
+  const radiusSq = Math.pow(boxW * 0.12, 2);
 
   for (let y = 0; y < boxH; y++) {
     const gy = y + minY;
-    if (gy > upperY && gy < lowerY) {
-      for (let x = 0; x < boxW; x++) {
-        teethMask[y * boxW + x] = 1;
-      }
-    }
-  }
+    // Strict Region Lock
+    if (gy < upperLockY || gy > lowerLockY) continue;
 
-  // 🦷 TOOTH CENTERS (Anatomical influence points)
-  const teethCenters = indices.map(idx => ({
-    x: landmarks[idx].x * w - minX,
-    y: landmarks[idx].y * h - minY
-  }));
-
-  // 2. BACKWARD MAPPING ALIGNMENT (Rotation-Aware)
-  const influenceRadius = boxW * 0.08 * scale;
-  const cos = Math.cos(-rotation);
-  const sin = Math.sin(-rotation);
-
-  for (let y = 0; y < boxH; y++) {
     for (let x = 0; x < boxW; x++) {
-      const idx = y * boxW + x;
-      const i = idx * 4;
+      const gx = x + minX;
 
-      if (!teethMask[idx]) continue;
-
-      // 🧠 ROTATION-MATRIX COORDINATES (Corrects for Tilt)
-      const lx = (x + minX) - centerX;
-      const ly = (y + minY) - archMidY;
-      const rx = lx * cos - ly * sin; // Local Rotated X
-      
-      const dxRel = rx / (boxW / 2);
-
-      // FIND NEAREST TOOTH CENTER INFLUENCE
+      // A. WEIGHT PIXEL INFLUENCE (Gaussian)
       let minDistSq = Infinity;
-      for (let t of teethCenters) {
-        const dx = x - t.x, dy = y - t.y;
-        const dSq = dx * dx + dy * dy;
-        if (dSq < minDistSq) minDistSq = dSq;
+      let nearestIdx = 0;
+      for (let i = 0; i < centers.length; i++) {
+        const dX = x - centers[i].x, dY = y - centers[i].y;
+        const dSq = dX * dX + dY * dY;
+        if (dSq < minDistSq) { minDistSq = dSq; nearestIdx = i; }
       }
-      const distNorm = Math.sqrt(minDistSq) / influenceRadius;
-      let weight = Math.max(0.4, Math.exp(-distNorm * distNorm));
+      let weight = Math.exp(-minDistSq / radiusSq);
+      weight = Math.max(0.4, weight);
 
-      // 🎯 CLINICAL CURVE (Calculated on Rotated Axis)
-      const curveDir = isLower ? 1 : -1;
-      const curveDisplacement = curveDir * (boxH * 0.06) * (dxRel * dxRel);
+      // B. PARABOLIC ARCH ALIGNMENT
+      const dxRel = (gx - centerX) / (boxW / 2);
+      const targetY = archMidY + (boxH * 0.035) * (dxRel * dxRel);
       
-      // 🚀 FORCE MOVEMENT
-      let dy = ((archMidY + curveDisplacement) - (y + minY)) * 1.2 * weight;
-      if (Math.abs(dy) < 2) dy = dy > 0 ? 2 : -2;
+      let dy = (targetY - gy) * 0.9 * weight;
+      if (Math.abs(dy) < 1.2 && weight > 0.4) {
+        dy = Math.sign(dy) * 1.2;
+      }
 
-      // Backward Map with sub-pixel interpolation
-      const sy = clamp(y - dy, 0, boxH - 1);
+      // C. MICRO-ROTATION (Angle simulation)
+      const angle = dxRel * 0.08 * weight;
+      const cosA = Math.cos(angle);
+      const sinA = Math.sin(angle);
+      
+      const cx = centers[nearestIdx].x;
+      const cy = centers[nearestIdx].y;
+
+      // Backward Coordinate Mapping
+      const rx = cosA * (x - cx) - sinA * (y - cy) + cx;
+      const ry = sinA * (x - cx) + cosA * (y - cy) + cy;
+
+      const sx = rx;
+      const sy = ry - dy;
+
+      // D. BILINEAR INTERPOLATION (Backward Sampling)
+      const x1 = Math.floor(sx), x2 = Math.min(x1 + 1, boxW - 1), tx = sx - x1;
       const y1 = Math.floor(sy), y2 = Math.min(y1 + 1, boxH - 1), ty = sy - y1;
-      const i1 = (y1 * boxW + x) * 4, i2 = (y2 * boxW + x) * 4;
 
-      newData[i]     = sourceData[i1] * (1 - ty) + sourceData[i2] * ty;
-      newData[i + 1] = sourceData[i1 + 1] * (1 - ty) + sourceData[i2 + 1] * ty;
-      newData[i + 2] = sourceData[i1 + 2] * (1 - ty) + sourceData[i2 + 2] * ty;
-      newData[i + 3] = 255;
+      if (x1 < 0 || x1 >= boxW || y1 < 0 || y1 >= boxH) continue;
+
+      const getRGBA = (px, py) => {
+        const i = (py * boxW + px) * 4;
+        return [sourceData[i], sourceData[i+1], sourceData[i+2], sourceData[i+3]];
+      };
+
+      const c00 = getRGBA(x1, y1);
+      const c10 = getRGBA(x2, y1);
+      const c01 = getRGBA(x1, y2);
+      const c11 = getRGBA(x2, y2);
+
+      const lerp = (v1, v2, t) => v1 * (1 - t) + v2 * t;
+      const b0 = lerp(c00[0], c10[0], tx), b1 = lerp(c01[0], c11[0], tx), rVal = lerp(b0, b1, ty);
+      const g0 = lerp(c00[1], c10[1], tx), g1 = lerp(c01[1], c11[1], tx), gVal = lerp(g0, g1, ty);
+      const bl0 = lerp(c00[2], c10[2], tx), bl1 = lerp(c01[2], c11[2], tx), bVal = lerp(bl0, bl1, ty);
+
+      const outIdx = (y * boxW + x) * 4;
+      newData[outIdx]     = rVal;
+      newData[outIdx + 1] = gVal;
+      newData[outIdx + 2] = bVal;
+      newData[outIdx + 3] = sourceData[outIdx + 3]; // Preserve original alpha
     }
   }
 
@@ -167,7 +121,7 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 /**
  * Main Entry Point - Multi-Arch Rigid Recovery
  */
-export function applyAlignment(ctx, landmarks, w, h, options = {}) {
-  processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, options);
-  processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, options);
+export function applyAlignment(ctx, landmarks, w, h) {
+  processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES);
+  processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES);
 }
