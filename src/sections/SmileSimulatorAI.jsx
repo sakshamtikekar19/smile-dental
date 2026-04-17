@@ -389,6 +389,15 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
         nb *= (1.0 + (0.18 * neutralizingPower)); // strong blue boost to kill yellow
       }
 
+      // 🧪 STEP 2.5: Stoichiometric Plaque Removal (Deep Clean)
+      // Targets deeper yellow/orange tartar tones specifically
+      const plaqueStrength = r - b;
+      if (plaqueStrength > 15) {
+        const cleanup = 1.2 * gradient;
+        nr *= (1.0 - (0.05 * cleanup));
+        nb *= (1.0 + (0.10 * cleanup));
+      }
+
       // 🧠 STEP 3: REALISM BLEND (Drop-In)
       const blend = 0.65; 
       const wr = Math.min(255, nr * 1.05);
