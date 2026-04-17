@@ -355,13 +355,17 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
 
-  // --- CLINICAL FILTER (TIGHTENED FOR GUM PROTECTION) ---
+  // --- CLINICAL FILTER (MAX PLAGUE DETECTION + NATURALISM) ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    return lum > 75 && sat < 60 && !(r > g * 1.35);
+    // Relaxed for plague (lower lum) and skin protection (ratio)
+    if (lum < 45) return false;
+    if (sat > 90) return false;
+    if (r > g * 1.5 && r > b * 1.5) return false; // Reject lips/skin only
+    return true;
   }
 
   // --- WHITENING LOOP (Region-Locked + Gradient Lift) ---
@@ -379,30 +383,23 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: Aggressive Mid-Arch Neutralization (Stain Clearing)
+      // 🧪 STEP 2: Stoichiometric Neutralization (CLEARS PLAGUE)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
-      if (yellowStrength > 5) {
-        const neutralizingPower = 1.0 * gradient;
-        nr *= (1.0 - (0.12 * neutralizingPower)); // reduce red stains in center
-        ng *= (1.0 - (0.04 * neutralizingPower)); // subtle green dampening
-        nb *= (1.0 + (0.18 * neutralizingPower)); // strong blue boost to kill yellow
+      
+      if (yellowStrength > 10) {
+        const cleanup = 1.3 * gradient;
+        // Targeted plague removal logic (massive blue boost)
+        nr *= (1.0 - (0.12 * cleanup)); 
+        ng *= (1.0 - (0.04 * cleanup)); 
+        nb *= (1.0 + (0.25 * cleanup)); // Heavy neutralization for thick plague
       }
 
-      // 🧪 STEP 2.5: Stoichiometric Plaque Removal (Deep Clean)
-      // Targets deeper yellow/orange tartar tones specifically
-      const plaqueStrength = r - b;
-      if (plaqueStrength > 15) {
-        const cleanup = 1.2 * gradient;
-        nr *= (1.0 - (0.05 * cleanup));
-        nb *= (1.0 + (0.10 * cleanup));
-      }
-
-      // 🧠 STEP 3: REALISM BLEND (Drop-In)
-      const blend = 0.65; 
-      const wr = Math.min(255, nr * 1.05);
-      const wg = Math.min(255, ng * 1.07);
-      const wb = Math.min(255, nb * 1.10);
+      // 🧠 STEP 3: REALISM BLEND (48% for ENAMEL TEXTURE)
+      const blend = 0.48; // 48% clean lift, 52% original texture preservation
+      const wr = Math.min(255, nr * 1.04);
+      const wg = Math.min(255, ng * 1.04);
+      const wb = Math.min(255, nb * 1.04);
 
       let fr = r * (1 - blend) + wr * blend;
       let fg = g * (1 - blend) + wg * blend;
