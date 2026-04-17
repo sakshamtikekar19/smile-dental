@@ -105,12 +105,5 @@ export function applyWhitening(ctx, landmarks, w, h) {
     whit[i + 2] = Math.max(0, Math.min(255, b * (1 - blend) + wb * blend));
   }
 
-    const blend = 0.60 * maskAlpha; // Increased blend slightly for visibility
-    
-    whit[i]     = Math.max(0, Math.min(255, r * (1 - blend) + wr * blend));
-    whit[i + 1] = Math.max(0, Math.min(255, g * (1 - blend) + wg * blend));
-    whit[i + 2] = Math.max(0, Math.min(255, b * (1 - blend) + wb * blend));
-  }
-
   ctx.putImageData(whiteningData, minX, minY);
 }
