@@ -355,15 +355,13 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
 
-  // --- CLINICAL FILTER (MAX GUM PROTECTION) ---
+  // --- CLINICAL FILTER (TIGHTENED FOR GUM PROTECTION) ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    // Strict neutral threshold (teeth are grey/white, gums are colorful)
-    // and aggressive red rejection (red > green + 55%)
-    return lum > 82 && sat < 32 && !(r > g * 1.55);
+    return lum > 75 && sat < 60 && !(r > g * 1.35);
   }
 
   // --- WHITENING LOOP (Region-Locked + Gradient Lift) ---
@@ -374,7 +372,6 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
     for (let x = 0; x < boxW; x++) {
       const i = (y * boxW + x) * 4;
       const r = data[i], g = data[i + 1], b = data[i + 2];
-      const lum = (r + g + b) / 3;
 
       if (!isToothPixel(r, g, b)) continue;
 
@@ -382,26 +379,21 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: Balanced Neutralization (Stain Clearing)
+      // 🧪 STEP 2: Aggressive Mid-Arch Neutralization (Stain Clearing)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
-      
-      // ONLY neutralize if there is a real yellow stain detected
-      if (yellowStrength > 8) {
+      if (yellowStrength > 5) {
         const neutralizingPower = 1.0 * gradient;
-        // 🛡️ BLUE-REDUCTION: Reduced boost to prevent blue-shift
-        const blueIntensity = lum > 115 ? 0.08 : 0.03;
-        
-        nr *= (1.0 - (0.05 * neutralizingPower)); 
-        nb *= (1.0 + (blueIntensity * neutralizingPower)); 
+        nr *= (1.0 - (0.12 * neutralizingPower)); // reduce red stains in center
+        ng *= (1.0 - (0.04 * neutralizingPower)); // subtle green dampening
+        nb *= (1.0 + (0.18 * neutralizingPower)); // strong blue boost to kill yellow
       }
 
       // 🧠 STEP 3: REALISM BLEND (Drop-In)
       const blend = 0.65; 
-      // 🛡️ RADIANCE BALANCE: Harmonized multipliers to prevent channel desync (No Blue Gums)
-      const wr = Math.min(255, nr * 1.04);
-      const wg = Math.min(255, ng * 1.04);
-      const wb = Math.min(255, nb * 1.04);
+      const wr = Math.min(255, nr * 1.05);
+      const wg = Math.min(255, ng * 1.07);
+      const wb = Math.min(255, nb * 1.10);
 
       let fr = r * (1 - blend) + wr * blend;
       let fg = g * (1 - blend) + wg * blend;
