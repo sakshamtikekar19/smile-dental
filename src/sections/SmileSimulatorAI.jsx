@@ -403,20 +403,30 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: NATURAL PLAQUE REDUCTION (RESTORED)
-      const yellowStrength = r - b;
+      // 🧪 STEP 2: CLINICAL TARTAR EXTRACTION (RESTORED)
+      const warmStrength = (r + g) / 2 - b; // catches yellow + orange
+      const lum = (r + g + b) / 3;
       let nr = r, ng = g, nb = b;
 
-      const isPlaque = yellowStrength > 5 && lumC > 70 && lumC < 140 && isEdge;
-      if (isPlaque) {
-        nr *= 0.95; ng *= 0.98; nb = nb + (nr - nb) * 0.04;
-        nr *= 1.005; ng *= 1.005; nb *= 1.005;
-      } else if (yellowStrength > 10) {
+      const isTartar = warmStrength > 12 && lum > 70 && lum < 170;
+      if (isTartar) {
+        const strength = 0.10; // controlled
+        nr *= (1 - strength);
+        ng *= (1 - strength * 0.6);
+
+        // neutralize toward grey (NOT blue)
+        const avg = (nr + ng + nb) / 3;
+        nr = nr * 0.92 + avg * 0.08;
+        ng = ng * 0.92 + avg * 0.08;
+        nb = nb * 0.92 + avg * 0.08;
+      } else if (warmStrength > 8) {
+        // Normal cleaning for non-tartar yellow spots
         const cleanup = 1.1 * gradient;
         nr *= (1.0 - (0.06 * cleanup));
         ng *= (1.0 - (0.03 * cleanup));
         nb = nb + (nr - nb) * 0.08;
       }
+
 
       // 🧠 STEP 3: REALISM BLEND (0.55)
       const blend = 0.55; 
