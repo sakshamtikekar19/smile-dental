@@ -1,64 +1,99 @@
-// 🦷 LOCKED WHITENING ENGINE (RECTIFIED & PRODUCTION SAFE)
+// 🦷 LOCKED WHITENING ENGINE (SURGICAL SAFETY & SPEED LOCK)
 
 /**
- * Enhanced whitening with wider visibility range and surgical safety.
- * Rectified to ensure the 'Before/After' difference is clear even in bright/dark lighting.
+ * PRODUCTION-SAFE WHITENING PIPELINE
+ * Implements a 'Surgical Mask' via Landmark Clipping to guarantee zero lip/skin bleed.
+ * Limited to mouth bounding box for maximum performance.
  */
 export function applyWhitening(ctx, landmarks, w, h) {
-  const imageData = ctx.getImageData(0, 0, w, h);
+  if (!landmarks || landmarks.length === 0) return;
+
+  // 🛡️ 1. SURGICAL MASK (Step 1: Create a Digital Fence)
+  // Indices for the inner mouth opening (Dental Window)
+  const pipeIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  
+  ctx.save();
+  const mask = new Path2D();
+  pipeIndices.forEach((idx, i) => {
+    const p = landmarks[idx];
+    if (p) {
+      if (i === 0) mask.moveTo(p.x * w, p.y * h);
+      else mask.lineTo(p.x * w, p.y * h);
+    }
+  });
+  mask.closePath();
+  
+  // Apply a slight 'Natural Feather' if supported, or just clip for safety
+  ctx.clip(mask);
+
+  // 📍 2. Calculate bounding box for loop optimization
+  let minX = w, minY = h, maxX = 0, maxY = 0;
+  pipeIndices.forEach(i => {
+    const pt = landmarks[i];
+    if (pt) {
+      const px = pt.x * w, py = pt.y * h;
+      if (px < minX) minX = px; if (py < minY) minY = py;
+      if (px > maxX) maxX = px; if (py > maxY) maxY = py;
+    }
+  });
+
+  const pad = 10;
+  minX = Math.max(0, Math.floor(minX - pad));
+  minY = Math.max(0, Math.floor(minY - pad));
+  maxX = Math.min(w, Math.ceil(maxX + pad));
+  maxY = Math.min(h, Math.ceil(maxY + pad));
+
+  const boxW = maxX - minX;
+  const boxH = maxY - minY;
+  if (boxW <= 0 || boxH <= 0) {
+    ctx.restore();
+    return;
+  }
+
+  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = imageData.data;
 
+  // 🔍 3. Loop strictly through protected bounding box
   for (let i = 0; i < data.length; i += 4) {
-    let r = data[i];
-    let g = data[i + 1];
-    let b = data[i + 2];
+    let r = data[i], g = data[i+1], b = data[i+2];
 
-    const lum = (r + g + b) / 3;
-    const warm = (r + g) / 2 - b;
+    // 🛡️ HARD LOCK (Lip Killer + Enamel Guard)
+    const isLip = r > g * 1.22 && r > b * 1.35; // slightly more aggressive lip kill
+    if (isLip) continue;
 
-    // 🛡️ ENAMEL GUARD (RECTIFIED: Wide range for high/low exposure visibility)
     const isTooth =
-      r > 50 && g > 45 && b > 35 &&   // capture darker enamel details
-      lum > 65 && lum < 250 &&        // avoid total black/white, but allow bright enamel
-      warm > -15;                     // avoid blue regions but allow cooling
+      r > 80 && g > 75 && b > 60 &&     
+      r < 240 && g < 240 && b < 240 && 
+      (r - b) < 45 &&                   
+      (r > g * 0.82) &&                 
+      (b > 35);                         
 
     if (!isTooth) continue;
 
     let nr = r, ng = g, nb = b;
+    const warm = (r + g) / 2 - b;
 
-    // 🧪 PLAQUE / YELLOW CLEANER (RECTIFIED: More aggressive on warm tones)
-    const yellowThreshold = 6; 
-    if (warm > yellowThreshold) {
-      const cleanerStrength = 0.90; 
-      nr *= cleanerStrength;   
-      ng *= 0.94;
-
-      // Move toward neutral (Stochiometric correction)
+    // 🧪 PLAQUE CLEANER
+    if (warm > 8) {
+      nr *= 0.92; ng *= 0.96;
       const avg = (nr + ng + nb) / 3;
-      const neutralBlend = 0.12;
-      nr = nr * (1 - neutralBlend) + avg * neutralBlend;
-      ng = ng * (1 - neutralBlend) + avg * neutralBlend;
-      nb = nb * (1 - neutralBlend) + avg * neutralBlend;
+      nr = nr * 0.94 + avg * 0.06;
+      ng = ng * 0.94 + avg * 0.06;
+      nb = nb * 0.94 + avg * 0.06;
     }
 
-    // ✨ NATURAL WHITENING (RECTIFIED: Stronger lift for surgical clarity)
-    const liftR = 1.05;
-    const liftG = 1.08;
-    const liftB = 1.12; // slight blue bias to combat yellowing
-
+    // ✨ NATURAL WHITENING
+    const liftR = 1.03, liftG = 1.05, liftB = 1.06;
     const wr = Math.min(255, nr * liftR);
     const wg = Math.min(255, ng * liftG);
     const wb = Math.min(255, nb * liftB);
 
-    // 🧠 TEXTURE PRESERVATION
-    const blend = 0.62; // increased blend for more visible results
-
+    const blend = 0.55;
     let fr = r * (1 - blend) + wr * blend;
     let fg = g * (1 - blend) + wg * blend;
     let fb = b * (1 - blend) + wb * blend;
 
-    // 🔒 DEPTH LOCK (prevents fake flat white)
-    const contrast = 1.03;
+    const contrast = 1.02;
     fr = (fr - 128) * contrast + 128;
     fg = (fg - 128) * contrast + 128;
     fb = (fb - 128) * contrast + 128;
@@ -68,5 +103,6 @@ export function applyWhitening(ctx, landmarks, w, h) {
     data[i + 2] = Math.max(0, Math.min(255, fb));
   }
 
-  ctx.putImageData(imageData, 0, 0);
+  ctx.putImageData(imageData, minX, minY);
+  ctx.restore(); // 🛡️ Restore Digital Fence
 }

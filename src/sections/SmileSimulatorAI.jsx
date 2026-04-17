@@ -228,6 +228,8 @@ const SmileSimulatorAI = () => {
   const [zoomLoading, setZoomLoading] = useState(false);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
+  const [zoomedBeforeImage, setZoomedBeforeImage] = useState(null);
+  const [zoomedAfterImage, setZoomedAfterImage] = useState(null);
   const [cameraStream, setCameraStream] = useState(null);
   const pendingTreatmentRef = useRef("whitening");
 
@@ -363,14 +365,32 @@ const SmileSimulatorAI = () => {
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
         const rotationDeg = getProperAlignment(landmarks, iw, ih).rotationDeg;
         const opts = { anchor, rotation: rotationDeg };
+        
+        // 🦷 WHIETENING FIRST (Step 1: whiten on original pixels)
+        applyProfessionalWhitening(pctx, landmarks, iw, ih, opts);
+
+        // 🧠 ALIGNMENT LAST (Optional/Stabilized)
         if (treatment !== "whitening") {
           applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
         }
-        applyProfessionalWhitening(pctx, landmarks, iw, ih, opts);
       }
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
       }
+
+      // 🔍 INSTANT ZOOM GENERATION (Performance Step)
+      const zoomCanvas = document.createElement("canvas");
+      zoomCanvas.width = 1200; zoomCanvas.height = 600;
+      const zctx = zoomCanvas.getContext("2d");
+      
+      // 1. Generate After Zoom (Whitened)
+      applyClinicalZoom(zctx, landmarks, iw, ih, procCanvas);
+      setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
+      
+      // 2. Generate Before Zoom (Original)
+      zctx.clearRect(0, 0, 1200, 600);
+      applyClinicalZoom(zctx, landmarks, iw, ih, img);
+      setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
 
       setBeforeImage(snapshotUrl);
       setAfterImage(procCanvas.toDataURL("image/jpeg", 0.93));
@@ -387,54 +407,6 @@ const SmileSimulatorAI = () => {
     const timer = setTimeout(() => startHeavyProcessingPipeline(rawImageUrl), 150);
     return () => clearTimeout(timer);
   }, [rawImageUrl, isProcessing, startHeavyProcessingPipeline]);
-
-  useEffect(() => {
-    if (step === "result" && finalLandmarks && afterImage) {
-      setZoomLoading(true);
-      const timer = setTimeout(async () => {
-        const canvas = zoomCanvasRef.current;
-        if (!canvas) return;
-        try {
-          const img = new Image();
-          img.onload = () => {
-            const focus = getTeethFocusBox(finalLandmarks, img.width, img.height);
-            const scale = 3;
-            canvas.width = focus.width * scale;
-            canvas.height = focus.height * scale;
-            const zctx = canvas.getContext("2d");
-            zctx.imageSmoothingEnabled = true;
-            zctx.imageSmoothingQuality = "high";
-            zctx.drawImage(img, focus.x, focus.y, focus.width, focus.height, 0, 0, canvas.width, canvas.height);
-
-            // 🔍 CLINICAL OVERLAY: Diagnostic Grid
-            zctx.strokeStyle = "rgba(212, 175, 55, 0.15)";
-            zctx.lineWidth = 1;
-            zctx.setLineDash([5, 15]);
-            
-            // Vertical lines
-            for (let i = 1; i < 4; i++) {
-              zctx.beginPath();
-              zctx.moveTo((canvas.width / 4) * i, 0);
-              zctx.lineTo((canvas.width / 4) * i, canvas.height);
-              zctx.stroke();
-            }
-            // Horizontal lines
-            for (let i = 1; i < 3; i++) {
-              zctx.beginPath();
-              zctx.moveTo(0, (canvas.height / 3) * i);
-              zctx.lineTo(canvas.width, (canvas.height / 3) * i);
-              zctx.stroke();
-            }
-            zctx.setLineDash([]);
-            
-            setZoomLoading(false);
-          };
-          img.src = afterImage;
-        } catch { setZoomLoading(false); }
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [step, finalLandmarks, afterImage]);
 
   useEffect(() => {
     if (step === "camera" && cameraStream && videoRef.current) {
