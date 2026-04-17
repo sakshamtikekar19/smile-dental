@@ -380,8 +380,8 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
 
       // 🚫 HARD GUARD (VERY IMPORTANT)
       const isTooth = (
-        r > 90 && g > 80 && b > 60 &&   // inclusive enamel
-        r < 252 && g < 252 && b < 252     // avoid pure highlights
+        r > 50 && g > 45 && b > 35 &&   // inclusive enamel
+        r < 253 && g < 253 && b < 253     // avoid pure highlights
       );
       if (!isTooth) continue;
 
@@ -414,7 +414,7 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
 
       // plaque = yellow + slightly darker + edge
       const isPlaque =
-        yellowStrength > 14 &&
+        yellowStrength > 5 &&
         lumC > 70 &&
         lumC < 140 &&
         isEdge;
@@ -439,16 +439,16 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
 
       // 🧠 STEP 3: REALISM BLEND (0.58)
       const blend = 0.65; 
-      const wr = Math.min(255, nr * 1.04);
-      const wg = Math.min(255, ng * 1.04);
-      const wb = Math.min(255, nb * 1.04);
+      const wr = Math.min(255, nr * 1.20);
+      const wg = Math.min(255, ng * 1.20);
+      const wb = Math.min(255, nb * 1.20);
 
       let fr = r * (1 - blend) + wr * blend;
       let fg = g * (1 - blend) + wg * blend;
       let fb = b * (1 - blend) + wb * blend;
 
       // ✨ STEP 4: CONTRAST RESTORE (Depth Lock - Reduced for Naturalism)
-      const contrast = 1.02;
+      const contrast = 1.08;
       fr = (fr - 128) * contrast + 128;
       fg = (fg - 128) * contrast + 128;
       fb = (fb - 128) * contrast + 128;
