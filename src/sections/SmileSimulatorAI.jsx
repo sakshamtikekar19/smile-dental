@@ -400,12 +400,17 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const lumL = getLum(iL);
       const lumR = getLum(iR);
 
-      // 🎯 high contrast edge = likely interdental area
-      const isEdge = Math.abs(lumL - lumR) > 18;
+      const edgeStrength = Math.abs(lumL - lumR);
+      // tighter + more clinical
+      const isEdge = edgeStrength > 22 && edgeStrength < 80;
 
       // 🦷 STEP 1: Anatomical Arch Gradient (Realism Key)
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
+
+      // avoid center of teeth (prevents flat look)
+      const centerBias = distFromCenter;
+      if (centerBias < 0.15) continue;
 
       // 🧪 STEP 2: NATURAL PLAQUE REDUCTION (NO BLUE SHIFT)
       const yellowStrength = r - b;
@@ -413,22 +418,21 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
 
       // plaque = yellow + slightly darker + edge
       const isPlaque =
-        yellowStrength > 12 &&
-        lumC > 60 &&
-        lumC < 160 &&
+        yellowStrength > 14 &&
+        lumC > 70 &&
+        lumC < 140 &&
         isEdge;
 
       if (isPlaque) {
         // gentle cleaning (NOT whitening)
-        const cleanup = 1.1 * gradient;
-        nr *= (1.0 - (0.08 * cleanup)); 
-        ng *= (1.0 - (0.03 * cleanup));
-        nb = nb + (nr - nb) * 0.06;
+        nr *= 0.95;
+        ng *= 0.98;
+        nb = nb + (nr - nb) * 0.04;
 
         // ✨ TINY POLISH
-        nr *= 1.01;
-        ng *= 1.01;
-        nb *= 1.01;
+        nr *= 1.005;
+        ng *= 1.005;
+        nb *= 1.005;
       } else if (yellowStrength > 10) {
         // Normal cleaning for non-edge yellow spots
         const cleanup = 1.1 * gradient;
