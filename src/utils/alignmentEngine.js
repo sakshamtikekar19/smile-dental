@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: Forced Orthodontic Shift Baseline
- * Direct Parabolic Geometry with High-Visibility Snap
+ * ALIGNMENT ENGINE: FINAL WORKING ALIGNMENT CORE
+ * High-Visibility Orthodontic Shift with Strict Banding
  */
 
 const UPPER_ARCH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
@@ -25,48 +25,43 @@ function processArch(ctx, landmarks, w, h, indices) {
   const archMidY = ys.reduce((s, p) => s + p, 0) / ys.length;
 
   const imageData = ctx.getImageData(minX, minY, boxW, boxH);
-  const data = imageData.data;
-  const sourceData = new Uint8ClampedArray(data);
+  const sourceData = new Uint8ClampedArray(imageData.data);
+  const newData = new Uint8ClampedArray(sourceData);
 
-  // 🦷 DEFINE TEETH MASK (Surgical Band)
-  const teethMask = new Uint8Array(boxW * boxH);
-  const verticalBand = boxH * 0.28;
-  for (let y = 0; y < boxH; y++) {
-    const gy = y + minY;
-    if (Math.abs(gy - archMidY) < verticalBand) {
-       for (let x = 0; x < boxW; x++) teethMask[y * boxW + x] = 1;
-    }
-  }
+  // 🎯 Teeth band (STRICT)
+  const upperY = archMidY - boxH * 0.10;
+  const lowerY = archMidY + boxH * 0.10;
 
-  // 👉 GUARANTEED VISIBLE MOVEMENT LOOP
   for (let y = 0; y < boxH; y++) {
     for (let x = 0; x < boxW; x++) {
 
-      const idx = y * boxW + x;
-      if (!teethMask[idx]) continue;
+      const globalY = y + minY;
+      if (globalY < upperY || globalY > lowerY) continue;
 
-      const i = idx * 4;
+      const i = (y * boxW + x) * 4;
+
       const gx = x + minX;
-      const gy = y + minY;
+      const gy = globalY;
 
-      // 🎯 STRONG PARABOLIC ARCH
+      // 🧠 STRONG ARCH CURVE
       const dxRel = (gx - centerX) / (boxW / 2);
       const curve = dxRel * dxRel;
-      const targetY = archMidY + (boxH * 0.08) * curve;
 
-      // 💥 FORCE MOVEMENT (NO WEIGHT)
-      let dy = (targetY - gy) * 1.4;
+      const targetY = archMidY + (boxH * 0.07) * curve;
 
-      // 🚀 HARD SNAP (THIS MAKES IT VISIBLE)
-      if (Math.abs(dy) < 2.5) {
-        dy = dy > 0 ? 2.5 : -2.5;
+      // 💥 FORCE VERTICAL MOVEMENT
+      let dy = (targetY - gy) * 1.3;
+
+      if (Math.abs(dy) < 2.0) {
+        dy = dy > 0 ? 2.0 : -2.0;
       }
 
-      // 🧠 SIMPLE HORIZONTAL CORRECTION
-      let dx = -dxRel * 2.0;
+      // 🧠 SIMPLE HORIZONTAL STRAIGHTENING
+      let dx = -dxRel * 2.2;
+
       dx = Math.max(-3, Math.min(3, dx));
 
-      // Backward Sampling Coordinates
+      // 🎯 BACKWARD SAMPLING (NO GAPS)
       const sx = Math.max(0, Math.min(boxW - 1, x - dx));
       const sy = Math.max(0, Math.min(boxH - 1, y - dy));
 
@@ -77,14 +72,16 @@ function processArch(ctx, landmarks, w, h, indices) {
       const i1 = (y1 * boxW + Math.floor(sx)) * 4;
       const i2 = (y2 * boxW + Math.floor(sx)) * 4;
 
-      data[i]     = sourceData[i1] * (1 - ty) + sourceData[i2] * ty;
-      data[i + 1] = sourceData[i1 + 1] * (1 - ty) + sourceData[i2 + 1] * ty;
-      data[i + 2] = sourceData[i1 + 2] * (1 - ty) + sourceData[i2 + 2] * ty;
-      data[i + 3] = 255;
+      newData[i]     = sourceData[i1] * (1 - ty) + sourceData[i2] * ty;
+      newData[i + 1] = sourceData[i1 + 1] * (1 - ty) + sourceData[i2 + 1] * ty;
+      newData[i + 2] = sourceData[i1 + 2] * (1 - ty) + sourceData[i2 + 2] * ty;
+      newData[i + 3] = 255;
     }
   }
 
-  ctx.putImageData(imageData, minX, minY);
+  // ✅ APPLY FINAL
+  imageData.data.set(newData);
+  ctx.putImageData(imageData, minX, minY); 
 }
 
 /**
