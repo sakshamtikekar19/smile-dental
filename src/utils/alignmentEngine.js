@@ -2,7 +2,7 @@
  * ALIGNMENT ENGINE: Clinical Orthodontic Transformation (Geometry Only)
  * 1. Landmark-Based Influence (Gaussian Falloff)
  * 2. High-Force Parabolic Arch Alignment
- * 3. Horizontal Spacing Correction
+ * 3. True Tooth Targeting (Horizontal Snapping)
  * 4. Micro-Rotation Alignment (Tilt Correction)
  */
 
@@ -40,7 +40,7 @@ function processArch(ctx, landmarks, w, h, indices) {
   const lowerLockY = archMidY + bandHalfH;
 
   // TOOTH CENTERS (Influence Anchors)
-  const centers = points.map(p => ({ x: p.x - minX, y: p.y - minY }));
+  const centers = points.map(p => ({ x: p.x - minX, y: p.y - minY, gx: p.x }));
   const radiusSq = Math.pow(boxW * 0.12, 2);
 
   for (let y = 0; y < boxH; y++) {
@@ -51,13 +51,16 @@ function processArch(ctx, landmarks, w, h, indices) {
     for (let x = 0; x < boxW; x++) {
       const gx = x + minX;
 
-      // A. WEIGHT PIXEL INFLUENCE (Gaussian)
+      // A. WEIGHT PIXEL INFLUENCE (Gaussian) + NEAREST TARGETING
       let minDistSq = Infinity;
-      let nearestIdx = 0;
+      let nearestTooth = null;
       for (let i = 0; i < centers.length; i++) {
         const dX = x - centers[i].x, dY = y - centers[i].y;
         const dSq = dX * dX + dY * dY;
-        if (dSq < minDistSq) { minDistSq = dSq; nearestIdx = i; }
+        if (dSq < minDistSq) { 
+          minDistSq = dSq; 
+          nearestTooth = centers[i];
+        }
       }
       let weight = Math.exp(-minDistSq / radiusSq);
       weight = Math.max(0.4, weight);
@@ -71,18 +74,18 @@ function processArch(ctx, landmarks, w, h, indices) {
         dy = Math.sign(dy) * 1.5;
       }
 
-      // C. HORIZONTAL SPACING CORRECTION
-      const targetX = centerX + dxRel * (boxW * 0.42);
-      let dx = (targetX - gx) * 0.25 * weight;
-      dx = clamp(dx, -2.0, 2.0);
+      // C. TRUE TOOTH TARGETING (Horizontal Alignment)
+      // Reference: targetSnapX is nearestTooth.gx within global space
+      let dx = (nearestTooth.gx - gx) * 0.35 * weight;
+      dx = clamp(dx, -2.5, 2.5);
 
       // D. MICRO-ROTATION (High-Torque Pass)
       const angle = dxRel * 0.16 * weight;
       const cosA = Math.cos(angle);
       const sinA = Math.sin(angle);
       
-      const cx = centers[nearestIdx].x;
-      const cy = centers[nearestIdx].y;
+      const cx = nearestTooth.x;
+      const cy = nearestTooth.y;
 
       // Backward Coordinate Mapping
       const sx_rot = cosA * (x - cx) - sinA * (y - cy) + cx;
