@@ -384,17 +384,20 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: Balanced Neutralization (No Blue-Tinge)
+      // 🧪 STEP 2: Balanced Neutralization (REDUCES PLAGUE YELLOW)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
       
       if (yellowStrength > 8) {
-        const cleanup = 1.1 * gradient;
-        // 🛡️ SPECTRAL GUARD: Reduced blue boost (12% max) to avoid purple casts
-        const blueIntensity = lum > 110 ? 0.12 : 0.06;
+        const cleanup = 1.2 * gradient;
+        // 🛡️ CHROMATIC LEVELING: Level out the yellow by dampening R/G and lifting B
+        const redDampen = 0.12 * cleanup;
+        const greenDampen = 0.04 * cleanup;
+        const blueBoost = lum > 110 ? 0.18 : 0.09; // Stronger boost on bright, subtle on shadows
         
-        nr *= (1.0 - (0.05 * cleanup)); 
-        nb *= (1.0 + (blueIntensity * cleanup)); 
+        nr *= (1.0 - redDampen); 
+        ng *= (1.0 - greenDampen);
+        nb *= (1.0 + (blueBoost * cleanup)); 
       }
 
       // 🧠 STEP 3: REALISM BLEND (48% for TEXTURE)
