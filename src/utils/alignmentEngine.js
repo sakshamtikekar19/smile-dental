@@ -128,19 +128,25 @@ function processArch(ctx, landmarks, w, h, indices, options) {
         if (dSq < minDistSq) minDistSq = dSq;
       }
       const distNorm = Math.sqrt(minDistSq) / influenceRadius;
-      const weight = Math.exp(-distNorm * distNorm);
+      let weight = Math.exp(-distNorm * distNorm);
+      
+      // 🛡️ WEIGHT FLOOR: Prevents orthodontic force from "dying out"
+      weight = Math.max(0.4, weight);
 
       const gx = x + minX;
       const gy = y + minY;
       const dxRel = (gx - centerX) / (boxW / 2);
 
-      // Stronger Smile Curve (Anatomically Balanced)
+      // 🎯 STRONG CLINICAL CURVE (0.06 Boost)
       const curveDirection = isLower ? 1 : -1;
-      const targetYGlobal = archMidY + curveDirection * (boxH * 0.04) * (dxRel * dxRel);
+      const targetYGlobal = archMidY + curveDirection * (boxH * 0.06) * (dxRel * dxRel);
 
-      let dy = (targetYGlobal - gy) * 0.7 * weight;
-      if (Math.abs(dy) < 1.2 && weight > 0.3) {
-        dy = dy > 0 ? 1.2 : -1.2;
+      // 🚀 FORCE MOVEMENT (User-Calibrated 1.2)
+      let dy = (targetYGlobal - gy) * 1.2 * weight;
+
+      // 💥 HARD GUARANTEE (Definitive Visibility)
+      if (Math.abs(dy) < 2) {
+        dy = dy > 0 ? 2 : -2;
       }
 
       // Backward Map: Find where this coordinate CAME FROM
