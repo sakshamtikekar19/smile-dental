@@ -71,34 +71,6 @@ async function initFaceLandmarker() {
   return _faceLandmarkerPromise;
 }
 
-/**
- * Anatomical Teeth Focus (Dental Zoom)
- */
-function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
-  if (!landmarks || landmarks.length === 0) return { x: 0, y: 0, width, height };
-  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-  const points = indices.map(i => landmarks[i]).filter(Boolean);
-  if (!points.length) return { x: 0, y: 0, width, height };
-
-  const xs = points.map(p => p.x * width);
-  const ys = points.map(p => p.y * height);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-
-  const w = maxX - minX;
-  const h = maxY - minY;
-  const p = Math.max(w, h) * padding;
-
-  return {
-    x: Math.max(0, minX - p),
-    y: Math.max(0, minY - p * 1.5),
-    width: Math.min(width, w + p * 2),
-    height: Math.min(height, h + p * 3)
-  };
-}
-
 // ── Processing Utilities ─────────────────────────────────────────────────────
 async function detectLandmarks(imageUrl) {
   const landmarker = await initFaceLandmarker();
