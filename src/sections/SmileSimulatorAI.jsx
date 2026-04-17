@@ -196,10 +196,10 @@ const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 const MAX_IMAGE_SIZE = IS_MOBILE ? 800 : 1200;
 
 const TREATMENTS = [
-  { id: "whitening", label: "Whitening", icon: "✨" },
-  { id: "alignment", label: "Alignment", icon: "🦷" },
-  { id: "braces", label: "Braces", icon: "🖇️" },
-  { id: "transformation", label: "Full Smile", icon: "💎" },
+  { id: "whitening", label: "Whitening", desc: "Blue-white enamel sheen enhancement." },
+  { id: "alignment", label: "Alignment", desc: "Gap closure and crooked-tooth rectification." },
+  { id: "braces", label: "Braces", desc: "Precision metallic bracket preview." },
+  { id: "transformation", label: "Full Smile", desc: "Hollywood-style smile reconstruction." },
 ];
 
 const TREATMENT_THEME = {
@@ -209,14 +209,42 @@ const TREATMENT_THEME = {
   transformation: { glow: "0 0 28px rgba(212,175,55,0.5)", ring: "#D4AF37", tint: "from-amber-200/20 to-yellow-600/25" },
 };
 
+const ICON_MAP = {
+  whitening: () => (
+    <svg className="w-6 h-6 md:w-8 md:h-8 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="4" />
+    </svg>
+  ),
+  alignment: () => (
+    <svg className="w-6 h-6 md:w-8 md:h-8 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  braces: () => (
+    <svg className="w-6 h-6 md:w-8 md:h-8 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M7 7h10v10H7zM7 12h10M12 7v10" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  transformation: () => (
+    <svg className="w-6 h-6 md:w-8 md:h-8 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M12 3l1.912 5.885h6.188l-5.007 3.638 1.913 5.885-5.006-3.637-5.006 3.637 1.912-5.885-5.006-3.638h6.188z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+};
+
 function TreatmentDockButton({ treatment, active, onSelect }) {
+  const Icon = ICON_MAP[treatment.id] ?? (() => null);
   const theme = TREATMENT_THEME[treatment.id] ?? TREATMENT_THEME.whitening;
   return (
     <motion.button type="button" onClick={onSelect}
-      className={cn("relative h-16 w-16 md:h-[74px] md:w-[74px] rounded-full border border-white/10 bg-white/5 backdrop-blur-xl transition-all flex items-center justify-center text-2xl md:text-3xl")}
-      style={{ borderColor: active ? theme.ring : "rgba(255,255,255,0.1)", boxShadow: active ? theme.glow : "none" }}>
+      className={cn("relative h-16 w-16 md:h-[74px] md:w-[74px] rounded-full border border-white/10 bg-white/5 backdrop-blur-xl transition-all flex items-center justify-center")}
+      style={{ borderColor: active ? theme.ring : "rgba(255,255,255,0.1)", boxShadow: active ? theme.glow : "none" }}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+    >
       <span className={cn("absolute inset-0 rounded-full bg-gradient-to-br", theme.tint)} />
-      <span className="relative z-10">{treatment.icon}</span>
+      <span className="relative z-10"><Icon /></span>
     </motion.button>
   );
 }
@@ -396,6 +424,10 @@ const SmileSimulatorAI = () => {
       <div className="container mx-auto px-4 max-w-6xl">
         <AnimatedSection className="text-center mb-8">
           <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-3xl md:text-5xl lg:text-6xl mb-4">AI Smile Simulation</h2>
+          <p className="text-zinc-500 max-w-2xl mx-auto text-sm md:text-lg italic mb-6 md:mb-10 px-4">
+            {TREATMENTS.find(t => t.id === selectedTreatment)?.desc}
+          </p>
+
           <div className="flex flex-col items-center gap-4 md:gap-6 mt-4 mb-8 md:mb-12">
             <div className="bg-zinc-900/95 backdrop-blur-2xl px-4 py-3 rounded-[28px] md:rounded-[32px] border border-white/10 flex items-center gap-3 md:gap-6">
               {TREATMENTS.map(t => (
@@ -419,6 +451,15 @@ const SmileSimulatorAI = () => {
               <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative aspect-[4/5] md:aspect-video bg-black rounded-[32px] overflow-hidden">
                 <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted autoPlay />
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
+                
+                {/* 🦷 Anatomical Teeth Placement Guidance (The 'Oval') */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                  <div className="relative w-[50%] md:w-[32%] aspect-[1.8/1] border-[3px] border-dashed border-white/50 rounded-[500px] flex items-center justify-center">
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full border border-white/20 rounded-[500px] animate-pulse" />
+                    <span className="text-white/60 text-[8px] md:text-[9px] uppercase tracking-[0.3em] font-bold mt-20 md:mt-24">Align Teeth</span>
+                  </div>
+                </div>
+
                 <div ref={stabilizerRef} id="alignment-stabilizer" className="absolute z-20 pointer-events-none" style={{ clipPath: 'ellipse(50% 45% at 50% 50%)' }}>
                   <canvas className="w-full h-full" />
                 </div>
