@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, RefreshCw } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
@@ -10,33 +9,6 @@ import { applyAlignment as applyProfessionalAlignment } from "../utils/alignment
 import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
 import { applyClinicalZoom } from "../utils/zoomEngine";
 
-/**
- * 🦷 ANATOMICAL TEETH FOCUS (Dental Zoom)
- * Calculates the bounding box for high-resolution magnification.
- */
-function getTeethFocusBox(landmarks, width, height, padding = 0.28) {
-  if (!landmarks || landmarks.length === 0) return { x: 0, y: 0, width, height };
-  // Whole Smile: Includes corners (61, 291) plus dental arch
-  const indices = [61, 291, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-  const points = indices.map(i => landmarks[i]).filter(Boolean);
-  if (!points.length) return { x: 0, y: 0, width, height };
-  const xs = points.map(p => p.x * width);
-  const ys = points.map(p => p.y * height);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const w = maxX - minX, h = maxY - minY;
-  const p = Math.max(w, h) * padding;
-  
-  return {
-    x: Math.max(0, minX - p),
-    y: Math.max(0, minY - p * 1.2), // Clinical bias for upper arch
-    width: Math.min(width, w + p * 2),
-    height: Math.min(height, h + p * 2.6)
-  };
-}
-
-// ── Environment ──────────────────────────────────────────────────────────────
-const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
 // ── MediaPipe singleton (shared, loaded once) ────────────────────────────────
 let _faceLandmarkerInstance = null;
@@ -223,7 +195,6 @@ const SmileSimulatorAI = () => {
   const [error, setError] = useState(null);
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [zoomLoading, setZoomLoading] = useState(false);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
   const [zoomedBeforeImage, setZoomedBeforeImage] = useState(null);
@@ -235,12 +206,10 @@ const SmileSimulatorAI = () => {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const latestLandmarksRef = useRef(null);
-  const generationRef = useRef(0);
   const requestRef = useRef(null);
   const renderRequestRef = useRef(null);
   const bracesImageRef = useRef(null);
   const localCanvasRef = useRef(null);
-
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
 
