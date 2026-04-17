@@ -1,8 +1,9 @@
 /**
  * ALIGNMENT ENGINE: Clinical Orthodontic Transformation (Geometry Only)
  * 1. Landmark-Based Influence (Gaussian Falloff)
- * 2. Parabolic Arch Alignment
- * 3. Micro-Rotation Alignment (Tilt Correction)
+ * 2. High-Force Parabolic Arch Alignment
+ * 3. Horizontal Spacing Correction
+ * 4. Micro-Rotation Alignment (Tilt Correction)
  */
 
 const UPPER_ARCH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
@@ -61,17 +62,22 @@ function processArch(ctx, landmarks, w, h, indices) {
       let weight = Math.exp(-minDistSq / radiusSq);
       weight = Math.max(0.4, weight);
 
-      // B. PARABOLIC ARCH ALIGNMENT
+      // B. PARABOLIC ARCH ALIGNMENT (Vertical Force)
       const dxRel = (gx - centerX) / (boxW / 2);
       const targetY = archMidY + (boxH * 0.035) * (dxRel * dxRel);
       
-      let dy = (targetY - gy) * 0.9 * weight;
-      if (Math.abs(dy) < 1.2 && weight > 0.4) {
-        dy = Math.sign(dy) * 1.2;
+      let dy = (targetY - gy) * 1.1 * weight;
+      if (Math.abs(dy) < 1.5 && weight > 0.4) {
+        dy = Math.sign(dy) * 1.5;
       }
 
-      // C. MICRO-ROTATION (Angle simulation)
-      const angle = dxRel * 0.08 * weight;
+      // C. HORIZONTAL SPACING CORRECTION
+      const targetX = centerX + dxRel * (boxW * 0.42);
+      let dx = (targetX - gx) * 0.25 * weight;
+      dx = clamp(dx, -2.0, 2.0);
+
+      // D. MICRO-ROTATION (High-Torque Pass)
+      const angle = dxRel * 0.16 * weight;
       const cosA = Math.cos(angle);
       const sinA = Math.sin(angle);
       
@@ -79,38 +85,35 @@ function processArch(ctx, landmarks, w, h, indices) {
       const cy = centers[nearestIdx].y;
 
       // Backward Coordinate Mapping
-      const rx = cosA * (x - cx) - sinA * (y - cy) + cx;
-      const ry = sinA * (x - cx) + cosA * (y - cy) + cy;
+      const sx_rot = cosA * (x - cx) - sinA * (y - cy) + cx;
+      const sy_rot = sinA * (x - cx) + cosA * (y - cy) + cy;
 
-      const sx = rx;
-      const sy = ry - dy;
+      // Apply primary displacements
+      const sx = sx_rot - dx;
+      const sy = sy_rot - dy;
 
-      // D. BILINEAR INTERPOLATION (Backward Sampling)
+      // E. BILINEAR INTERPOLATION (Backward Sampling)
       const x1 = Math.floor(sx), x2 = Math.min(x1 + 1, boxW - 1), tx = sx - x1;
       const y1 = Math.floor(sy), y2 = Math.min(y1 + 1, boxH - 1), ty = sy - y1;
 
       if (x1 < 0 || x1 >= boxW || y1 < 0 || y1 >= boxH) continue;
 
-      const getRGBA = (px, py) => {
-        const i = (py * boxW + px) * 4;
-        return [sourceData[i], sourceData[i+1], sourceData[i+2], sourceData[i+3]];
+      const i00 = (y1 * boxW + x1) * 4;
+      const i10 = (y1 * boxW + x2) * 4;
+      const i01 = (y2 * boxW + x1) * 4;
+      const i11 = (y2 * boxW + x2) * 4;
+
+      const lerp = (v1, v2, v3, v4, tX, tY) => {
+        const top = v1 * (1 - tX) + v2 * tX;
+        const bot = v3 * (1 - tX) + v4 * tX;
+        return top * (1 - tY) + bot * tY;
       };
 
-      const c00 = getRGBA(x1, y1);
-      const c10 = getRGBA(x2, y1);
-      const c01 = getRGBA(x1, y2);
-      const c11 = getRGBA(x2, y2);
-
-      const lerp = (v1, v2, t) => v1 * (1 - t) + v2 * t;
-      const b0 = lerp(c00[0], c10[0], tx), b1 = lerp(c01[0], c11[0], tx), rVal = lerp(b0, b1, ty);
-      const g0 = lerp(c00[1], c10[1], tx), g1 = lerp(c01[1], c11[1], tx), gVal = lerp(g0, g1, ty);
-      const bl0 = lerp(c00[2], c10[2], tx), bl1 = lerp(c01[2], c11[2], tx), bVal = lerp(bl0, bl1, ty);
-
       const outIdx = (y * boxW + x) * 4;
-      newData[outIdx]     = rVal;
-      newData[outIdx + 1] = gVal;
-      newData[outIdx + 2] = bVal;
-      newData[outIdx + 3] = sourceData[outIdx + 3]; // Preserve original alpha
+      newData[outIdx]     = lerp(sourceData[i00], sourceData[i10], sourceData[i01], sourceData[i11], tx, ty);
+      newData[outIdx + 1] = lerp(sourceData[i00+1], sourceData[i10+1], sourceData[i01+1], sourceData[i11+1], tx, ty);
+      newData[outIdx + 2] = lerp(sourceData[i00+2], sourceData[i10+2], sourceData[i01+2], sourceData[i11+2], tx, ty);
+      newData[outIdx + 3] = sourceData[outIdx + 3];
     }
   }
 
