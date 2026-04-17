@@ -402,7 +402,6 @@ const SmileSimulatorAI = () => {
     }
   }, [step, cameraStream]);
 
-  const reset = () => { stopCamera(); generationRef.current += 1; setAfterImage(null); setFinalLandmarks(null); setIsProcessing(false); setStep("entry"); };
 
   return (
     <section id="simulator" className="relative py-12 md:py-24 bg-white overflow-hidden">
