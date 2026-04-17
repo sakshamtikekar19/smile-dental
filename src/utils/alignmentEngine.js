@@ -48,11 +48,12 @@ function processArch(ctx, landmarks, w, h, indices) {
       const targetY = localMidY + (boxH * 0.07) * curve;
 
       // 💥 FORCE VERTICAL MOVEMENT
-      let dy = (targetY - y) * 1.3;
-      if (Math.abs(dy) < 2.0) dy = dy > 0 ? 2.0 : -2.0;
+      let dy = (targetY - y) * 1.45;
+      if (Math.abs(dy) < 2.2) dy = dy > 0 ? 2.2 : -2.2;
 
       // 🧠 NON-LINEAR HORIZONTAL STRAIGHTENING
       let dx = -dxRel * 2.8 * (1 - Math.abs(dxRel));
+      dx += (dx > 0 ? 0.4 : -0.4); // Kinetic shift for central incisors
       dx = Math.max(-3, Math.min(3, dx));
 
       // 🎯 SAMPLING BOUNDS GUARD
@@ -82,6 +83,14 @@ function processArch(ctx, landmarks, w, h, indices) {
       }
       newData[i + 3] = 255;
     }
+  }
+
+  // ✨ MICRO CONTRAST LOCK (Restores separating shadows)
+  const contrast = 1.06;
+  for (let i = 0; i < newData.length; i += 4) {
+    newData[i]     = Math.max(0, Math.min(255, (newData[i] - 128) * contrast + 128));
+    newData[i + 1] = Math.max(0, Math.min(255, (newData[i + 1] - 128) * contrast + 128));
+    newData[i + 2] = Math.max(0, Math.min(255, (newData[i + 2] - 128) * contrast + 128));
   }
 
   // ✅ APPLY FINAL RENDER
