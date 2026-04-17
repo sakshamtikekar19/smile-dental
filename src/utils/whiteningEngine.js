@@ -1,36 +1,95 @@
-// 🦷 LOCKED WHITENING ENGINE (RECTIFIED & PRODUCTION SAFE)
+// 🦷 ADVANCED ENAMEL SEGMENTATION ENGINE (PRODUCTION-GRADE)
 
 /**
- * PRODUCTION-SAFE WHITENING PIPELINE
- * Rectified to ensure visibility in all lighting conditions.
- * Uses a feathered alpha mask to smoothly blend whitening into natural enamel.
+ * 🔥 STEP 1 — ENAMEL SEGMENTATION ENGINE
+ * Clusters candidate pixels into connected components to isolate actual teeth.
+ * Rejects isolated noise, skin reflections, and lip-line artifacts.
+ */
+function segmentEnamel(data, w, h) {
+  const visited = new Uint8Array(w * h);
+  const clusters = [];
+
+  const getIdx = (x, y) => y * w + x;
+
+  const isToothCandidate = (r, g, b) => {
+    const lum = (r + g + b) / 3;
+    if (lum < 40 || lum > 245) return false;
+
+    // reject lips/gums (Surgical Rejection)
+    if (r > g * 1.2 && r > b * 1.25) return false;
+
+    // reject saturated skin
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const sat = max === 0 ? 0 : (max - min) / max * 100;
+    if (sat > 60) return false;
+
+    return true;
+  };
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = getIdx(x, y);
+      if (visited[i]) continue;
+
+      const pi = i * 4;
+      const r = data[pi], g = data[pi+1], b = data[pi+2];
+
+      if (!isToothCandidate(r, g, b)) continue;
+
+      // 🔥 CLUSTERING (BFS/DFS Hybrid)
+      const queue = [i];
+      const cluster = [];
+      visited[i] = 1;
+
+      while (queue.length) {
+        const cur = queue.pop();
+        cluster.push(cur);
+
+        const cx = cur % w;
+        const cy = Math.floor(cur / w);
+
+        const neighbors = [
+          [cx+1, cy], [cx-1, cy],
+          [cx, cy+1], [cx, cy-1]
+        ];
+
+        for (const [nx, ny] of neighbors) {
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+
+          const ni = getIdx(nx, ny);
+          if (visited[ni]) continue;
+
+          const ni4 = ni * 4;
+          const nr = data[ni4], ng = data[ni4+1], nb = data[ni4+2];
+
+          if (!isToothCandidate(nr, ng, nb)) continue;
+
+          visited[ni] = 1;
+          queue.push(ni);
+        }
+      }
+
+      // 🔥 FILTER NOISE (Process only valid tooth clusters > 120px)
+      if (cluster.length > 120) {
+        clusters.push(cluster);
+      }
+    }
+  }
+
+  return clusters;
+}
+
+/**
+ * PRODUCTION-SAFE WHITENING PIPELINE (RE-ENGINEERED)
+ * Moves from pixel-heuristics to Cluster-Based Enamel Segmentation.
  */
 export function applyWhitening(ctx, landmarks, w, h) {
   if (!landmarks || landmarks.length === 0) return;
 
-  // 🛡️ 1. Create the 'Natural Edge' Alpha Mask
+  // 🛡️ 1. Create Regional Capture
   const pipeIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = w; maskCanvas.height = h;
-  const mctx = maskCanvas.getContext("2d");
-  
-  const maskPath = new Path2D();
-  pipeIndices.forEach((idx, i) => {
-    const p = landmarks[idx];
-    if (p) {
-      if (i === 0) maskPath.moveTo(p.x * w, p.y * h);
-      else maskPath.lineTo(p.x * w, p.y * h);
-    }
-  });
-  maskPath.closePath();
-
-  // Draw blurred mask for soft blending (Step 4: Reduce mask bleed to 3px)
-  mctx.filter = "blur(3px)"; 
-  mctx.fillStyle = "white";
-  mctx.fill(maskPath);
-
-  // 📍 2. Regional Optimization
   let minX = w, minY = h, maxX = 0, maxY = 0;
   pipeIndices.forEach(i => {
     const pt = landmarks[i];
@@ -41,7 +100,7 @@ export function applyWhitening(ctx, landmarks, w, h) {
     }
   });
 
-  const pad = 20;
+  const pad = 30; // Slightly larger pad for clustering context
   minX = Math.max(0, Math.floor(minX - pad));
   minY = Math.max(0, Math.floor(minY - pad));
   maxX = Math.min(w, Math.ceil(maxX + pad));
@@ -52,58 +111,49 @@ export function applyWhitening(ctx, landmarks, w, h) {
   if (boxW <= 0 || boxH <= 0) return;
 
   const whiteningData = ctx.getImageData(minX, minY, boxW, boxH);
-  const maskBuffer = mctx.getImageData(minX, minY, boxW, boxH).data;
   const whit = whiteningData.data;
 
-  // 🔍 3. Surgical Whitening with Alpha Blending
-  for (let i = 0; i < whit.length; i += 4) {
-    const maskAlpha = maskBuffer[i + 3] / 255; 
-    if (maskAlpha === 0) continue;
+  // 🚀 STEP 2 — APPLY WHITENING ON CLUSTERS
+  const clusters = segmentEnamel(whit, boxW, boxH);
 
-    let r = whit[i], g = whit[i+1], b = whit[i+2];
+  clusters.forEach(cluster => {
+    cluster.forEach(idx => {
+      const i = idx * 4;
 
-    // 🛡️ STEP 1: INTERDENTAL CLEANING (Protect deep gaps but clean plaque)
-    const lum = (r + g + b) / 3;
-    if (lum < 35) continue; 
+      let r = whit[i], g = whit[i+1], b = whit[i+2];
 
-    // 🛡️ STEP 3: HARDER GUM REJECTION (Pink/Red dominance check)
-    const isLip = r > g * 1.18 && r > b * 1.25;
-    const isGum = (r > 115 && g < 115 && b < 115) || (r > 140 && (r - g) > 25);
-    if (isLip || isGum) continue;
+      // skip deep gaps
+      const lum = (r + g + b) / 3;
+      if (lum < 35) return;
 
-    // 🛡️ STEP 2: HARDEN TOOTH DETECTION
-    const isTooth =
-      r > 70 && g > 65 && b > 55 &&     
-      r < 245 && g < 245 && b < 245 &&  
-      (r - b) < 50 &&                   
-      (g - b) < 32 &&                   
-      b > 45;                           
+      // 🦷 EDGE PROTECTION
+      const edgeBoost = Math.abs(r - g) + Math.abs(g - b);
+      if (edgeBoost > 60) return;
 
-    if (!isTooth) continue;
+      const warm = (r + g) / 2 - b;
+      let nr = r, ng = g, nb = b;
 
-    let nr = r, ng = g, nb = b;
-    const warm = (r + g) / 2 - b;
+      // 🔥 PLAQUE REMOVAL
+      if (warm > 6) {
+        nr *= 0.88; ng *= 0.93; 
+        const avg = (nr + ng + nb) / 3;
+        nr = nr * 0.90 + avg * 0.10;
+        ng = ng * 0.90 + avg * 0.10;
+        nb = nb * 0.90 + avg * 0.10;
+      }
 
-    // 🧪 STEP 2: STRONGER PLAQUE REMOVAL
-    if (warm > 6) {
-      nr *= 0.88; ng *= 0.93; 
-      const avg = (nr + ng + nb) / 3;
-      nr = nr * 0.90 + avg * 0.10;
-      ng = ng * 0.90 + avg * 0.10;
-      nb = nb * 0.90 + avg * 0.10;
-    }
+      // ✨ WHITENING LIFT
+      const wr = nr * 1.035;
+      const wg = ng * 1.05;
+      const wb = nb * 1.045; 
 
-    // ✨ STEP 5: FINAL LIFT (NATURAL ENAMEL)
-    const wr = nr * 1.035;
-    const wg = ng * 1.05;
-    const wb = nb * 1.045; 
-
-    const blend = 0.60 * maskAlpha; 
-    
-    whit[i]     = Math.max(0, Math.min(255, r * (1 - blend) + wr * blend));
-    whit[i + 1] = Math.max(0, Math.min(255, g * (1 - blend) + wg * blend));
-    whit[i + 2] = Math.max(0, Math.min(255, b * (1 - blend) + wb * blend));
-  }
+      const blend = 0.58; 
+      
+      whit[i]     = r * (1 - blend) + wr * blend;
+      whit[i + 1] = g * (1 - blend) + wg * blend;
+      whit[i + 2] = b * (1 - blend) + wb * blend;
+    });
+  });
 
   ctx.putImageData(whiteningData, minX, minY);
 }
