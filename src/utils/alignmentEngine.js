@@ -1,5 +1,5 @@
 /**
- * ALIGNMENT ENGINE: LOCAL MODE (PRODUCTION)
+ * ALIGNMENT ENGINE: LOCAL MODE (SURGICAL PRECISION)
  * Coordinate-Locked Orthodontic Core for Orchestra Stabilizer
  */
 
@@ -10,23 +10,23 @@ const LOWER_ARCH_INDICES = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
  * 🚀 Transformation pass optimized for Stabilized Local Context
  * @param {CanvasRenderingContext2D} ctx - The local stabilizer canvas
  * @param {Array} landmarks - Face landmarks (0-1 range)
- * @param {number} vW - Video width (used for landmark scaling)
- * @param {number} vH - Video height (used for landmark scaling)
- * @param {Object} anchor - {x, y} in video pixels representing stabilizer center (168/13)
+ * @param {number} vW - Video width
+ * @param {number} vH - Video height
+ * @param {Object} anchor - {x, y} in video pixels representing stabilizer center
  */
 function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   const points = indices.map(i => ({ 
     x: (landmarks[i].x * vW) - anchor.x + (ctx.canvas.width / 2), 
-    y: (landmarks[i].y * vH) - anchor.y + (ctx.canvas.height * 0.1) // Adjusted for -10% Y-offset
+    y: (landmarks[i].y * vH) - anchor.y + (ctx.canvas.height * 0.1)
   }));
   
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
 
-  // 1. CALCULATE LOCAL BOUNDS
-  const minX = Math.floor(Math.min(...xs)) - 30;
-  const maxX = Math.ceil(Math.max(...xs)) + 30;
-  const minY = Math.floor(Math.min(...ys)) - 40; 
-  const maxY = Math.ceil(Math.max(...ys)) + 40;
+  // 1. CALCULATE SURGICAL BOUNDS
+  const minX = Math.floor(Math.min(...xs)) - 10;
+  const maxX = Math.ceil(Math.max(...xs)) + 10;
+  const minY = Math.floor(Math.min(...ys)) - 20; 
+  const maxY = Math.ceil(Math.max(...ys)) + 20;
   const boxW = maxX - minX, boxH = maxY - minY;
   
   if (boxW <= 0 || boxH <= 0) return;
@@ -34,7 +34,10 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
   const archMidY = ys.reduce((s, p) => s + p, 0) / ys.length;
 
-  // Clip to canvas limits
+  // 👄 LIP SHIELD ANCHORS
+  const lipUpperY = (landmarks[13].y * vH) - anchor.y + (ctx.canvas.height * 0.1);
+  const lipLowerY = (landmarks[14].y * vH) - anchor.y + (ctx.canvas.height * 0.1);
+
   const safeX = Math.max(0, minX);
   const safeY = Math.max(0, minY);
   const safeW = Math.min(ctx.canvas.width - safeX, boxW);
@@ -46,35 +49,42 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   const sourceData = new Uint8ClampedArray(imageData.data);
   const newData = new Uint8ClampedArray(sourceData);
 
-  const localMidY = archMidY - safeY;
-  const upperBand = archMidY - safeH * 0.22; // Slightly wider for stabilizer
-  const lowerBand = archMidY + safeH * 0.22;
-
   for (let y = 0; y < safeH; y++) {
     for (let x = 0; x < safeW; x++) {
       const globalY = y + safeY;
-      if (globalY < upperBand || globalY > lowerBand) continue;
+      const globalX = x + safeX;
 
       const i = (y * safeW + x) * 4;
-      const gx = x + safeX;
 
-      // 🧠 DEPTH PRESERVATION MASK (Restored for production)
-      const lum = (sourceData[i] + sourceData[i+1] + sourceData[i+2]) / 3;
-      if (lum < 60) continue;
+      // 🧠 STEP 1: TEETH ISOLATION (LUMINOSITY + PROXIMITY)
+      const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
+      const lum = (r + g + b) / 3;
+      
+      // Strict Enamel Filter (Avoid Skin/Mustache)
+      const isEnamel = (lum > 80 && lum < 235 && r > 90 && g > 85 && (r - b) < 45);
+      if (!isEnamel) continue;
 
-      const dxRel = (gx - centerX) / (safeW / 2);
+      // 👄 SKIN SHIELD: Scale strength to 0 near lips
+      const distToLip = Math.min(Math.abs(globalY - lipUpperY), Math.abs(globalY - lipLowerY));
+      const skinShield = Math.max(0, Math.min(1.0, (distToLip - 4) / 12));
+      if (skinShield <= 0) continue;
+
+      // 🧠 ARCH PHYSICS
+      const dxRel = (globalX - centerX) / (safeW / 1.8);
       const curve = dxRel * dxRel;
-      const targetY = localMidY + (safeH * 0.08) * curve;
+      
+      // Vertical Goal: Straightened Curve
+      const targetY = archMidY + (safeH * 0.05) * curve;
 
-      // 💥 FORCE VECTORS
-      let dy = (targetY - y) * 1.45;
-      dy += Math.sin(gx * 0.05) * 0.3; // Anatomical Jitter
-      if (Math.abs(dy) < 2.2) dy = dy > 0 ? 2.2 : -2.2;
+      // 💥 VERTICAL VECTOR (Pulls toward target)
+      let dy = (targetY - globalY) * 1.55 * skinShield;
+      dy += Math.sin(globalX * 0.06) * 0.5; // Natural Jitter
 
-      let dx = -dxRel * 2.8 * (1 - Math.abs(dxRel));
+      // 💥 HORIZONTAL VECTOR (straightens crooked overlap)
+      let dx = -dxRel * 3.2 * (1 - Math.abs(dxRel)) * skinShield;
       dx += (dx > 0 ? 0.4 : -0.4); 
-      dx = Math.max(-3, Math.min(3, dx));
 
+      // 🎯 SAMPLING
       const sx = Math.max(0, Math.min(safeW - 1, x - dx));
       const sy = Math.max(0, Math.min(safeH - 1, y - dy));
 
@@ -88,10 +98,12 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
       for (let c = 0; c < 3; c++) {
         let v = sourceData[i11+c]*(1-tx)*(1-ty) + sourceData[i21+c]*tx*(1-ty) +
                 sourceData[i12+c]*(1-tx)*ty + sourceData[i22+c]*tx*ty;
-        if (lum > 80) v = (v - 128) * 1.06 + 128; // Selective Contrast
+        
+        // ✨ MICRO-CONTRAST (Professional Separations)
+        if (lum > 95) v = (v - 128) * 1.08 + 128;
         newData[i + c] = Math.max(0, Math.min(255, v));
       }
-      newData[i + 3] = 255;
+      newData[i+3] = 255;
     }
   }
 
@@ -99,16 +111,9 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   ctx.putImageData(imageData, safeX, safeY); 
 }
 
-/**
- * Orchestrates alignment in local stabilizer coordinates
- * @param {CanvasRenderingContext2D} ctx - The local stabilized canvas
- * @param {Array} landmarks - Global landmarks
- * @param {number} w - Video Width
- * @param {number} h - Video Height
- * @param {Object} options - { anchor: {x, y} }
- */
 export function applyAlignment(ctx, landmarks, w, h, options = {}) {
   const anchor = options.anchor || { x: w / 2, y: h / 2 };
+  // Process Upper and Lower with the same surgical logic
   processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, anchor);
   processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, anchor);
 }

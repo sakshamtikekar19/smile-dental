@@ -388,9 +388,17 @@ const SmileSimulatorAI = () => {
       const img = await loadImage(snapshotUrl);
       pctx.drawImage(img, 0, 0, iw, ih);
 
+      // 🔥 ANCHOR SYNC: Calculate the exact mouth-local center for static processing
+      const anchor = { 
+        x: landmarks[168].x * iw, 
+        y: landmarks[13].y * ih 
+      };
+
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
-        if (treatment !== "whitening") applyProfessionalAlignment(pctx, landmarks, iw, ih);
-        applyWhitening(pctx, landmarks, iw, ih);
+        if (treatment !== "whitening") {
+          applyProfessionalAlignment(pctx, landmarks, iw, ih, { anchor });
+        }
+        applyWhitening(pctx, landmarks, iw, ih, { localAnchor: anchor });
       }
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
