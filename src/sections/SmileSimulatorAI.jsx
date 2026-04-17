@@ -354,17 +354,17 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
   
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
+  const sourceData = new Uint8ClampedArray(data); // Reference for edge detection
 
-  // --- CLINICAL FILTER (PLAGUE-INCLUSIVE SHIELD) ---
+  // --- CLINICAL FILTER (MAX TISSUE SHIELD + PLAGUE CATCH) ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    // Catch darker and more saturated plague specifically
+    // Lower lum for plague catch, but strict ratio to protect gums
     if (lum < 35) return false;
     if (sat > 95) return false; 
-    // AGGRESSIVE GUM REJECTION (Red is 70% higher than green)
     if (r > g * 1.70) return false; 
     return true;
   }
@@ -375,9 +375,8 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
     if (globalY < regionTop || globalY > regionBottom) continue;
 
     for (let x = 0; x < boxW; x++) {
-      const i = (y * boxW + x) * 4;
-      const r = data[i], g = data[i + 1], b = data[i + 2];
-      const lum = (r + g + b) / 3;
+      const idx = (y * boxW + x) * 4;
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
 
       // 🚫 HARD GUARD (VERY IMPORTANT)
       const isTooth = (
@@ -385,6 +384,24 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
         r < 240 && g < 240 && b < 240     // avoid highlights
       );
       if (!isTooth) continue;
+
+      // 🧠 Detect edge (between teeth)
+      const getLum = (offset) => {
+        const r = sourceData[offset];
+        const g = sourceData[offset + 1];
+        const b = sourceData[offset + 2];
+        return (r + g + b) / 3;
+      };
+
+      const iL = ((y * boxW + Math.max(0, x - 1)) * 4);
+      const iR = ((y * boxW + Math.min(boxW - 1, x + 1)) * 4);
+
+      const lumC = getLum(idx);
+      const lumL = getLum(iL);
+      const lumR = getLum(iR);
+
+      // 🎯 high contrast edge = likely interdental area
+      const isEdge = Math.abs(lumL - lumR) > 18;
 
       // 🦷 STEP 1: Anatomical Arch Gradient (Realism Key)
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
@@ -394,13 +411,29 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
 
-      if (yellowStrength > 10) {
+      // plaque = yellow + slightly darker + edge
+      const isPlaque =
+        yellowStrength > 12 &&
+        lumC > 60 &&
+        lumC < 160 &&
+        isEdge;
+
+      if (isPlaque) {
+        // gentle cleaning (NOT whitening)
         const cleanup = 1.1 * gradient;
-        // reduce yellow safely
+        nr *= (1.0 - (0.08 * cleanup)); 
+        ng *= (1.0 - (0.03 * cleanup));
+        nb = nb + (nr - nb) * 0.06;
+
+        // ✨ TINY POLISH
+        nr *= 1.01;
+        ng *= 1.01;
+        nb *= 1.01;
+      } else if (yellowStrength > 10) {
+        // Normal cleaning for non-edge yellow spots
+        const cleanup = 1.1 * gradient;
         nr *= (1.0 - (0.06 * cleanup));
         ng *= (1.0 - (0.03 * cleanup));
-
-        // ❌ DO NOT BOOST BLUE - instead gently balance towards neutral
         nb = nb + (nr - nb) * 0.08;
       }
 
@@ -419,10 +452,10 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       fr = (fr - 128) * contrast + 128;
       fg = (fg - 128) * contrast + 128;
       fb = (fb - 128) * contrast + 128;
-
-      data[i]     = Math.max(0, Math.min(255, fr));
-      data[i + 1] = Math.max(0, Math.min(255, fg));
-      data[i + 2] = Math.max(0, Math.min(255, fb));
+ 
+      data[idx]     = Math.max(0, Math.min(255, fr));
+      data[idx + 1] = Math.max(0, Math.min(255, fg));
+      data[idx + 2] = Math.max(0, Math.min(255, fb));
     }
   }
   octx.putImageData(imageData, 0, 0);
