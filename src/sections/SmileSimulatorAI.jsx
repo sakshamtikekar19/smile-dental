@@ -389,12 +389,13 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
       
-      if (yellowStrength > 8) {
-        const cleanup = 1.4 * gradient;
-        // 🎯 SPECTRAL CLEANSING: Dampen out-of-balance R/G and lift B
-        nr *= (1.0 - (0.18 * cleanup)); 
-        ng *= (1.0 - (0.08 * cleanup));
-        nb *= (1.0 + (0.22 * cleanup)); 
+      if (yellowStrength > 10) {
+        const cleanup = 1.2 * gradient;
+        // 🎯 CHROMATIC BALANCING: Avoid spectral outliers (No Blue/Purple)
+        // Bring Red down moderately and boost Blue subtly to reach white
+        nr *= (1.0 - (0.09 * cleanup)); 
+        ng *= (1.0 - (0.04 * cleanup));
+        nb *= (1.0 + (0.11 * cleanup)); 
       }
 
       // 🧠 STEP 3: REALISM BLEND (48% for TEXTURE)
