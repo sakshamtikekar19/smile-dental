@@ -9,6 +9,28 @@ import { buildBracesPack } from "../utils/bracesGeometryFixed";
 import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
 import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
 
+/**
+ * Anatomical Teeth Focus (Dental Zoom)
+ */
+function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
+  if (!landmarks || landmarks.length === 0) return { x: 0, y: 0, width, height };
+  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  const points = indices.map(i => landmarks[i]).filter(Boolean);
+  if (!points.length) return { x: 0, y: 0, width, height };
+  const xs = points.map(p => p.x * width);
+  const ys = points.map(p => p.y * height);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = maxX - minX, h = maxY - minY;
+  const p = Math.max(w, h) * padding;
+  return {
+    x: Math.max(0, minX - p),
+    y: Math.max(0, minY - p * 1.5),
+    width: Math.min(width, w + p * 2),
+    height: Math.min(height, h + p * 3)
+  };
+}
+
 // ── Environment ──────────────────────────────────────────────────────────────
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
@@ -126,7 +148,7 @@ function applyBracesEffect(ctx, landmarks, w, h, bracesImage) {
       ctx.translate(a.x, a.y);
       ctx.rotate(a.ang || 0);
       ctx.shadowBlur = 5; ctx.shadowColor = "rgba(0,0,0,0.42)";
-      ctx.drawImage(bracesImage, -side/2, -side/2, side, side);
+      ctx.drawImage(bracesImage, -side / 2, -side / 2, side, side);
       ctx.restore();
     });
   };
@@ -225,6 +247,7 @@ const SmileSimulatorAI = () => {
   const [error, setError] = useState(null);
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [zoomLoading, setZoomLoading] = useState(false);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
   const [cameraStream, setCameraStream] = useState(null);
@@ -239,6 +262,7 @@ const SmileSimulatorAI = () => {
   const renderRequestRef = useRef(null);
   const bracesImageRef = useRef(null);
   const localCanvasRef = useRef(null);
+  const zoomCanvasRef = useRef(null);
 
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
@@ -282,9 +306,9 @@ const SmileSimulatorAI = () => {
       const anchorY = marks[13].y * vh;
       const p1 = marks[33], p2 = marks[263];
       const rawAng = Math.atan2((p2.y - p1.y) * vh, (p2.x - p1.x) * vw) * (180 / Math.PI);
-      const mLeft = marks[61], mRight = marks[291]; 
+      const mLeft = marks[61], mRight = marks[291];
       const rawW = Math.sqrt(Math.pow((mRight.x - mLeft.x) * vw, 2) + Math.pow((mRight.y - mLeft.y) * vh, 2));
-      const mouthW = rawW * 1.35; 
+      const mouthW = rawW * 1.35;
 
       const lerp = (a, b, f) => a + (b - a) * f;
       const s = lerpState.current;
@@ -322,9 +346,9 @@ const SmileSimulatorAI = () => {
     stopCamera();
     setError(null); setStep("camera");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "user", width: { ideal: 1200 }, height: { ideal: 800 } }, 
-        audio: false 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1200 }, height: { ideal: 800 } },
+        audio: false
       });
       streamRef.current = stream; setCameraStream(stream);
     } catch { setError("Camera access denied."); setStep("entry"); }
@@ -353,9 +377,9 @@ const SmileSimulatorAI = () => {
       pctx.drawImage(img, 0, 0, iw, ih);
 
       // 🔥 ANCHOR SYNC: Calculate the exact mouth-local center for static processing
-      const anchor = { 
-        x: landmarks[168].x * iw, 
-        y: landmarks[13].y * ih 
+      const anchor = {
+        x: landmarks[168].x * iw,
+        y: landmarks[13].y * ih
       };
 
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
@@ -380,6 +404,32 @@ const SmileSimulatorAI = () => {
     const timer = setTimeout(() => startHeavyProcessingPipeline(rawImageUrl), 150);
     return () => clearTimeout(timer);
   }, [rawImageUrl, isProcessing, startHeavyProcessingPipeline]);
+
+  useEffect(() => {
+    if (step === "result" && finalLandmarks && afterImage) {
+      setZoomLoading(true);
+      const timer = setTimeout(async () => {
+        const canvas = zoomCanvasRef.current;
+        if (!canvas) return;
+        try {
+          const img = new Image();
+          img.onload = () => {
+            const focus = getTeethFocusBox(finalLandmarks, img.width, img.height);
+            const scale = 3;
+            canvas.width = focus.width * scale;
+            canvas.height = focus.height * scale;
+            const zctx = canvas.getContext("2d");
+            zctx.imageSmoothingEnabled = true;
+            zctx.imageSmoothingQuality = "high";
+            zctx.drawImage(img, focus.x, focus.y, focus.width, focus.height, 0, 0, canvas.width, canvas.height);
+            setZoomLoading(false);
+          };
+          img.src = afterImage;
+        } catch { setZoomLoading(false); }
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [step, finalLandmarks, afterImage]);
 
   useEffect(() => {
     if (step === "camera" && cameraStream && videoRef.current) {
@@ -425,7 +475,7 @@ const SmileSimulatorAI = () => {
               <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative aspect-[4/5] md:aspect-video bg-black rounded-[32px] overflow-hidden">
                 <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted autoPlay />
                 <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
-                
+
                 {/* 🦷 Anatomical Teeth Placement Guidance (The 'Oval') */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
                   <div className="relative w-[50%] md:w-[32%] aspect-[1.8/1] border-[3px] border-dashed border-white/50 rounded-[500px] flex items-center justify-center">
@@ -455,6 +505,37 @@ const SmileSimulatorAI = () => {
             {step === "result" && afterImage && (
               <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
                 <ReactCompareImage leftImage={beforeImage} rightImage={afterImage} sliderLineColor="#D4AF37" />
+                
+                <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[32px] p-8 mt-4 overflow-hidden relative">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h4 className="font-serif text-2xl text-zinc-100">Anatomical Zoom</h4>
+                      <p className="text-zinc-500 text-sm">3.0x Dental Arch Magnification</p>
+                    </div>
+                    <div className="px-3 py-1 bg-brand-gold/10 border border-brand-gold/20 rounded-full">
+                      <span className="text-brand-gold text-[10px] uppercase tracking-widest font-bold">Clinical View</span>
+                    </div>
+                  </div>
+                  <div className="relative aspect-[2/1] bg-black/40 rounded-2xl overflow-hidden border border-white/5">
+                    {zoomLoading && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-10">
+                        <RefreshCw size={24} className="text-brand-gold animate-spin" />
+                      </div>
+                    )}
+                    <canvas ref={zoomCanvasRef} className="w-full h-full object-contain" />
+                  </div>
+                  <div className="mt-6 flex gap-4">
+                    <div className="flex-1 p-4 bg-white/5 rounded-xl border border-white/5">
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Enamel Profile</p>
+                      <p className="text-xs text-zinc-300">Stochiometric Radiance Active</p>
+                    </div>
+                    <div className="flex-1 p-4 bg-white/5 rounded-xl border border-white/5">
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Interdental Care</p>
+                      <p className="text-xs text-zinc-300">Shadow Preservation Locked</p>
+                    </div>
+                  </div>
+                </div>
+
                 <button onClick={reset} className="py-5 bg-zinc-950 text-white rounded-2xl font-bold">New Simulation</button>
               </motion.div>
             )}
