@@ -1,6 +1,6 @@
 /**
  * ALIGNMENT ENGINE: PRODUCTION-GRADE ORTHODONTIC CORE
- * High-Visibility, Bilinear Interpolated Shift
+ * High-Visibility, Bilinear Interpolated Shift with Anatomical Depth Protection
  */
 
 const UPPER_ARCH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
@@ -42,25 +42,37 @@ function processArch(ctx, landmarks, w, h, indices) {
       const i = (y * boxW + x) * 4;
       const gx = x + minX;
 
-      // 🧠 STRONG ARCH CURVE
+      // 🧠 1. DEPTH PRESERVATION MASK (Protect natural shadows)
+      const lum = (sourceData[i] + sourceData[i+1] + sourceData[i+2]) / 3;
+      if (lum < 65) {
+        newData[i]     = sourceData[i];
+        newData[i+1]   = sourceData[i+1];
+        newData[i+2]   = sourceData[i+2];
+        newData[i+3]   = 255;
+        continue;
+      }
+
+      // 🧠 2. STRONG ARCH CURVE
       const dxRel = (gx - centerX) / (boxW / 2);
       const curve = dxRel * dxRel;
       const targetY = localMidY + (boxH * 0.07) * curve;
 
-      // 💥 FORCE VERTICAL MOVEMENT
+      // 💥 3. FORCE VERTICAL MOVEMENT + HARMONIC JITTER
       let dy = (targetY - y) * 1.45;
+      dy += Math.sin(gx * 0.05) * 0.3; // Micro-jitter for anatomical realism
+
       if (Math.abs(dy) < 2.2) dy = dy > 0 ? 2.2 : -2.2;
 
-      // 🧠 NON-LINEAR HORIZONTAL STRAIGHTENING
+      // 🧠 4. NON-LINEAR HORIZONTAL STRAIGHTENING
       let dx = -dxRel * 2.8 * (1 - Math.abs(dxRel));
-      dx += (dx > 0 ? 0.4 : -0.4); // Kinetic shift for central incisors
+      dx += (dx > 0 ? 0.4 : -0.4); 
       dx = Math.max(-3, Math.min(3, dx));
 
-      // 🎯 SAMPLING BOUNDS GUARD
+      // 🎯 5. SAMPLING BOUNDS GUARD
       const sx = Math.max(0, Math.min(boxW - 1, x - dx));
       const sy = Math.max(0, Math.min(boxH - 1, y - dy));
 
-      // 🧪 TRUE BILINEAR INTERPOLATION (4-PIXEL ANCHOR)
+      // 🧪 6. TRUE BILINEAR INTERPOLATION (4-PIXEL ANCHOR)
       const x1 = Math.floor(sx);
       const x2 = Math.min(x1 + 1, boxW - 1);
       const y1 = Math.floor(sy);
@@ -75,22 +87,22 @@ function processArch(ctx, landmarks, w, h, indices) {
       const i22 = (y2 * boxW + x2) * 4;
 
       for (let c = 0; c < 3; c++) {
-        newData[i + c] =
+        let v =
           sourceData[i11 + c] * (1 - tx) * (1 - ty) +
           sourceData[i21 + c] * tx * (1 - ty) +
           sourceData[i12 + c] * (1 - tx) * ty +
           sourceData[i22 + c] * tx * ty;
+
+        // ✨ 7. SELECTIVE ENAMEL CONTRAST
+        if (lum > 80) {
+          const contrast = 1.06;
+          v = (v - 128) * contrast + 128;
+        }
+
+        newData[i + c] = Math.max(0, Math.min(255, v));
       }
       newData[i + 3] = 255;
     }
-  }
-
-  // ✨ MICRO CONTRAST LOCK (Restores separating shadows)
-  const contrast = 1.06;
-  for (let i = 0; i < newData.length; i += 4) {
-    newData[i]     = Math.max(0, Math.min(255, (newData[i] - 128) * contrast + 128));
-    newData[i + 1] = Math.max(0, Math.min(255, (newData[i + 1] - 128) * contrast + 128));
-    newData[i + 2] = Math.max(0, Math.min(255, (newData[i + 2] - 128) * contrast + 128));
   }
 
   // ✅ APPLY FINAL RENDER
