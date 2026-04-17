@@ -54,9 +54,11 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas = null) {
   buffer.height = h;
   const bctx = buffer.getContext("2d");
   
-  // Ensure we are drawing from the simulation source into the buffer
+  // ✅ ALWAYS FILL BUFFER (NO BLACK FAIL) - FALLBACK ENFORCED
   if (sourceCanvas) {
     bctx.drawImage(sourceCanvas, 0, 0);
+  } else {
+    bctx.drawImage(ctx.canvas, 0, 0); // 🔥 fallback (CRITICAL)
   }
 
   // Draw scaled region from buffer to clinical card

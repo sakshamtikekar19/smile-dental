@@ -25,8 +25,8 @@ export function applyWhitening(ctx, landmarks, w, h) {
   });
   maskPath.closePath();
 
-  // Draw blurred mask for soft blending (Step 3: Fix Mask Bleed)
-  mctx.filter = "blur(4px)"; 
+  // Draw blurred mask for soft blending (Step 4: Reduce mask bleed to 3px)
+  mctx.filter = "blur(3px)"; 
   mctx.fillStyle = "white";
   mctx.fill(maskPath);
 
@@ -62,41 +62,48 @@ export function applyWhitening(ctx, landmarks, w, h) {
 
     let r = whit[i], g = whit[i+1], b = whit[i+2];
 
-    // 🛡️ STEP 4: INTERDENTAL PROTECTION (Preserve natural depth)
+    // 🛡️ STEP 1: INTERDENTAL CLEANING (Protect deep gaps but clean plaque)
     const lum = (r + g + b) / 3;
-    if (lum < 55) continue; // Slightly relaxed to capture darker teeth
+    if (lum < 35) continue; 
 
-    // 🛡️ STEP 1: REPLACE LIP + GUM PROTECTION
+    // 🛡️ STEP 3: HARDER GUM REJECTION (Pink/Red dominance check)
     const isLip = r > g * 1.18 && r > b * 1.25;
-    const isGum = (r > 120 && g < 110 && b < 110); 
+    const isGum = (r > 115 && g < 115 && b < 115) || (r > 140 && (r - g) > 25);
     if (isLip || isGum) continue;
 
-    // 🛡️ STEP 2: HARDEN TOOTH DETECTION (RECTIFIED FOR VISIBILITY)
+    // 🛡️ STEP 2: HARDEN TOOTH DETECTION
     const isTooth =
-      r > 70 && g > 65 && b > 55 &&     // relaxed brightness floor (Fix for 'no change')
-      r < 245 && g < 245 && b < 245 &&  // more highlight room
-      (r - b) < 50 &&                   // allow more yellow catch
-      (g - b) < 32 &&                   // allow more yellow catch
-      b > 45;                           // allow darker gaps
+      r > 70 && g > 65 && b > 55 &&     
+      r < 245 && g < 245 && b < 245 &&  
+      (r - b) < 50 &&                   
+      (g - b) < 32 &&                   
+      b > 45;                           
 
     if (!isTooth) continue;
 
     let nr = r, ng = g, nb = b;
     const warm = (r + g) / 2 - b;
 
-    // 🧪 CLEANER
-    if (warm > 8) {
-      nr *= 0.91; ng *= 0.95; // Slightly more aggressive cleaner
+    // 🧪 STEP 2: STRONGER PLAQUE REMOVAL
+    if (warm > 6) {
+      nr *= 0.88; ng *= 0.93; 
       const avg = (nr + ng + nb) / 3;
-      nr = nr * 0.94 + avg * 0.06;
-      ng = ng * 0.94 + avg * 0.06;
-      nb = nb * 0.94 + avg * 0.06;
+      nr = nr * 0.90 + avg * 0.10;
+      ng = ng * 0.90 + avg * 0.10;
+      nb = nb * 0.90 + avg * 0.10;
     }
 
-    // ✨ STEP 5: BALANCED LIFT (REMOVE BLUE TINT)
-    const wr = nr * 1.04; // Increased lift slightly for visibility
-    const wg = ng * 1.06;
-    const wb = nb * 1.05; 
+    // ✨ STEP 5: FINAL LIFT (NATURAL ENAMEL)
+    const wr = nr * 1.035;
+    const wg = ng * 1.05;
+    const wb = nb * 1.045; 
+
+    const blend = 0.60 * maskAlpha; 
+    
+    whit[i]     = Math.max(0, Math.min(255, r * (1 - blend) + wr * blend));
+    whit[i + 1] = Math.max(0, Math.min(255, g * (1 - blend) + wg * blend));
+    whit[i + 2] = Math.max(0, Math.min(255, b * (1 - blend) + wb * blend));
+  }
 
     const blend = 0.60 * maskAlpha; // Increased blend slightly for visibility
     
