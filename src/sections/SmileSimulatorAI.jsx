@@ -355,16 +355,16 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
 
-  // --- CLINICAL FILTER (MAX PLAGUE DETECTION + NATURALISM) ---
+  // --- CLINICAL FILTER (MAX TISSUE SHIELD + PLAGUE CATCH) ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    // Relaxed for plague (lower lum) and skin protection (ratio)
+    // Lower lum for plague catch, but strict ratio to protect gums
     if (lum < 45) return false;
-    if (sat > 90) return false;
-    if (r > g * 1.5 && r > b * 1.5) return false; // Reject lips/skin only
+    if (sat > 65) return false; // Shield rich-pink gums
+    if (r > g * 1.65) return false; // Hard lip/gum rejection
     return true;
   }
 
@@ -376,6 +376,7 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
     for (let x = 0; x < boxW; x++) {
       const i = (y * boxW + x) * 4;
       const r = data[i], g = data[i + 1], b = data[i + 2];
+      const lum = (r + g + b) / 3;
 
       if (!isToothPixel(r, g, b)) continue;
 
@@ -383,20 +384,21 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: Stoichiometric Neutralization (CLEARS PLAGUE)
+      // 🧪 STEP 2: Balanced Neutralization (No Blue-Tinge)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
       
-      if (yellowStrength > 10) {
-        const cleanup = 1.3 * gradient;
-        // Targeted plague removal logic (massive blue boost)
-        nr *= (1.0 - (0.12 * cleanup)); 
-        ng *= (1.0 - (0.04 * cleanup)); 
-        nb *= (1.0 + (0.25 * cleanup)); // Heavy neutralization for thick plague
+      if (yellowStrength > 8) {
+        const cleanup = 1.1 * gradient;
+        // 🛡️ SPECTRAL GUARD: Reduced blue boost (12% max) to avoid purple casts
+        const blueIntensity = lum > 110 ? 0.12 : 0.06;
+        
+        nr *= (1.0 - (0.05 * cleanup)); 
+        nb *= (1.0 + (blueIntensity * cleanup)); 
       }
 
-      // 🧠 STEP 3: REALISM BLEND (48% for ENAMEL TEXTURE)
-      const blend = 0.48; // 48% clean lift, 52% original texture preservation
+      // 🧠 STEP 3: REALISM BLEND (48% for TEXTURE)
+      const blend = 0.48; 
       const wr = Math.min(255, nr * 1.04);
       const wg = Math.min(255, ng * 1.04);
       const wb = Math.min(255, nb * 1.04);
