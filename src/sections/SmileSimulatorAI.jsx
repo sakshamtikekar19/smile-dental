@@ -409,7 +409,6 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
 
       // 🧪 STEP 2: CLINICAL TARTAR EXTRACTION (RESTORED)
       const warmStrength = (r + g) / 2 - b; // catches yellow + orange
-      const lum = (r + g + b) / 3;
       let nr = r, ng = g, nb = b;
 
       const isTartar = warmStrength > 12 && lum > 70 && lum < 170;
