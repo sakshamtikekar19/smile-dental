@@ -8,13 +8,18 @@ import { eraseAboveUpperLip } from "../utils/bracesClipFixed";
 import { buildBracesPack } from "../utils/bracesGeometryFixed";
 import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
 import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
+import { applyClinicalZoom } from "../utils/zoomEngine";
 
 /**
  * Anatomical Teeth Focus (Dental Zoom)
  */
-function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
+/**
+ * Anatomical Teeth Focus (Dental Zoom)
+ */
+function getTeethFocusBox(landmarks, width, height, padding = 0.28) {
   if (!landmarks || landmarks.length === 0) return { x: 0, y: 0, width, height };
-  const indices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  // Whole Smile: Includes corners (61, 291) plus dental arch
+  const indices = [61, 291, 78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   const points = indices.map(i => landmarks[i]).filter(Boolean);
   if (!points.length) return { x: 0, y: 0, width, height };
   const xs = points.map(p => p.x * width);
@@ -23,11 +28,12 @@ function getTeethFocusBox(landmarks, width, height, padding = 0.5) {
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const w = maxX - minX, h = maxY - minY;
   const p = Math.max(w, h) * padding;
+  
   return {
     x: Math.max(0, minX - p),
-    y: Math.max(0, minY - p * 1.5),
+    y: Math.max(0, minY - p * 1.2), // Clinical bias for upper arch
     width: Math.min(width, w + p * 2),
-    height: Math.min(height, h + p * 3)
+    height: Math.min(height, h + p * 2.6)
   };
 }
 
@@ -366,8 +372,13 @@ const SmileSimulatorAI = () => {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
       }
 
+      setBeforeImage(snapshotUrl);
       setAfterImage(procCanvas.toDataURL("image/jpeg", 0.93));
-      setBeforeImage(snapshotUrl); setFinalLandmarks(landmarks); setStep("result"); setIsProcessing(false); stopCamera();
+      
+      setFinalLandmarks(landmarks); 
+      setStep("result"); 
+      setIsProcessing(false); 
+      stopCamera();
     } catch (err) { setError(`Simulation Failed: ${err.message}`); setIsProcessing(false); }
   }, []);
 
@@ -394,6 +405,28 @@ const SmileSimulatorAI = () => {
             zctx.imageSmoothingEnabled = true;
             zctx.imageSmoothingQuality = "high";
             zctx.drawImage(img, focus.x, focus.y, focus.width, focus.height, 0, 0, canvas.width, canvas.height);
+
+            // 🔍 CLINICAL OVERLAY: Diagnostic Grid
+            zctx.strokeStyle = "rgba(212, 175, 55, 0.15)";
+            zctx.lineWidth = 1;
+            zctx.setLineDash([5, 15]);
+            
+            // Vertical lines
+            for (let i = 1; i < 4; i++) {
+              zctx.beginPath();
+              zctx.moveTo((canvas.width / 4) * i, 0);
+              zctx.lineTo((canvas.width / 4) * i, canvas.height);
+              zctx.stroke();
+            }
+            // Horizontal lines
+            for (let i = 1; i < 3; i++) {
+              zctx.beginPath();
+              zctx.moveTo(0, (canvas.height / 3) * i);
+              zctx.lineTo(canvas.width, (canvas.height / 3) * i);
+              zctx.stroke();
+            }
+            zctx.setLineDash([]);
+            
             setZoomLoading(false);
           };
           img.src = afterImage;
@@ -478,32 +511,42 @@ const SmileSimulatorAI = () => {
               <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
                 <ReactCompareImage leftImage={beforeImage} rightImage={afterImage} sliderLineColor="#D4AF37" />
                 
-                <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[32px] p-8 mt-4 overflow-hidden relative">
-                  <div className="flex items-center justify-between mb-6">
+                <div className="bg-zinc-950 border border-zinc-800 rounded-[32px] p-8 mt-4 overflow-hidden relative shadow-2xl">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 blur-[80px] rounded-full pointer-events-none" />
+                  <div className="flex items-center justify-between mb-6 relative z-10">
                     <div>
-                      <h4 className="font-serif text-2xl text-zinc-100">Anatomical Zoom</h4>
-                      <p className="text-zinc-500 text-sm">3.0x Dental Arch Magnification</p>
+                      <h4 className="font-serif text-2xl text-zinc-100 italic">Anatomical Zoom</h4>
+                      <p className="text-zinc-500 text-sm tracking-tight">3.0x Whole Smile & Dental HD Magnification</p>
                     </div>
-                    <div className="px-3 py-1 bg-brand-gold/10 border border-brand-gold/20 rounded-full">
+                    <div className="px-3 py-1 bg-brand-gold/10 border border-brand-gold/20 rounded-full flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-brand-gold animate-pulse" />
                       <span className="text-brand-gold text-[10px] uppercase tracking-widest font-bold">Clinical View</span>
                     </div>
                   </div>
-                  <div className="relative aspect-[2/1] bg-black/40 rounded-2xl overflow-hidden border border-white/5">
+                  
+                  <div className="relative aspect-[2.2/1] bg-black rounded-2xl overflow-hidden border border-white/5 group">
                     {zoomLoading && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-10">
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-20">
                         <RefreshCw size={24} className="text-brand-gold animate-spin" />
                       </div>
                     )}
-                    <canvas ref={zoomCanvasRef} className="w-full h-full object-contain" />
+                    {/* Viewport Corners */}
+                    <div className="absolute top-4 left-4 w-4 h-4 border-t border-l border-white/20 z-10" />
+                    <div className="absolute top-4 right-4 w-4 h-4 border-t border-r border-white/20 z-10" />
+                    <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
+                    <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
+                    
+                    <canvas ref={zoomCanvasRef} className="w-full h-full object-contain scale-[1.02]" />
                   </div>
-                  <div className="mt-6 flex gap-4">
-                    <div className="flex-1 p-4 bg-white/5 rounded-xl border border-white/5">
-                      <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Enamel Profile</p>
-                      <p className="text-xs text-zinc-300">Stochiometric Radiance Active</p>
+
+                  <div className="mt-6 grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5 group hover:border-brand-gold/20 transition-colors">
+                      <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Enamel Profile</p>
+                      <p className="text-xs text-zinc-300 font-medium">Radiance Optimized</p>
                     </div>
-                    <div className="flex-1 p-4 bg-white/5 rounded-xl border border-white/5">
-                      <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Interdental Care</p>
-                      <p className="text-xs text-zinc-300">Shadow Preservation Locked</p>
+                    <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5 group hover:border-brand-gold/20 transition-colors">
+                      <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Anatomical Sync</p>
+                      <p className="text-xs text-zinc-300 font-medium">Position Locked</p>
                     </div>
                   </div>
                 </div>
