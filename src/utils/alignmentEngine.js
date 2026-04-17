@@ -66,15 +66,17 @@ function getCenter(cluster, width) {
  * 🚀 Internal transformation pass for a specific arch
  */
 function processArch(ctx, landmarks, w, h, indices, options) {
-  const { strength = 1.0, maxShiftX, maxShiftY } = options;
+  const { rotation = 0, scale = 1.0 } = options;
 
   let points = indices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
   const midPoint = Math.floor(points.length / 2);
+  
+  // Midline anchor
   const centerX = points[midPoint].x;
   const archMidY = points.reduce((s, p) => s + p.y, 0) / points.length;
 
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
-  const horizontalPadding = (Math.max(...xs) - Math.min(...xs)) * 0.15; // 15% Padding
+  const horizontalPadding = (Math.max(...xs) - Math.min(...xs)) * 0.15; 
   const verticalPadding = 35;
   const minX = Math.floor(Math.min(...xs)) - horizontalPadding, maxX = Math.ceil(Math.max(...xs)) + horizontalPadding;
   const minY = Math.floor(Math.min(...ys)) - verticalPadding, maxY = Math.ceil(Math.max(...ys)) + verticalPadding;
@@ -109,8 +111,10 @@ function processArch(ctx, landmarks, w, h, indices, options) {
     y: landmarks[idx].y * h - minY
   }));
 
-  // 2. BACKWARD MAPPING ALIGNMENT (Proximity-Aware Transformation)
-  const influenceRadius = boxW * 0.08;
+  // 2. BACKWARD MAPPING ALIGNMENT (Rotation-Aware)
+  const influenceRadius = boxW * 0.08 * scale;
+  const cos = Math.cos(-rotation);
+  const sin = Math.sin(-rotation);
 
   for (let y = 0; y < boxH; y++) {
     for (let x = 0; x < boxW; x++) {
@@ -119,47 +123,36 @@ function processArch(ctx, landmarks, w, h, indices, options) {
 
       if (!teethMask[idx]) continue;
 
-      // 🧠 FIND NEAREST TOOTH CENTER INFLUENCE
+      // 🧠 ROTATION-MATRIX COORDINATES (Corrects for Tilt)
+      const lx = (x + minX) - centerX;
+      const ly = (y + minY) - archMidY;
+      const rx = lx * cos - ly * sin; // Local Rotated X
+      
+      const dxRel = rx / (boxW / 2);
+
+      // FIND NEAREST TOOTH CENTER INFLUENCE
       let minDistSq = Infinity;
       for (let t of teethCenters) {
-        const dx = x - t.x;
-        const dy = y - t.y;
+        const dx = x - t.x, dy = y - t.y;
         const dSq = dx * dx + dy * dy;
         if (dSq < minDistSq) minDistSq = dSq;
       }
       const distNorm = Math.sqrt(minDistSq) / influenceRadius;
-      let weight = Math.exp(-distNorm * distNorm);
+      let weight = Math.max(0.4, Math.exp(-distNorm * distNorm));
+
+      // 🎯 CLINICAL CURVE (Calculated on Rotated Axis)
+      const curveDir = isLower ? 1 : -1;
+      const curveDisplacement = curveDir * (boxH * 0.06) * (dxRel * dxRel);
       
-      // 🛡️ WEIGHT FLOOR: Prevents orthodontic force from "dying out"
-      weight = Math.max(0.4, weight);
+      // 🚀 FORCE MOVEMENT
+      let dy = ((archMidY + curveDisplacement) - (y + minY)) * 1.2 * weight;
+      if (Math.abs(dy) < 2) dy = dy > 0 ? 2 : -2;
 
-      const gx = x + minX;
-      const gy = y + minY;
-      const dxRel = (gx - centerX) / (boxW / 2);
-
-      // 🎯 STRONG CLINICAL CURVE (0.06 Boost)
-      const curveDirection = isLower ? 1 : -1;
-      const targetYGlobal = archMidY + curveDirection * (boxH * 0.06) * (dxRel * dxRel);
-
-      // 🚀 FORCE MOVEMENT (User-Calibrated 1.2)
-      let dy = (targetYGlobal - gy) * 1.2 * weight;
-
-      // 💥 HARD GUARANTEE (Definitive Visibility)
-      if (Math.abs(dy) < 2) {
-        dy = dy > 0 ? 2 : -2;
-      }
-
-      // Backward Map: Find where this coordinate CAME FROM
+      // Backward Map with sub-pixel interpolation
       const sy = clamp(y - dy, 0, boxH - 1);
-      
-      const y1 = Math.floor(sy);
-      const y2 = Math.min(y1 + 1, boxH - 1);
-      const ty = sy - y1;
+      const y1 = Math.floor(sy), y2 = Math.min(y1 + 1, boxH - 1), ty = sy - y1;
+      const i1 = (y1 * boxW + x) * 4, i2 = (y2 * boxW + x) * 4;
 
-      const i1 = (y1 * boxW + x) * 4;
-      const i2 = (y2 * boxW + x) * 4;
-
-      // 🎯 BILINEAR INTERPOLATION (HD Texture Reconstruction)
       newData[i]     = sourceData[i1] * (1 - ty) + sourceData[i2] * ty;
       newData[i + 1] = sourceData[i1 + 1] * (1 - ty) + sourceData[i2 + 1] * ty;
       newData[i + 2] = sourceData[i1 + 2] * (1 - ty) + sourceData[i2 + 2] * ty;
@@ -175,13 +168,6 @@ function processArch(ctx, landmarks, w, h, indices, options) {
  * Main Entry Point - Multi-Arch Rigid Recovery
  */
 export function applyAlignment(ctx, landmarks, w, h, options = {}) {
-  const settings = {
-    strength: options.strength ?? 1.0,
-    maxShiftX: options.maxShiftX || 2.4,
-    maxShiftY: options.maxShiftY || 1.4
-  };
-
-
-  processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, settings);
-  processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, settings);
+  processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, options);
+  processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, options);
 }

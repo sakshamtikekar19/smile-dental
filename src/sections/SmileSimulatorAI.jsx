@@ -478,6 +478,43 @@ function drawBracesOverlay(ctx, landmarks, w, h, bracesImage) {
   ctx.restore();
 }
 
+/**
+ * 🦷 ANATOMICAL TRANSFORMATION MATRIX
+ * Calculates Scale, Rotation (Tilt), and Centering based on Facial Midline
+ */
+function getProperAlignment(landmarks, w, h) {
+  if (!landmarks) return null;
+
+  // 1. CALCULATE TILT (Interpupillary Anchor)
+  const leftEye = landmarks[33];
+  const rightEye = landmarks[263];
+  const radians = Math.atan2((rightEye.y - leftEye.y) * h, (rightEye.x - leftEye.x) * w);
+  const tiltDegrees = radians * (180 / Math.PI);
+
+  // 2. CALCULATE POSITIONING (Midline Center)
+  const upperLip = landmarks[13];
+  const lowerLip = landmarks[14];
+  const leftCorner = landmarks[57];
+  const rightCorner = landmarks[287];
+
+  const centerX = ((leftCorner.x + rightCorner.x) / 2) * w;
+  const centerY = (upperLip.y + (lowerLip.y - upperLip.y) * 0.4) * h;
+
+  // 3. CALCULATE SCALE (Corner-to-Corner)
+  const mouthWidth = Math.sqrt(
+    Math.pow((rightCorner.x - leftCorner.x) * w, 2) + 
+    Math.pow((rightCorner.y - leftCorner.y) * h, 2)
+  );
+
+  return {
+    x: centerX,
+    y: centerY,
+    rotation: radians,
+    rotationDeg: tiltDegrees,
+    scale: (mouthWidth / w) * 1.05 // Adjusted for 105% coverage realism
+  };
+}
+
 // ── Shared Engine Buffers Removed (Mandate: Passing Real Context Only) ───────
 
 const SmileSimulatorAI = () => {
@@ -540,14 +577,16 @@ const SmileSimulatorAI = () => {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     if (latestLandmarksRef.current) {
       const t = selectedTreatment;
+      const align = getProperAlignment(latestLandmarksRef.current, canvas.width, canvas.height);
+      
       if (t === "whitening") applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height);
       if (t === "alignment") { 
-        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, alignmentStrength); 
+        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, { ...align, strength: alignmentStrength }); 
         applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height); 
       }
       if (t === "braces") applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current);
       if (t === "transformation") { 
-        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, alignmentStrength); 
+        applyAlignment(ctx, latestLandmarksRef.current, canvas.width, canvas.height, { ...align, strength: alignmentStrength }); 
         applyWhitening(ctx, latestLandmarksRef.current, canvas.width, canvas.height); 
         applyBracesEffect(ctx, latestLandmarksRef.current, canvas.width, canvas.height, bracesImageRef.current); 
       }
