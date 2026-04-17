@@ -11,10 +11,8 @@ import { applyWhitening as applyProfessionalWhitening } from "../utils/whitening
 import { applyClinicalZoom } from "../utils/zoomEngine";
 
 /**
- * Anatomical Teeth Focus (Dental Zoom)
- */
-/**
- * Anatomical Teeth Focus (Dental Zoom)
+ * 🦷 ANATOMICAL TEETH FOCUS (Dental Zoom)
+ * Calculates the bounding box for high-resolution magnification.
  */
 function getTeethFocusBox(landmarks, width, height, padding = 0.28) {
   if (!landmarks || landmarks.length === 0) return { x: 0, y: 0, width, height };
@@ -242,7 +240,6 @@ const SmileSimulatorAI = () => {
   const renderRequestRef = useRef(null);
   const bracesImageRef = useRef(null);
   const localCanvasRef = useRef(null);
-  const zoomCanvasRef = useRef(null);
 
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
@@ -367,7 +364,7 @@ const SmileSimulatorAI = () => {
         const opts = { anchor, rotation: rotationDeg };
         
         // 🦷 WHIETENING FIRST (Step 1: whiten on original pixels)
-        applyProfessionalWhitening(pctx, landmarks, iw, ih, opts);
+        applyProfessionalWhitening(pctx, landmarks, iw, ih);
       }
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
