@@ -1,9 +1,9 @@
-// 🦷 LOCKED WHITENING ENGINE (FEATHERED SURGICAL SAFETY)
+// 🦷 LOCKED WHITENING ENGINE (RECTIFIED & PRODUCTION SAFE)
 
 /**
  * PRODUCTION-SAFE WHITENING PIPELINE
- * Implements a 'Feathered Surgical Mask' to eliminate patches and sharp edges.
- * Uses a blurred landmark path to smoothly blend whitening into natural enamel (Step 1).
+ * Rectified to ensure visibility in all lighting conditions.
+ * Uses a feathered alpha mask to smoothly blend whitening into natural enamel.
  */
 export function applyWhitening(ctx, landmarks, w, h) {
   if (!landmarks || landmarks.length === 0) return;
@@ -51,36 +51,33 @@ export function applyWhitening(ctx, landmarks, w, h) {
   const boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
 
-  const originalImageData = ctx.getImageData(minX, minY, boxW, boxH);
   const whiteningData = ctx.getImageData(minX, minY, boxW, boxH);
   const maskBuffer = mctx.getImageData(minX, minY, boxW, boxH).data;
-  
-  const orig = originalImageData.data;
   const whit = whiteningData.data;
 
   // 🔍 3. Surgical Whitening with Alpha Blending
   for (let i = 0; i < whit.length; i += 4) {
-    const maskAlpha = maskBuffer[i + 3] / 255; // Use the blurred mask's alpha channel
+    const maskAlpha = maskBuffer[i + 3] / 255; 
     if (maskAlpha === 0) continue;
 
     let r = whit[i], g = whit[i+1], b = whit[i+2];
 
     // 🛡️ STEP 4: INTERDENTAL PROTECTION (Preserve natural depth)
     const lum = (r + g + b) / 3;
-    if (lum < 70) continue;
+    if (lum < 55) continue; // Slightly relaxed to capture darker teeth
 
     // 🛡️ STEP 1: REPLACE LIP + GUM PROTECTION
     const isLip = r > g * 1.18 && r > b * 1.25;
-    const isGum = (r > 120 && g < 110 && b < 110); // pink/orange gums
+    const isGum = (r > 120 && g < 110 && b < 110); 
     if (isLip || isGum) continue;
 
-    // 🛡️ STEP 2: HARDEN TOOTH DETECTION
+    // 🛡️ STEP 2: HARDEN TOOTH DETECTION (RECTIFIED FOR VISIBILITY)
     const isTooth =
-      r > 85 && g > 80 && b > 70 &&     // stricter brightness
-      r < 235 && g < 235 && b < 235 &&  // avoid highlights
-      (r - b) < 35 &&                   // tighter yellow targeting
-      (g - b) < 25 &&                   // avoid greenish skin tones
-      b > 60;                           // avoid dark gaps
+      r > 70 && g > 65 && b > 55 &&     // relaxed brightness floor (Fix for 'no change')
+      r < 245 && g < 245 && b < 245 &&  // more highlight room
+      (r - b) < 50 &&                   // allow more yellow catch
+      (g - b) < 32 &&                   // allow more yellow catch
+      b > 45;                           // allow darker gaps
 
     if (!isTooth) continue;
 
@@ -89,7 +86,7 @@ export function applyWhitening(ctx, landmarks, w, h) {
 
     // 🧪 CLEANER
     if (warm > 8) {
-      nr *= 0.92; ng *= 0.96;
+      nr *= 0.91; ng *= 0.95; // Slightly more aggressive cleaner
       const avg = (nr + ng + nb) / 3;
       nr = nr * 0.94 + avg * 0.06;
       ng = ng * 0.94 + avg * 0.06;
@@ -97,11 +94,11 @@ export function applyWhitening(ctx, landmarks, w, h) {
     }
 
     // ✨ STEP 5: BALANCED LIFT (REMOVE BLUE TINT)
-    const wr = nr * 1.03;
-    const wg = ng * 1.05;
-    const wb = nb * 1.04; 
+    const wr = nr * 1.04; // Increased lift slightly for visibility
+    const wg = ng * 1.06;
+    const wb = nb * 1.05; 
 
-    const blend = 0.55 * maskAlpha; // Alpha-aware blending (The 'Natural Fix')
+    const blend = 0.60 * maskAlpha; // Increased blend slightly for visibility
     
     whit[i]     = Math.max(0, Math.min(255, r * (1 - blend) + wr * blend));
     whit[i + 1] = Math.max(0, Math.min(255, g * (1 - blend) + wg * blend));
