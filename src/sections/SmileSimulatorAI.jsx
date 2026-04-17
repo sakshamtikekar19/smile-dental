@@ -437,18 +437,18 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
         nb = nb + (nr - nb) * 0.08;
       }
 
-      // 🧠 STEP 3: REALISM BLEND (0.58)
-      const blend = 0.65; 
-      const wr = Math.min(255, nr * 1.20);
-      const wg = Math.min(255, ng * 1.20);
-      const wb = Math.min(255, nb * 1.20);
+      // 🧠 STEP 3: REALISM BLEND (0.55)
+      const blend = 0.55; 
+      const wr = Math.min(255, nr * 1.04);
+      const wg = Math.min(255, ng * 1.06);
+      const wb = Math.min(255, nb * 1.08);
 
       let fr = r * (1 - blend) + wr * blend;
       let fg = g * (1 - blend) + wg * blend;
       let fb = b * (1 - blend) + wb * blend;
 
       // ✨ STEP 4: CONTRAST RESTORE (Depth Lock - Reduced for Naturalism)
-      const contrast = 1.08;
+      const contrast = 1.02;
       fr = (fr - 128) * contrast + 128;
       fg = (fg - 128) * contrast + 128;
       fb = (fb - 128) * contrast + 128;
