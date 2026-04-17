@@ -7,6 +7,7 @@ import { cn } from "../utils/cn";
 import { eraseAboveUpperLip } from "../utils/bracesClipFixed";
 import { buildBracesPack } from "../utils/bracesGeometryFixed";
 import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
+import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
 
 // ── Environment ──────────────────────────────────────────────────────────────
 const IS_LOCAL_HOST = ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -154,41 +155,7 @@ function getProperAlignment(landmarks, w, h) {
 }
 
 // ── Whitening Engine ─────────────────────────────────────────────────────────
-function applyWhitening(ctx, landmarks, w, h, opts = {}) {
-  if (!landmarks) return;
-  const mouthIndices = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146, 61];
-  const points = mouthIndices.map(i => ({ x: landmarks[i].x * w, y: landmarks[i].y * h }));
-  
-  if (opts.localAnchor) {
-    points.forEach(p => {
-       p.x = p.x - opts.localAnchor.x + ctx.canvas.width/2;
-       p.y = p.y - opts.localAnchor.y + ctx.canvas.height*0.1;
-    });
-  }
-
-  const minX = Math.floor(Math.min(...points.map(p => p.x)));
-  const maxX = Math.ceil(Math.max(...points.map(p => p.x)));
-  const minY = Math.floor(Math.min(...points.map(p => p.y)));
-  const maxY = Math.ceil(Math.max(...points.map(p => p.y)));
-  const boxW = maxX - minX, boxH = maxY - minY;
-  if (boxW <= 0 || boxH <= 0) return;
-
-  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i], g = data[i+1], b = data[i+2];
-    const lum = (r + g + b) / 3;
-    const isTooth = r > 90 && g > 85 && b > 70 && lum > 80 && lum < 220;
-    if (isTooth) {
-      const liftR = 1.03, liftG = 1.05, liftB = 1.06;
-      const blend = 0.52;
-      data[i] = Math.min(255, r * (1-blend) + (r * liftR)*blend);
-      data[i+1] = Math.min(255, g * (1-blend) + (g * liftG)*blend);
-      data[i+2] = Math.min(255, b * (1-blend) + (b * liftB)*blend);
-    }
-  }
-  ctx.putImageData(imageData, minX, minY);
-}
+// (Moved to utils/whiteningEngine.js)
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -343,9 +310,9 @@ const SmileSimulatorAI = () => {
         sctx.restore();
 
         const t = selectedTreatment;
-        const opts = { anchor: { x: s.x, y: s.y } };
+        const opts = { anchor: { x: s.x, y: s.y }, rotation: s.ang };
         if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, opts);
-        if (t === "whitening" || t === "alignment" || t === "transformation") applyWhitening(sctx, marks, vw, vh, { localAnchor: opts.anchor });
+        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, opts);
       }
     }
     if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
@@ -392,10 +359,12 @@ const SmileSimulatorAI = () => {
       };
 
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
+        const rotationDeg = getProperAlignment(landmarks, iw, ih).rotationDeg;
+        const opts = { anchor, rotation: rotationDeg };
         if (treatment !== "whitening") {
-          applyProfessionalAlignment(pctx, landmarks, iw, ih, { anchor });
+          applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
         }
-        applyWhitening(pctx, landmarks, iw, ih, { localAnchor: anchor });
+        applyProfessionalWhitening(pctx, landmarks, iw, ih, opts);
       }
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
