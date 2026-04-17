@@ -37,6 +37,11 @@ function segmentEnamel(data, w, h) {
           const ni = getIdx(nx, ny);
           if (visited[ni]) return;
           const ni4 = ni * 4;
+
+          // 🔥 EDGE BREAKER (Surgical) - DON'T connect across teeth gaps
+          const edge = Math.abs(data[ni4] - data[cur * 4]); 
+          if (edge > 25) return;
+
           if (isToothCandidate(data[ni4], data[ni4+1], data[ni4+2])) {
             visited[ni] = 1; queue.push(ni);
           }
@@ -194,6 +199,6 @@ export function applyWhitening(ctx, landmarks, w, h) {
 
   ctx.putImageData(whiteningData, minX, minY);
 
-  // 🔍 DEBUG VISUALIZATION (ID Labels)
-  drawAnatomicalLabels(ctx, teeth, minX, minY);
+  // 🔍 DEBUG VISUALIZATION (ID Labels Removed for Production)
+  // drawAnatomicalLabels(ctx, teeth, minX, minY);
 }
