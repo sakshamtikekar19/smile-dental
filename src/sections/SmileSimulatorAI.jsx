@@ -408,10 +408,6 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // avoid center of teeth (prevents flat look)
-      const centerBias = distFromCenter;
-      if (centerBias < 0.15) continue;
-
       // 🧪 STEP 2: NATURAL PLAQUE REDUCTION (NO BLUE SHIFT)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
