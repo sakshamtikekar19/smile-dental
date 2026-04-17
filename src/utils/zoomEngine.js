@@ -1,12 +1,18 @@
 // 🔒 DO NOT MODIFY — 3X CLINICAL ZOOM (LOCKED)
 
 /**
- * 🔍 CLINICAL VIEWPORT ENGINE (Step 3: Direct Draw / Speed Fix)
+ * 🔍 CLINICAL VIEWPORT ENGINE (Surgical Stability Fix)
  * Magnifies the dental region exactly 3.0x for surgical inspection.
- * Uses Direct Draw to eliminate the overhead of temporary buffer canvases.
+ * Fixes the 'Black Image' bug by enforcing background clearance and source validation.
  */
 export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas = null) {
   if (!landmarks || landmarks.length === 0) return;
+
+  // 1. Clear Viewport to prevent transparency/black-bleed
+  const targetW = ctx.canvas.width;
+  const targetH = ctx.canvas.height;
+  ctx.fillStyle = "#09090b"; // zinc-950 (Clinical Dark)
+  ctx.fillRect(0, 0, targetW, targetH);
 
   // 🦷 Whole Smile Landmark Set (Includes mouth corners 61 & 291)
   const mouthIndices = [61, 291, 78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312];
@@ -22,9 +28,9 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas = null) {
     if (y > maxY) maxY = y;
   });
 
-  // 🧠 Expand box (Step 4 refined: include teeth fully)
-  const padX = (maxX - minX) * 0.28;
-  const padY = (maxY - minY) * 0.35;
+  // 🧠 Expand box (Surgical framing)
+  const padX = (maxX - minX) * 0.32;
+  const padY = (maxY - minY) * 0.40;
 
   minX = Math.max(0, minX - padX);
   minY = Math.max(0, minY - padY);
@@ -37,15 +43,17 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas = null) {
 
   // 🔍 3X ZOOM (Target Centered)
   const scale = 3.0;
-  const targetW = ctx.canvas.width;
-  const targetH = ctx.canvas.height;
   const zoomW = boxW * scale;
   const zoomH = boxH * scale;
 
-  // 🎯 STEP 3: DIRECT DRAW (Using the provided source or the ctx itself)
-  // No temporary canvas creation (Massive performance boost)
+  // 🎯 DIRECT DRAW
+  if (!sourceCanvas) return; // Fail safe
+  
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  
   ctx.drawImage(
-    sourceCanvas || ctx.canvas,
+    sourceCanvas,
     minX, minY, boxW, boxH,
     targetW / 2 - zoomW / 2,
     targetH / 2 - zoomH / 2,

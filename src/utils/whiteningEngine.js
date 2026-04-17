@@ -1,32 +1,36 @@
-// 🦷 LOCKED WHITENING ENGINE (SURGICAL SAFETY & SPEED LOCK)
+// 🦷 LOCKED WHITENING ENGINE (FEATHERED SURGICAL SAFETY)
 
 /**
  * PRODUCTION-SAFE WHITENING PIPELINE
- * Implements a 'Surgical Mask' via Landmark Clipping to guarantee zero lip/skin bleed.
- * Limited to mouth bounding box for maximum performance.
+ * Implements a 'Feathered Surgical Mask' to eliminate patches and sharp edges.
+ * Uses a blurred landmark path to smoothly blend whitening into natural enamel (Step 1).
  */
 export function applyWhitening(ctx, landmarks, w, h) {
   if (!landmarks || landmarks.length === 0) return;
 
-  // 🛡️ 1. SURGICAL MASK (Step 1: Create a Digital Fence)
-  // Indices for the inner mouth opening (Dental Window)
+  // 🛡️ 1. Create the 'Natural Edge' Alpha Mask
   const pipeIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   
-  ctx.save();
-  const mask = new Path2D();
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = w; maskCanvas.height = h;
+  const mctx = maskCanvas.getContext("2d");
+  
+  const maskPath = new Path2D();
   pipeIndices.forEach((idx, i) => {
     const p = landmarks[idx];
     if (p) {
-      if (i === 0) mask.moveTo(p.x * w, p.y * h);
-      else mask.lineTo(p.x * w, p.y * h);
+      if (i === 0) maskPath.moveTo(p.x * w, p.y * h);
+      else maskPath.lineTo(p.x * w, p.y * h);
     }
   });
-  mask.closePath();
-  
-  // Apply a slight 'Natural Feather' if supported, or just clip for safety
-  ctx.clip(mask);
+  maskPath.closePath();
 
-  // 📍 2. Calculate bounding box for loop optimization
+  // Draw blurred mask for soft blending (Step 3: Fix Mask Bleed)
+  mctx.filter = "blur(4px)"; 
+  mctx.fillStyle = "white";
+  mctx.fill(maskPath);
+
+  // 📍 2. Regional Optimization
   let minX = w, minY = h, maxX = 0, maxY = 0;
   pipeIndices.forEach(i => {
     const pt = landmarks[i];
@@ -37,7 +41,7 @@ export function applyWhitening(ctx, landmarks, w, h) {
     }
   });
 
-  const pad = 10;
+  const pad = 20;
   minX = Math.max(0, Math.floor(minX - pad));
   minY = Math.max(0, Math.floor(minY - pad));
   maxX = Math.min(w, Math.ceil(maxX + pad));
@@ -45,35 +49,45 @@ export function applyWhitening(ctx, landmarks, w, h) {
 
   const boxW = maxX - minX;
   const boxH = maxY - minY;
-  if (boxW <= 0 || boxH <= 0) {
-    ctx.restore();
-    return;
-  }
+  if (boxW <= 0 || boxH <= 0) return;
 
-  const imageData = ctx.getImageData(minX, minY, boxW, boxH);
-  const data = imageData.data;
+  const originalImageData = ctx.getImageData(minX, minY, boxW, boxH);
+  const whiteningData = ctx.getImageData(minX, minY, boxW, boxH);
+  const maskBuffer = mctx.getImageData(minX, minY, boxW, boxH).data;
+  
+  const orig = originalImageData.data;
+  const whit = whiteningData.data;
 
-  // 🔍 3. Loop strictly through protected bounding box
-  for (let i = 0; i < data.length; i += 4) {
-    let r = data[i], g = data[i+1], b = data[i+2];
+  // 🔍 3. Surgical Whitening with Alpha Blending
+  for (let i = 0; i < whit.length; i += 4) {
+    const maskAlpha = maskBuffer[i + 3] / 255; // Use the blurred mask's alpha channel
+    if (maskAlpha === 0) continue;
 
-    // 🛡️ HARD LOCK (Lip Killer + Enamel Guard)
-    const isLip = r > g * 1.22 && r > b * 1.35; // slightly more aggressive lip kill
-    if (isLip) continue;
+    let r = whit[i], g = whit[i+1], b = whit[i+2];
 
+    // 🛡️ STEP 4: INTERDENTAL PROTECTION (Preserve natural depth)
+    const lum = (r + g + b) / 3;
+    if (lum < 70) continue;
+
+    // 🛡️ STEP 1: REPLACE LIP + GUM PROTECTION
+    const isLip = r > g * 1.18 && r > b * 1.25;
+    const isGum = (r > 120 && g < 110 && b < 110); // pink/orange gums
+    if (isLip || isGum) continue;
+
+    // 🛡️ STEP 2: HARDEN TOOTH DETECTION
     const isTooth =
-      r > 80 && g > 75 && b > 60 &&     
-      r < 240 && g < 240 && b < 240 && 
-      (r - b) < 45 &&                   
-      (r > g * 0.82) &&                 
-      (b > 35);                         
+      r > 85 && g > 80 && b > 70 &&     // stricter brightness
+      r < 235 && g < 235 && b < 235 &&  // avoid highlights
+      (r - b) < 35 &&                   // tighter yellow targeting
+      (g - b) < 25 &&                   // avoid greenish skin tones
+      b > 60;                           // avoid dark gaps
 
     if (!isTooth) continue;
 
     let nr = r, ng = g, nb = b;
     const warm = (r + g) / 2 - b;
 
-    // 🧪 PLAQUE CLEANER
+    // 🧪 CLEANER
     if (warm > 8) {
       nr *= 0.92; ng *= 0.96;
       const avg = (nr + ng + nb) / 3;
@@ -82,27 +96,17 @@ export function applyWhitening(ctx, landmarks, w, h) {
       nb = nb * 0.94 + avg * 0.06;
     }
 
-    // ✨ NATURAL WHITENING
-    const liftR = 1.03, liftG = 1.05, liftB = 1.06;
-    const wr = Math.min(255, nr * liftR);
-    const wg = Math.min(255, ng * liftG);
-    const wb = Math.min(255, nb * liftB);
+    // ✨ STEP 5: BALANCED LIFT (REMOVE BLUE TINT)
+    const wr = nr * 1.03;
+    const wg = ng * 1.05;
+    const wb = nb * 1.04; 
 
-    const blend = 0.55;
-    let fr = r * (1 - blend) + wr * blend;
-    let fg = g * (1 - blend) + wg * blend;
-    let fb = b * (1 - blend) + wb * blend;
-
-    const contrast = 1.02;
-    fr = (fr - 128) * contrast + 128;
-    fg = (fg - 128) * contrast + 128;
-    fb = (fb - 128) * contrast + 128;
-
-    data[i]     = Math.max(0, Math.min(255, fr));
-    data[i + 1] = Math.max(0, Math.min(255, fg));
-    data[i + 2] = Math.max(0, Math.min(255, fb));
+    const blend = 0.55 * maskAlpha; // Alpha-aware blending (The 'Natural Fix')
+    
+    whit[i]     = Math.max(0, Math.min(255, r * (1 - blend) + wr * blend));
+    whit[i + 1] = Math.max(0, Math.min(255, g * (1 - blend) + wg * blend));
+    whit[i + 2] = Math.max(0, Math.min(255, b * (1 - blend) + wb * blend));
   }
 
-  ctx.putImageData(imageData, minX, minY);
-  ctx.restore(); // 🛡️ Restore Digital Fence
+  ctx.putImageData(whiteningData, minX, minY);
 }
