@@ -374,11 +374,15 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const r = data[idx], g = data[idx + 1], b = data[idx + 2];
 
       // 🚫 HARD GUARD (VERY IMPORTANT)
-      const isTooth = (
-        r > 50 && g > 45 && b > 35 &&   // inclusive enamel
-        r < 253 && g < 253 && b < 253     // avoid pure highlights
-      );
+      const isTooth = 
+        r > 90 && g > 85 && b > 70 &&   // true enamel brightness
+        lum > 80 && lum < 220;          // avoid shadows + highlights
+
       if (!isTooth) continue;
+
+      const liftR = 1.03;
+      const liftG = 1.05;
+      const liftB = 1.06; // reduced (key fix)
 
       // 🧠 Detect edge (between teeth)
       const getLum = (offset) => {
@@ -428,11 +432,11 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       }
 
 
-      // 🧠 STEP 3: REALISM BLEND (0.55)
-      const blend = 0.55; 
-      const wr = Math.min(255, nr * 1.04);
-      const wg = Math.min(255, ng * 1.06);
-      const wb = Math.min(255, nb * 1.08);
+      // 🧠 STEP 3: REALISM BLEND (0.52)
+      const blend = 0.52; 
+      const wr = Math.min(255, nr * liftR);
+      const wg = Math.min(255, ng * liftG);
+      const wb = Math.min(255, nb * liftB);
 
       let fr = r * (1 - blend) + wr * blend;
       let fg = g * (1 - blend) + wg * blend;
