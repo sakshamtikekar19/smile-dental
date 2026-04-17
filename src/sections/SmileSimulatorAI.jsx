@@ -355,16 +355,17 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
 
-  // --- CLINICAL FILTER (MAX TISSUE SHIELD + PLAGUE CATCH) ---
+  // --- CLINICAL FILTER (PLAGUE-INCLUSIVE SHIELD) ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    // Lower lum for plague catch, but strict ratio to protect gums
-    if (lum < 45) return false;
-    if (sat > 65) return false; // Shield rich-pink gums
-    if (r > g * 1.65) return false; // Hard lip/gum rejection
+    // Catch darker and more saturated plague specifically
+    if (lum < 35) return false;
+    if (sat > 95) return false; 
+    // AGGRESSIVE GUM REJECTION (Red is 70% higher than green)
+    if (r > g * 1.70) return false; 
     return true;
   }
 
@@ -384,20 +385,16 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: Balanced Neutralization (REDUCES PLAGUE YELLOW)
+      // 🧪 STEP 2: Surgical Plaque-Desaturation (CLEANS THE YELLOW)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
       
       if (yellowStrength > 8) {
-        const cleanup = 1.2 * gradient;
-        // 🛡️ CHROMATIC LEVELING: Level out the yellow by dampening R/G and lifting B
-        const redDampen = 0.12 * cleanup;
-        const greenDampen = 0.04 * cleanup;
-        const blueBoost = lum > 110 ? 0.18 : 0.09; // Stronger boost on bright, subtle on shadows
-        
-        nr *= (1.0 - redDampen); 
-        ng *= (1.0 - greenDampen);
-        nb *= (1.0 + (blueBoost * cleanup)); 
+        const cleanup = 1.4 * gradient;
+        // 🎯 SPECTRAL CLEANSING: Dampen out-of-balance R/G and lift B
+        nr *= (1.0 - (0.18 * cleanup)); 
+        ng *= (1.0 - (0.08 * cleanup));
+        nb *= (1.0 + (0.22 * cleanup)); 
       }
 
       // 🧠 STEP 3: REALISM BLEND (48% for TEXTURE)
