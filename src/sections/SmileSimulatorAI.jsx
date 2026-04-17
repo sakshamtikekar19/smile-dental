@@ -380,8 +380,8 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
 
       // 🚫 HARD GUARD (VERY IMPORTANT)
       const isTooth = (
-        r > 120 && g > 110 && b > 90 &&   // bright enamel
-        r < 240 && g < 240 && b < 240     // avoid highlights
+        r > 90 && g > 80 && b > 60 &&   // inclusive enamel
+        r < 252 && g < 252 && b < 252     // avoid pure highlights
       );
       if (!isTooth) continue;
 
@@ -438,7 +438,7 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       }
 
       // 🧠 STEP 3: REALISM BLEND (0.58)
-      const blend = 0.58; 
+      const blend = 0.65; 
       const wr = Math.min(255, nr * 1.04);
       const wg = Math.min(255, ng * 1.04);
       const wb = Math.min(255, nb * 1.04);
@@ -900,18 +900,22 @@ const SmileSimulatorAI = () => {
 
                   <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10">
                     <button onClick={() => {
-                      const canvas = canvasRef.current;
-                      if (canvas) {
+                      const video = videoRef.current;
+                      if (video) {
                         setProcessingLog("Capturing high-res dental scan...");
                         setIsProcessing(true);
                         pendingTreatmentRef.current = selectedTreatment;
                         setActiveTreatment(selectedTreatment);
                         
-                        // 🔥 MOBILE OPTIMIZATION: Async Blob Capture
-                        canvas.toBlob((blob) => {
-                          const url = URL.createObjectURL(blob);
-                          setRawImageUrl(url);
-                        }, "image/jpeg", 0.9);
+                        // 🔥 ARCHITECTURAL FIX: Capture RAW from Video (Not the processed canvas)
+                        const captureCanvas = document.createElement("canvas");
+                        captureCanvas.width = video.videoWidth;
+                        captureCanvas.height = video.videoHeight;
+                        const cctx = captureCanvas.getContext("2d");
+                        cctx.drawImage(video, 0, 0);
+                        
+                        const url = captureCanvas.toDataURL("image/jpeg", 0.95);
+                        setRawImageUrl(url);
                       }
                     }} className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center group active:scale-95 transition-transform">
                       <div className="h-14 w-14 rounded-full bg-white group-hover:bg-brand-gold transition-colors" />
