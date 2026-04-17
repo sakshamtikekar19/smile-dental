@@ -355,14 +355,15 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
   const imageData = octx.getImageData(0, 0, boxW, boxH);
   const data = imageData.data;
 
-  // --- CLINICAL FILTER (TIGHTENED FOR GUM PROTECTION) ---
+  // --- CLINICAL FILTER (MAX GUM PROTECTION) ---
   function isToothPixel(r, g, b) {
     const lum = (r + g + b) / 3;
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const sat = max - min;
-    // Tighter saturation check + stronger red rejection to shield gums
-    return lum > 80 && sat < 45 && !(r > g * 1.45);
+    // Strict neutral threshold (teeth are grey/white, gums are colorful)
+    // and aggressive red rejection (red > green + 55%)
+    return lum > 82 && sat < 32 && !(r > g * 1.55);
   }
 
   // --- WHITENING LOOP (Region-Locked + Gradient Lift) ---
@@ -381,24 +382,26 @@ const applyWhitening = Object.freeze(function(ctx, landmarks, w, h) {
       const distFromCenter = Math.abs(x - boxW / 2) / (boxW / 2);
       const gradient = 1.0 - (distFromCenter * 0.35);
 
-      // 🧪 STEP 2: Aggressive Mid-Arch Neutralization (Stain Clearing)
+      // 🧪 STEP 2: Balanced Neutralization (Stain Clearing)
       const yellowStrength = r - b;
       let nr = r, ng = g, nb = b;
-      if (yellowStrength > 5) {
+      
+      // ONLY neutralize if there is a real yellow stain detected
+      if (yellowStrength > 8) {
         const neutralizingPower = 1.0 * gradient;
-        // 🛡️ BLUE-GUARD: Only aggressive on bright enamel, halved for shadows/gums
-        const blueIntensity = lum > 110 ? 0.18 : 0.09;
+        // 🛡️ BLUE-REDUCTION: Reduced boost to prevent blue-shift
+        const blueIntensity = lum > 115 ? 0.08 : 0.03;
         
-        nr *= (1.0 - (0.10 * neutralizingPower)); 
-        ng *= (1.0 - (0.04 * neutralizingPower)); 
+        nr *= (1.0 - (0.05 * neutralizingPower)); 
         nb *= (1.0 + (blueIntensity * neutralizingPower)); 
       }
 
       // 🧠 STEP 3: REALISM BLEND (Drop-In)
       const blend = 0.65; 
-      const wr = Math.min(255, nr * 1.05);
-      const wg = Math.min(255, ng * 1.07);
-      const wb = Math.min(255, nb * 1.10);
+      // 🛡️ RADIANCE BALANCE: Harmonized multipliers to prevent channel desync (No Blue Gums)
+      const wr = Math.min(255, nr * 1.04);
+      const wg = Math.min(255, ng * 1.04);
+      const wb = Math.min(255, nb * 1.04);
 
       let fr = r * (1 - blend) + wr * blend;
       let fg = g * (1 - blend) + wg * blend;
