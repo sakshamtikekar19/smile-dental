@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Camera, RefreshCw } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
@@ -195,21 +196,24 @@ const SmileSimulatorAI = () => {
   const [error, setError] = useState(null);
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [finalLandmarks, setFinalLandmarks] = useState(null);
+  const [zoomLoading, setZoomLoading] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
   const [zoomedBeforeImage, setZoomedBeforeImage] = useState(null);
   const [zoomedAfterImage, setZoomedAfterImage] = useState(null);
-  const [cameraStream, setCameraStream] = useState(null);
+  const [finalLandmarks, setFinalLandmarks] = useState(null);
   const pendingTreatmentRef = useRef("whitening");
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const latestLandmarksRef = useRef(null);
+  const generationRef = useRef(0);
   const requestRef = useRef(null);
   const renderRequestRef = useRef(null);
   const bracesImageRef = useRef(null);
   const localCanvasRef = useRef(null);
+  const zoomCanvasRef = useRef(null);
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
 
@@ -303,6 +307,18 @@ const SmileSimulatorAI = () => {
   const stopCamera = () => {
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
     setCameraStream(null);
+  };
+
+  const reset = () => {
+    setStep("entry");
+    setRawImageUrl(null);
+    setBeforeImage(null);
+    setAfterImage(null);
+    setZoomedBeforeImage(null);
+    setZoomedAfterImage(null);
+    setError(null);
+    setIsProcessing(false);
+    stopCamera();
   };
 
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
