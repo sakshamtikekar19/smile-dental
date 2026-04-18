@@ -362,32 +362,35 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (FINAL FIX Diagnostics)
-      requestAnimationFrame(() => {
-        const zoomCanvas = document.createElement("canvas");
-        zoomCanvas.width = 1200; zoomCanvas.height = 600;
-        const zctx = zoomCanvas.getContext("2d");
-        
-        // Ensure the source has the correct diagnostic ID
-        procCanvas.id = "mainCanvas";
-        
-        // 🔥 STEP 5 — VERIFY IDENTITY
-        console.log("SOURCE IDENTITY:", procCanvas);
-        
-        // 1. Generate After Zoom (Final Result)
-        applyClinicalZoom(zctx, landmarks, iw, ih, procCanvas);
-        setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
-        
-        // 2. Generate Before Zoom (Original)
-        zctx.clearRect(0, 0, 1200, 600);
-        const beforeDummy = document.createElement("canvas");
-        beforeDummy.width = iw; beforeDummy.height = ih;
-        beforeDummy.id = "beforeCanvas";
-        beforeDummy.getContext("2d").drawImage(img, 0, 0);
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Synchronous Force-Flush)
+      // Execute directly to ensure snapshots are captured in the same frame
+      const zoomCanvas = document.createElement("canvas");
+      zoomCanvas.width = 1200; zoomCanvas.height = 600;
+      const zctx = zoomCanvas.getContext("2d");
+      
+      // Ensure the source has the correct diagnostic ID
+      procCanvas.id = "mainCanvas";
+      
+      // ✅ FORCE FLUSH (CRITICAL): Ensure GPU has finalized the simulation pixels
+      pctx.getImageData(0, 0, 1, 1);
+      
+      // 1. Generate After Zoom (Final Result)
+      applyClinicalZoom(zctx, landmarks, iw, ih, procCanvas);
+      setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
+      
+      // 2. Generate Before Zoom (Original Photo)
+      zctx.clearRect(0, 0, 1200, 600);
+      const beforeDummy = document.createElement("canvas");
+      beforeDummy.width = iw; beforeDummy.height = ih;
+      beforeDummy.id = "beforeCanvas";
+      const bdummyCtx = beforeDummy.getContext("2d");
+      bdummyCtx.drawImage(img, 0, 0, iw, ih);
 
-        applyClinicalZoom(zctx, landmarks, iw, ih, beforeDummy);
-        setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
-      });
+      // ✅ FORCE FLUSH AGAIN
+      bdummyCtx.getImageData(0, 0, 1, 1);
+
+      applyClinicalZoom(zctx, landmarks, iw, ih, beforeDummy);
+      setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
 
       setBeforeImage(snapshotUrl);
       setAfterImage(procCanvas.toDataURL("image/jpeg", 0.93));
