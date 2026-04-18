@@ -389,7 +389,7 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Mobile Optimized Stability)
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Memory-Safe Mobile Logic)
       const isMobileDevice = window.innerWidth < 768;
       const zW = isMobileDevice ? 800 : 1200;
       const zH = isMobileDevice ? 400 : 600;
@@ -399,45 +399,44 @@ const SmileSimulatorAI = () => {
         canvas.toBlob(blob => resolve(URL.createObjectURL(blob)), "image/jpeg", 0.85);
       });
 
-      // 🔒 STEP 0: FORCE CPU COPY (CRITICAL — Prevents Black Screen)
+      // 🔄 SHARED BUFFER RECYCLING
+      const sharedZoomCanvas = document.createElement("canvas");
+      sharedZoomCanvas.width = zW; sharedZoomCanvas.height = zH;
+      const zctx = sharedZoomCanvas.getContext("2d", { willReadFrequently: true });
+
+      // 🔒 1. AFTER SNAPSHOT
       const safeSource = document.createElement("canvas");
       safeSource.width = iw; safeSource.height = ih;
       const safeCtx = safeSource.getContext("2d", { willReadFrequently: true });
       safeCtx.drawImage(procCanvas, 0, 0);
 
-      const zoomCanvas = document.createElement("canvas");
-      zoomCanvas.width = zW; zoomCanvas.height = zH;
-      const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true });
-      
-      // 1. Generate After Zoom (Responsive Scaling)
       applyClinicalZoom(zctx, landmarks, iw, ih, safeSource);
       
-      const exportZoomAfter = document.createElement("canvas");
-      exportZoomAfter.width = zW; exportZoomAfter.height = zH;
-      exportZoomAfter.getContext("2d").drawImage(zctx.canvas, 0, 0);
+      // Zero out safeSource immediately (Hard Memory Flush)
+      safeSource.width = 0; safeSource.height = 0; 
       
-      // ✅ AWAIT: Ensure After image is ready
-      const afterBlobUrl = await getBlobUrl(exportZoomAfter);
+      const afterBlobUrl = await getBlobUrl(sharedZoomCanvas);
       setZoomedAfterImage(afterBlobUrl);
       
-      // 2. Generate Before Zoom (Responsive Scaling)
+      // 🔒 2. BEFORE SNAPSHOT
+      zctx.clearRect(0, 0, zW, zH);
       const safeBefore = document.createElement("canvas");
       safeBefore.width = iw; safeBefore.height = ih;
       const safeBeforeCtx = safeBefore.getContext("2d", { willReadFrequently: true });
       safeBeforeCtx.drawImage(img, 0, 0);
 
-      zctx.clearRect(0, 0, zW, zH);
       applyClinicalZoom(zctx, landmarks, iw, ih, safeBefore);
       
-      const exportZoomBefore = document.createElement("canvas");
-      exportZoomBefore.width = zW; exportZoomBefore.height = zH;
-      exportZoomBefore.getContext("2d").drawImage(zctx.canvas, 0, 0);
-      
-      // ✅ AWAIT: Ensure Before image is ready
-      const beforeBlobUrl = await getBlobUrl(exportZoomBefore);
+      // Zero out safeBefore immediately (Hard Memory Flush)
+      safeBefore.width = 0; safeBefore.height = 0;
+
+      const beforeBlobUrl = await getBlobUrl(sharedZoomCanvas);
       setZoomedBeforeImage(beforeBlobUrl);
 
-      // Force Repaint (Mobile compositor fix)
+      // Cleanup Shared Buffer
+      sharedZoomCanvas.width = 0; sharedZoomCanvas.height = 0;
+
+      // Force Repaint
       setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
 
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
@@ -447,6 +446,9 @@ const SmileSimulatorAI = () => {
       
       setBeforeImage(snapshotUrl);
       setAfterImage(mainExport.toDataURL("image/jpeg", 0.93));
+
+      // Final Clean
+      mainExport.width = 0; mainExport.height = 0;
       
       setFinalLandmarks(landmarks); 
       setStep("result"); 
