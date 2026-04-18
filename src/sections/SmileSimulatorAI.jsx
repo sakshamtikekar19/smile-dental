@@ -394,6 +394,11 @@ const SmileSimulatorAI = () => {
       const zW = isMobileDevice ? 800 : 1200;
       const zH = isMobileDevice ? 400 : 600;
 
+      // Helper for async Blob generation
+      const getBlobUrl = (canvas) => new Promise(resolve => {
+        canvas.toBlob(blob => resolve(URL.createObjectURL(blob)), "image/jpeg", 0.85);
+      });
+
       // 🔒 STEP 0: FORCE CPU COPY (CRITICAL — Prevents Black Screen)
       const safeSource = document.createElement("canvas");
       safeSource.width = iw; safeSource.height = ih;
@@ -411,13 +416,9 @@ const SmileSimulatorAI = () => {
       exportZoomAfter.width = zW; exportZoomAfter.height = zH;
       exportZoomAfter.getContext("2d").drawImage(zctx.canvas, 0, 0);
       
-      // ✅ MEMORY EFFICIENT: Use toBlob for Mobile Stability
-      exportZoomAfter.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        setZoomedAfterImage(url);
-        // Force Repaint (Mobile compositor fix)
-        setTimeout(() => window.dispatchEvent(new Event("resize")), 50);
-      }, "image/jpeg", 0.85);
+      // ✅ AWAIT: Ensure After image is ready
+      const afterBlobUrl = await getBlobUrl(exportZoomAfter);
+      setZoomedAfterImage(afterBlobUrl);
       
       // 2. Generate Before Zoom (Responsive Scaling)
       const safeBefore = document.createElement("canvas");
@@ -432,10 +433,12 @@ const SmileSimulatorAI = () => {
       exportZoomBefore.width = zW; exportZoomBefore.height = zH;
       exportZoomBefore.getContext("2d").drawImage(zctx.canvas, 0, 0);
       
-      exportZoomBefore.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        setZoomedBeforeImage(url);
-      }, "image/jpeg", 0.85);
+      // ✅ AWAIT: Ensure Before image is ready
+      const beforeBlobUrl = await getBlobUrl(exportZoomBefore);
+      setZoomedBeforeImage(beforeBlobUrl);
+
+      // Force Repaint (Mobile compositor fix)
+      setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
 
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
