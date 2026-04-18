@@ -362,20 +362,25 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Performance Step)
-      // Execute after all anatomical rendering is complete
-      const zoomCanvas = document.createElement("canvas");
-      zoomCanvas.width = 1200; zoomCanvas.height = 600;
-      const zctx = zoomCanvas.getContext("2d");
-      
-      // 1. Generate After Zoom (Final Result)
-      applyClinicalZoom(zctx, landmarks, iw, ih, procCanvas);
-      setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
-      
-      // 2. Generate Before Zoom (Original)
-      zctx.clearRect(0, 0, 1200, 600);
-      applyClinicalZoom(zctx, landmarks, iw, ih, img);
-      setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Forced Sync & Timing)
+      // Execute after all anatomical rendering is fully flushed to the GPU
+      requestAnimationFrame(() => {
+        const zoomCanvas = document.createElement("canvas");
+        zoomCanvas.width = 1200; zoomCanvas.height = 600;
+        const zctx = zoomCanvas.getContext("2d");
+        
+        // 1. Generate After Zoom (Final Result)
+        // Since the Zoom Engine now forces source = ctx.canvas, we pre-populate the card
+        zctx.drawImage(procCanvas, 0, 0, iw, ih);
+        applyClinicalZoom(zctx, landmarks, iw, ih);
+        setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
+        
+        // 2. Generate Before Zoom (Original)
+        zctx.clearRect(0, 0, 1200, 600);
+        zctx.drawImage(img, 0, 0, iw, ih);
+        applyClinicalZoom(zctx, landmarks, iw, ih);
+        setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
+      });
 
       setBeforeImage(snapshotUrl);
       setAfterImage(procCanvas.toDataURL("image/jpeg", 0.93));
