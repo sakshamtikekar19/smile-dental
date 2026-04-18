@@ -362,8 +362,7 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Forced Sync & Timing)
-      // Execute after all anatomical rendering is fully flushed to the GPU
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (FINAL FIX Diagnostics)
       requestAnimationFrame(() => {
         const zoomCanvas = document.createElement("canvas");
         zoomCanvas.width = 1200; zoomCanvas.height = 600;
@@ -372,13 +371,15 @@ const SmileSimulatorAI = () => {
         // Ensure the source has the correct diagnostic ID
         procCanvas.id = "mainCanvas";
         
+        // 🔥 STEP 5 — VERIFY IDENTITY
+        console.log("SOURCE IDENTITY:", procCanvas);
+        
         // 1. Generate After Zoom (Final Result)
         applyClinicalZoom(zctx, landmarks, iw, ih, procCanvas);
         setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
         
         // 2. Generate Before Zoom (Original)
         zctx.clearRect(0, 0, 1200, 600);
-        // We reuse 'img' but wrap it in an ID for diagnostic clarity
         const beforeDummy = document.createElement("canvas");
         beforeDummy.width = iw; beforeDummy.height = ih;
         beforeDummy.id = "beforeCanvas";
