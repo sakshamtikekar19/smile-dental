@@ -355,12 +355,20 @@ const SmileSimulatorAI = () => {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
       }
 
-      // 🔍 INSTANT ZOOM GENERATION (Performance Step)
+      // 🧠 STEP 5: ALIGNMENT before zoom
+      if (treatment === "alignment" || treatment === "transformation") {
+        const rotationDeg = getProperAlignment(landmarks, iw, ih).rotationDeg;
+        const opts = { anchor, rotation: rotationDeg };
+        applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
+      }
+
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Performance Step)
+      // Execute after all anatomical rendering is complete
       const zoomCanvas = document.createElement("canvas");
       zoomCanvas.width = 1200; zoomCanvas.height = 600;
       const zctx = zoomCanvas.getContext("2d");
       
-      // 1. Generate After Zoom (Whitened)
+      // 1. Generate After Zoom (Final Result)
       applyClinicalZoom(zctx, landmarks, iw, ih, procCanvas);
       setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
       
@@ -368,13 +376,6 @@ const SmileSimulatorAI = () => {
       zctx.clearRect(0, 0, 1200, 600);
       applyClinicalZoom(zctx, landmarks, iw, ih, img);
       setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
-
-      // 🧠 STEP 6: ALIGNMENT LAST (After zoom snapshots are captured)
-      if (treatment === "alignment" || treatment === "transformation") {
-        const rotationDeg = getProperAlignment(landmarks, iw, ih).rotationDeg;
-        const opts = { anchor, rotation: rotationDeg };
-        applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
-      }
 
       setBeforeImage(snapshotUrl);
       setAfterImage(procCanvas.toDataURL("image/jpeg", 0.93));
