@@ -369,16 +369,22 @@ const SmileSimulatorAI = () => {
         zoomCanvas.width = 1200; zoomCanvas.height = 600;
         const zctx = zoomCanvas.getContext("2d");
         
+        // Ensure the source has the correct diagnostic ID
+        procCanvas.id = "mainCanvas";
+        
         // 1. Generate After Zoom (Final Result)
-        // Since the Zoom Engine now forces source = ctx.canvas, we pre-populate the card
-        zctx.drawImage(procCanvas, 0, 0, iw, ih);
-        applyClinicalZoom(zctx, landmarks, iw, ih);
+        applyClinicalZoom(zctx, landmarks, iw, ih, procCanvas);
         setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
         
         // 2. Generate Before Zoom (Original)
         zctx.clearRect(0, 0, 1200, 600);
-        zctx.drawImage(img, 0, 0, iw, ih);
-        applyClinicalZoom(zctx, landmarks, iw, ih);
+        // We reuse 'img' but wrap it in an ID for diagnostic clarity
+        const beforeDummy = document.createElement("canvas");
+        beforeDummy.width = iw; beforeDummy.height = ih;
+        beforeDummy.id = "beforeCanvas";
+        beforeDummy.getContext("2d").drawImage(img, 0, 0);
+
+        applyClinicalZoom(zctx, landmarks, iw, ih, beforeDummy);
         setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
       });
 

@@ -1,23 +1,23 @@
 // 🔒 DO NOT MODIFY — 3X CLINICAL ZOOM (LOCKED)
 
 /**
- * 🔍 CLINICAL VIEWPORT ENGINE (Forced Source Logic)
+ * 🔍 CLINICAL VIEWPORT ENGINE (Surgical Source Fix)
  * Magnifies the dental region exactly 3.0x for surgical inspection.
- * FIXED: Implements the 'Yes—force it' source-of-truth logic.
+ * FIXED: Explicitly requires the REAL simulation source canvas.
  */
-export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas = null) {
+export function applyClinicalZoom(zoomCtx, landmarks, w, h, sourceCanvas) {
   if (!landmarks || landmarks.length === 0 || !w || !h) return;
 
-  // 🔥 STEP 1 — FORCE CORRECT SOURCE
-  // As requested: Replace legacy source logic completely.
-  const source = ctx.canvas;
+  // 🔥 STEP 1 — FORCE REAL SOURCE
+  const source = sourceCanvas;
 
   if (!source || source.width === 0) {
-    console.warn("Zoom failed: invalid source");
+    console.error("❌ INVALID SOURCE CANVAS");
     return;
   }
 
-  // 🔍 Diagnostic Logging
+  // 🧪 DEBUG (CONFIRM FIX)
+  console.log("ZOOM SOURCE TAG:", source.id);
   console.log("ZOOM SOURCE:", source.width, source.height);
 
   // Dental focus indices
@@ -48,32 +48,26 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas = null) {
     return;
   }
 
-  const targetW = ctx.canvas.width;
-  const targetH = ctx.canvas.height;
+  const targetW = zoomCtx.canvas.width;
+  const targetH = zoomCtx.canvas.height;
+  
+  // Clear background
+  zoomCtx.fillStyle = "#09090b";
+  zoomCtx.fillRect(0, 0, targetW, targetH);
+
   const scale = 3.0;
   const cx = targetW / 2;
   const cy = targetH / 2;
   const newW = boxW * scale;
   const newH = boxH * scale;
 
-  // 🚀 STEP 3 — FORCE BUFFER POPULATION
-  const buffer = document.createElement("canvas");
-  buffer.width = w;
-  buffer.height = h;
+  // 🚀 FASTER + NO FAILURE POINT (Direct Draw)
+  zoomCtx.imageSmoothingEnabled = false;
 
-  const bctx = buffer.getContext("2d", { willReadFrequently: true });
-  
-  // ALWAYS draw something from the forced source
-  bctx.drawImage(source, 0, 0, w, h);
-
-  // Surgical Clarity
-  ctx.imageSmoothingEnabled = false;
-
-  // RENDER: Draw scaled region from buffer back to ctx
-  ctx.drawImage(
-    buffer,
-    minX, minY, boxW, boxH,
-    cx - newW / 2, cy - newH / 2,
-    newW, newH
+  zoomCtx.drawImage(
+    source,
+    minX, minY, boxW, boxH,       // Source region (must be from the REAL source)
+    cx - newW / 2, cy - newH / 2, // Centered in clinical card
+    newW, newH                    // Magnified target size
   );
 }
