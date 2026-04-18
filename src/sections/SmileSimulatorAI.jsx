@@ -421,19 +421,21 @@ const SmileSimulatorAI = () => {
         // 🏥 1. GENERATE AFTER SNAPSHOT (Direct from procCanvas)
         const afterCanvas = document.createElement("canvas");
         afterCanvas.width = zW; afterCanvas.height = zH;
-        applyClinicalZoom(afterCanvas.getContext("2d"), landmarks, iw, ih, procCanvas);
+        const afterCtx = afterCanvas.getContext("2d", { willReadFrequently: true });
+        applyClinicalZoom(afterCtx, landmarks, iw, ih, procCanvas);
         setZoomedAfterCanvas(afterCanvas);
 
         // 🏥 2. GENERATE BEFORE SNAPSHOT
         const beforeCanvas = document.createElement("canvas");
         beforeCanvas.width = zW; beforeCanvas.height = zH;
+        const beforeCtx = beforeCanvas.getContext("2d", { willReadFrequently: true });
         
         // Use a temporary high-res buffer for the original image
         const tempBefore = document.createElement("canvas");
         tempBefore.width = iw; tempBefore.height = ih;
-        tempBefore.getContext("2d").drawImage(img, 0, 0);
+        tempBefore.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0);
         
-        applyClinicalZoom(beforeCanvas.getContext("2d"), landmarks, iw, ih, tempBefore);
+        applyClinicalZoom(beforeCtx, landmarks, iw, ih, tempBefore);
         setZoomedBeforeCanvas(beforeCanvas);
 
         // Cleanup temporary buffer
