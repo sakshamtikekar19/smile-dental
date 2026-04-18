@@ -197,67 +197,42 @@ export function applyWhitening(ctx, landmarks, w, h) {
       const i = idx * 4;
       let r = data[i], g = data[i+1], b = data[i+2];
 
+      // 🧠 COLOR ANALYSIS
       const lum = (r + g + b) / 3;
       if (lum < 35) return; // skip deep gaps
-
-      const edgeBoost = Math.abs(r - g) + Math.abs(g - b);
-      if (edgeBoost > 60) return; // preserve tooth edges
-
-      // 🧪 STEP 1 — Detect Interdental Regions (KEY FIX)
-      // Horizontal edge detection to identify boundaries between teeth
-      const rightIdx = i + 4;
-      let isEdge = false;
-      if (rightIdx < data.length) {
-        const r2 = data[rightIdx], g2 = data[rightIdx + 1], b2 = data[rightIdx + 2];
-        const lum2 = (r2 + g2 + b2) / 3;
-        isEdge = Math.abs(lum - lum2) > 14;
-      }
-
-      // 🧪 STEP 2 — Tiered Cleaning (Plaque & Neutralization)
-      let nr = r, ng = g, nb = b;
+      
       const warm = (r + g) / 2 - b;
 
-      if (isEdge && warm > 6) {
-        // 🔥 INTERDENTAL BOOST (Stronger red reduction for shadows/plaque)
-        nr *= 0.86;  
-        ng *= 0.92;
-        const avg = (nr + ng + nb) / 3;
-        // Neutral ivory (NO blue shift)
-        nr = nr * 0.90 + avg * 0.10;
-        ng = ng * 0.90 + avg * 0.10;
-        nb = nb * 0.92 + avg * 0.08;
-      } else if (warm > 8) {
-        // ✨ Normal Surface Cleaning
-        nr *= 0.92;
-        ng *= 0.96;
-        const avg = (nr + ng + nb) / 3;
-        nr = nr * 0.94 + avg * 0.06;
-        ng = ng * 0.94 + avg * 0.06;
-        nb = nb * 0.94 + avg * 0.06;
+      // 🎯 STRONGER YELLOW DETECTION (Production Grade)
+      const isYellow = warm > 6;   // lower threshold catches more stains
+
+      let nr = r, ng = g, nb = b;
+
+      // 🧪 STEP 1: REAL STAIN REMOVAL (NOT BRIGHTENING)
+      if (isYellow) {
+        // reduce red dominance (yellow/orange source)
+        nr *= 0.88;
+        ng *= 0.94;
+
+        // 🎯 NORMALIZE TOWARD IVORY (NOT white/blue)
+        const target = 210; // ivory enamel base tone
+        nr = nr * 0.85 + target * 0.15;
+        ng = ng * 0.88 + target * 0.12;
+        nb = nb * 0.92 + target * 0.08;
       }
 
-      // ✨ STEP 4 — Balanced Whitening Lift (NO BLUE TINT)
-      // Balanced lift prevents the "fake blue glow" common in simple whitening
-      const wr = nr * 1.035;
-      const wg = ng * 1.045;
-      const wb = nb * 1.04;
+      // ✨ STEP 2 — VERY SUBTLE LIFT (NO SHINE)
+      const wr = nr * 1.015;
+      const wg = ng * 1.02;
+      const wb = nb * 1.015;
 
-      // 🎯 STEP 5 — Adaptive Blend (KEY FOR REALISM)
-      const blend = isEdge ? 0.72 : 0.58;
+      // 🎯 STEP 3 — CALIBRATED BLEND (ANTI-PLASTIC)
+      // Maintaining texture and depth while neutralizing stains
+      const blend = 0.42; 
       
-      let fr = r * (1 - blend) + wr * blend;
-      let fg = g * (1 - blend) + wg * blend;
-      let fb = b * (1 - blend) + wb * blend;
-
-      // ✨ STEP 6 — Micro Contrast (Restores anatomical separation)
-      const contrast = 1.03;
-      fr = (fr - 128) * contrast + 128;
-      fg = (fg - 128) * contrast + 128;
-      fb = (fb - 128) * contrast + 128;
-
-      data[i]     = Math.max(0, Math.min(255, fr));
-      data[i + 1] = Math.max(0, Math.min(255, fg));
-      data[i + 2] = Math.max(0, Math.min(255, fb));
+      data[i]     = Math.max(0, Math.min(255, r * (1 - blend) + wr * blend));
+      data[i + 1] = Math.max(0, Math.min(255, g * (1 - blend) + wg * blend));
+      data[i + 2] = Math.max(0, Math.min(255, b * (1 - blend) + wb * blend));
     });
   });
 
