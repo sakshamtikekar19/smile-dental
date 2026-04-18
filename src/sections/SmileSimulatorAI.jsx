@@ -209,8 +209,8 @@ const SmileSimulatorAI = () => {
   const [zoomLoading, setZoomLoading] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
-  const [zoomedBeforeImage, setZoomedBeforeImage] = useState(null);
-  const [zoomedAfterImage, setZoomedAfterImage] = useState(null);
+  const [zoomedBeforeCanvas, setZoomedBeforeCanvas] = useState(null);
+  const [zoomedAfterCanvas, setZoomedAfterCanvas] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const pendingTreatmentRef = useRef("whitening");
 
@@ -389,15 +389,10 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Memory-Safe Mobile Logic)
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Bulletproof Mobile Logic)
       const isMobileDevice = window.innerWidth < 768;
-      const zW = isMobileDevice ? 800 : 1200;
-      const zH = isMobileDevice ? 400 : 600;
-
-      // Helper for async Blob generation
-      const getBlobUrl = (canvas) => new Promise(resolve => {
-        canvas.toBlob(blob => resolve(URL.createObjectURL(blob)), "image/jpeg", 0.85);
-      });
+      const zW = isMobileDevice ? 720 : 1200;
+      const zH = isMobileDevice ? 360 : 600;
 
       // 🔄 SHARED BUFFER RECYCLING
       const sharedZoomCanvas = document.createElement("canvas");
@@ -412,11 +407,14 @@ const SmileSimulatorAI = () => {
 
       applyClinicalZoom(zctx, landmarks, iw, ih, safeSource);
       
-      // Zero out safeSource immediately (Hard Memory Flush)
-      safeSource.width = 0; safeSource.height = 0; 
+      // Store AFTER as a stable canvas snapshot
+      const afterSnap = document.createElement("canvas");
+      afterSnap.width = zW; afterSnap.height = zH;
+      afterSnap.getContext("2d").drawImage(sharedZoomCanvas, 0, 0);
+      setZoomedAfterCanvas(afterSnap);
       
-      const afterBlobUrl = await getBlobUrl(sharedZoomCanvas);
-      setZoomedAfterImage(afterBlobUrl);
+      // Zero out large buffers
+      safeSource.width = 0; safeSource.height = 0; 
       
       // 🔒 2. BEFORE SNAPSHOT
       zctx.clearRect(0, 0, zW, zH);
@@ -427,13 +425,14 @@ const SmileSimulatorAI = () => {
 
       applyClinicalZoom(zctx, landmarks, iw, ih, safeBefore);
       
-      // Zero out safeBefore immediately (Hard Memory Flush)
+      // Store BEFORE as a stable canvas snapshot
+      const beforeSnap = document.createElement("canvas");
+      beforeSnap.width = zW; beforeSnap.height = zH;
+      beforeSnap.getContext("2d").drawImage(sharedZoomCanvas, 0, 0);
+      setZoomedBeforeCanvas(beforeSnap);
+      
+      // Zero out large buffers
       safeBefore.width = 0; safeBefore.height = 0;
-
-      const beforeBlobUrl = await getBlobUrl(sharedZoomCanvas);
-      setZoomedBeforeImage(beforeBlobUrl);
-
-      // Cleanup Shared Buffer
       sharedZoomCanvas.width = 0; sharedZoomCanvas.height = 0;
 
       // Force Repaint
@@ -563,17 +562,24 @@ const SmileSimulatorAI = () => {
                     <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
                     <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
                     
-                    {/* ✅ UI BINDING & Object Fit Fix */}
-                    {zoomedAfterImage && (
-                      <img 
-                        src={zoomedAfterImage} 
-                        alt="Zoom"
+                    {/* ✅ UI BINDING & Direct Canvas Fix */}
+                    {zoomedAfterCanvas && (
+                      <canvas
+                        ref={(el) => {
+                          if (el && zoomedAfterCanvas) {
+                            const ctx = el.getContext("2d");
+                            if (el.width !== zoomedAfterCanvas.width) {
+                              el.width = zoomedAfterCanvas.width;
+                              el.height = zoomedAfterCanvas.height;
+                            }
+                            ctx.drawImage(zoomedAfterCanvas, 0, 0);
+                          }
+                        }}
                         style={{
                           width: "100%",
-                          height: "auto",
-                          objectFit: "contain",
+                          height: "100%",
                           display: "block",
-                          background: "#000"
+                          objectFit: "contain"
                         }}
                       />
                     )}

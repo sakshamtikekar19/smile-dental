@@ -8,6 +8,9 @@
 export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas) {
   if (!sourceCanvas) return;
 
+  // 🛡️ MOBILE FIX: Disable smoothing to prevent blur artifacts on mobile decoding
+  ctx.imageSmoothingEnabled = false;
+
   const srcCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
   const dstW = ctx.canvas.width;
   const dstH = ctx.canvas.height;
