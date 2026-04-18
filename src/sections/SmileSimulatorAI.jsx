@@ -362,34 +362,29 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Synchronous Force-Flush)
-      // Execute directly to ensure snapshots are captured in the same frame
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Locked Snapshot Fix)
+      // Create CPU-backed (locked) snapshots as source of truth for magnification
+      const finalCanvas = document.createElement("canvas");
+      finalCanvas.width = iw; finalCanvas.height = ih;
+      finalCanvas.id = "finalSource";
+      finalCanvas.getContext("2d").drawImage(procCanvas, 0, 0);
+
       const zoomCanvas = document.createElement("canvas");
       zoomCanvas.width = 1200; zoomCanvas.height = 600;
       const zctx = zoomCanvas.getContext("2d");
       
-      // Ensure the source has the correct diagnostic ID
-      procCanvas.id = "mainCanvas";
-      
-      // ✅ FORCE FLUSH (CRITICAL): Ensure GPU has finalized the simulation pixels
-      pctx.getImageData(0, 0, 1, 1);
-      
       // 1. Generate After Zoom (Final Result)
-      applyClinicalZoom(zctx, landmarks, iw, ih, procCanvas);
+      applyClinicalZoom(zctx, landmarks, iw, ih, finalCanvas);
       setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
       
       // 2. Generate Before Zoom (Original Photo)
+      const beforeFinal = document.createElement("canvas");
+      beforeFinal.width = iw; beforeFinal.height = ih;
+      beforeFinal.id = "beforeSource";
+      beforeFinal.getContext("2d").drawImage(img, 0, 0);
+
       zctx.clearRect(0, 0, 1200, 600);
-      const beforeDummy = document.createElement("canvas");
-      beforeDummy.width = iw; beforeDummy.height = ih;
-      beforeDummy.id = "beforeCanvas";
-      const bdummyCtx = beforeDummy.getContext("2d");
-      bdummyCtx.drawImage(img, 0, 0, iw, ih);
-
-      // ✅ FORCE FLUSH AGAIN
-      bdummyCtx.getImageData(0, 0, 1, 1);
-
-      applyClinicalZoom(zctx, landmarks, iw, ih, beforeDummy);
+      applyClinicalZoom(zctx, landmarks, iw, ih, beforeFinal);
       setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
 
       setBeforeImage(snapshotUrl);
