@@ -1,70 +1,29 @@
 // 🔒 DO NOT MODIFY — 3X CLINICAL ZOOM (LOCKED)
 
 /**
- * 🔍 CLINICAL VIEWPORT ENGINE (Locked Snapshot Core)
- * Magnifies the dental region exactly 3.0x for surgical inspection.
- * FIXED: Uses the 'Locked Snapshot' architecture (CPU-backed Source of Truth).
+ * 🔍 CLINICAL VIEWPORT ENGINE (HARD TEST PATCH)
+ * Temporarily replaces clinical magnification with a full-frame draw to isolate the black-screen bug.
  */
-export function applyClinicalZoom(zoomCtx, landmarks, w, h, sourceCanvas) {
-  if (!landmarks || landmarks.length === 0 || !w || !h) return;
-
-  // 1. Source of Truth (Pure Direct Draw from Snapshot)
-  const source = sourceCanvas;
-  if (!source || source.width === 0) {
-    console.error("❌ INVALID SOURCE CANVAS");
+export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas) {
+  if (!sourceCanvas) {
+    console.error("❌ NO SOURCE PROVIDED TO ZOOM ENGINE");
     return;
   }
 
-  // Diagnostic Logs
-  console.log("ZOOM SOURCE ID:", source.id);
-  console.log("ZOOM SOURCE SIZE:", source.width, source.height);
+  // 🔍 Surgical Diagnostics
+  console.log("CTX:", ctx);
+  console.log("CANVAS SIZE:", ctx.canvas.width, ctx.canvas.height);
+  console.log("SOURCE:", sourceCanvas);
 
-  // 2. Dental Focus Positioning
-  const mouthIndices = [61, 291, 78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312];
-  let minX = w, minY = h, maxX = 0, maxY = 0;
-  mouthIndices.forEach(i => {
-    const pt = landmarks[i];
-    if (!pt) return;
-    const x = pt.x * w, y = pt.y * h;
-    if (x < minX) minX = x; if (y < minY) minY = y;
-    if (x > maxX) maxX = x; if (y > maxY) maxY = y;
-  });
+  // 🛑 HARD RESET CANVAS (IMPORTANT)
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
-  const padX = (maxX - minX) * 0.32;
-  const padY = (maxY - minY) * 0.38;
-  minX = Math.max(0, minX - padX);
-  minY = Math.max(0, minY - padY);
-  maxX = Math.min(w, maxX + padX);
-  maxY = Math.min(h, maxY + padY);
-
-  const boxW = maxX - minX;
-  const boxH = maxY - minY;
-  if (boxW < 20 || boxH < 20) {
-    console.warn("Zoom skipped: invalid region");
-    return;
+  // 🧪 TEST: FULL DRAW FIRST (DEBUG MODE)
+  // We draw the full source directly into the target card to confirm connectivity.
+  try {
+    ctx.drawImage(sourceCanvas, 0, 0, ctx.canvas.width, ctx.canvas.height);
+    console.log("✅ ZOOM TEST DRAW EXECUTED");
+  } catch (e) {
+    console.error("❌ ZOOM DRAW ERROR:", e);
   }
-
-  const targetW = zoomCtx.canvas.width;
-  const targetH = zoomCtx.canvas.height;
-  
-  // 3. Render Sequence
-  // A. Clear background (zinc-950)
-  zoomCtx.fillStyle = "#09090b";
-  zoomCtx.fillRect(0, 0, targetW, targetH);
-
-  // B. Clinical Magnification (Direct Draw)
-  const scale = 3.0;
-  const cx = targetW / 2;
-  const cy = targetH / 2;
-  const newW = boxW * scale;
-  const newH = boxH * scale;
-
-  zoomCtx.imageSmoothingEnabled = false; // Surgical clarity
-
-  zoomCtx.drawImage(
-    source,
-    minX, minY, boxW, boxH,       // Source region from Locked Snapshot
-    cx - newW / 2, cy - newH / 2, // Centered in viewport card
-    newW, newH                    // 3x Magnified view
-  );
 }
