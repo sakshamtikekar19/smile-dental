@@ -203,25 +203,61 @@ export function applyWhitening(ctx, landmarks, w, h) {
       const edgeBoost = Math.abs(r - g) + Math.abs(g - b);
       if (edgeBoost > 60) return; // preserve tooth edges
 
-      const warm = (r + g) / 2 - b;
-      let nr = r, ng = g, nb = b;
-
-      // 🔥 PLAQUE REMOVAL
-      if (warm > 6) {
-        nr *= 0.88; ng *= 0.93;
-        const avg = (nr + ng + nb) / 3;
-        nr = nr * 0.90 + avg * 0.10;
-        ng = ng * 0.90 + avg * 0.10;
-        nb = nb * 0.94 + avg * 0.06; 
+      // 🧪 STEP 1 — Detect Interdental Regions (KEY FIX)
+      // Horizontal edge detection to identify boundaries between teeth
+      const rightIdx = i + 4;
+      let isEdge = false;
+      if (rightIdx < data.length) {
+        const r2 = data[rightIdx], g2 = data[rightIdx + 1], b2 = data[rightIdx + 2];
+        const lum2 = (r2 + g2 + b2) / 3;
+        isEdge = Math.abs(lum - lum2) > 14;
       }
 
-      // ✨ WHITENING LIFT
-      const wr = nr * 1.035, wg = ng * 1.05, wb = nb * 1.045;
-      const blend = 0.58;
+      // 🧪 STEP 2 — Tiered Cleaning (Plaque & Neutralization)
+      let nr = r, ng = g, nb = b;
+      const warm = (r + g) / 2 - b;
+
+      if (isEdge && warm > 6) {
+        // 🔥 INTERDENTAL BOOST (Stronger red reduction for shadows/plaque)
+        nr *= 0.86;  
+        ng *= 0.92;
+        const avg = (nr + ng + nb) / 3;
+        // Neutral ivory (NO blue shift)
+        nr = nr * 0.90 + avg * 0.10;
+        ng = ng * 0.90 + avg * 0.10;
+        nb = nb * 0.92 + avg * 0.08;
+      } else if (warm > 8) {
+        // ✨ Normal Surface Cleaning
+        nr *= 0.92;
+        ng *= 0.96;
+        const avg = (nr + ng + nb) / 3;
+        nr = nr * 0.94 + avg * 0.06;
+        ng = ng * 0.94 + avg * 0.06;
+        nb = nb * 0.94 + avg * 0.06;
+      }
+
+      // ✨ STEP 4 — Balanced Whitening Lift (NO BLUE TINT)
+      // Balanced lift prevents the "fake blue glow" common in simple whitening
+      const wr = nr * 1.035;
+      const wg = ng * 1.045;
+      const wb = nb * 1.04;
+
+      // 🎯 STEP 5 — Adaptive Blend (KEY FOR REALISM)
+      const blend = isEdge ? 0.72 : 0.58;
       
-      data[i]     = r * (1 - blend) + wr * blend;
-      data[i + 1] = g * (1 - blend) + wg * blend;
-      data[i + 2] = b * (1 - blend) + wb * blend;
+      let fr = r * (1 - blend) + wr * blend;
+      let fg = g * (1 - blend) + wg * blend;
+      let fb = b * (1 - blend) + wb * blend;
+
+      // ✨ STEP 6 — Micro Contrast (Restores anatomical separation)
+      const contrast = 1.03;
+      fr = (fr - 128) * contrast + 128;
+      fg = (fg - 128) * contrast + 128;
+      fb = (fb - 128) * contrast + 128;
+
+      data[i]     = Math.max(0, Math.min(255, fr));
+      data[i + 1] = Math.max(0, Math.min(255, fg));
+      data[i + 2] = Math.max(0, Math.min(255, fb));
     });
   });
 
