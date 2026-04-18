@@ -214,6 +214,7 @@ const SmileSimulatorAI = () => {
   const bracesImageRef = useRef(null);
   const localCanvasRef = useRef(null);
   const zoomCanvasRef = useRef(null);
+  const mainCanvasRef = useRef(null);
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
 
@@ -332,11 +333,19 @@ const SmileSimulatorAI = () => {
       if (!landmarks) throw new Error("Face not detected.");
 
       const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
-      const procCanvas = document.createElement("canvas");
+      
+      // 🔥 STEP 2 — PERSISTENT CANVAS ALLOCATION
+      if (!mainCanvasRef.current) {
+        mainCanvasRef.current = document.createElement("canvas");
+      }
+      const procCanvas = mainCanvasRef.current;
       procCanvas.width = iw; procCanvas.height = ih;
+      procCanvas.id = "mainCanvas"; // Diagnostic ID for Zoom verification
+      
       const pctx = procCanvas.getContext("2d", { willReadFrequently: true });
       const img = await loadImage(snapshotUrl);
       pctx.drawImage(img, 0, 0, iw, ih);
+
 
       // 🔥 ANCHOR SYNC: Calculate the exact mouth-local center for static processing
       const anchor = {
