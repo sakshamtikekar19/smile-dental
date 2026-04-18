@@ -209,8 +209,8 @@ const SmileSimulatorAI = () => {
   const [zoomLoading, setZoomLoading] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
-  const [zoomedBeforeCanvas, setZoomedBeforeCanvas] = useState(null);
-  const [zoomedAfterCanvas, setZoomedAfterCanvas] = useState(null);
+  const [zoomedBeforeImage, setZoomedBeforeImage] = useState(null);
+  const [zoomedAfterImage, setZoomedAfterImage] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const pendingTreatmentRef = useRef("whitening");
 
@@ -389,7 +389,7 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Bulletproof Mobile Logic)
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Hardened DataURL Logic)
       const isMobileDevice = window.innerWidth < 768;
       const zW = isMobileDevice ? 720 : 1200;
       const zH = isMobileDevice ? 360 : 600;
@@ -407,11 +407,8 @@ const SmileSimulatorAI = () => {
 
       applyClinicalZoom(zctx, landmarks, iw, ih, safeSource);
       
-      // Store AFTER as a stable canvas snapshot
-      const afterSnap = document.createElement("canvas");
-      afterSnap.width = zW; afterSnap.height = zH;
-      afterSnap.getContext("2d").drawImage(sharedZoomCanvas, 0, 0);
-      setZoomedAfterCanvas(afterSnap);
+      // BAKE pixels into a stable DataURL (Mobile Visible)
+      setZoomedAfterImage(sharedZoomCanvas.toDataURL("image/jpeg", 0.90));
       
       // Zero out large buffers
       safeSource.width = 0; safeSource.height = 0; 
@@ -425,11 +422,8 @@ const SmileSimulatorAI = () => {
 
       applyClinicalZoom(zctx, landmarks, iw, ih, safeBefore);
       
-      // Store BEFORE as a stable canvas snapshot
-      const beforeSnap = document.createElement("canvas");
-      beforeSnap.width = zW; beforeSnap.height = zH;
-      beforeSnap.getContext("2d").drawImage(sharedZoomCanvas, 0, 0);
-      setZoomedBeforeCanvas(beforeSnap);
+      // BAKE pixels into a stable DataURL (Mobile Visible)
+      setZoomedBeforeImage(sharedZoomCanvas.toDataURL("image/jpeg", 0.90));
       
       // Zero out large buffers
       safeBefore.width = 0; safeBefore.height = 0;
@@ -562,24 +556,17 @@ const SmileSimulatorAI = () => {
                     <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
                     <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
                     
-                    {/* ✅ UI BINDING & Direct Canvas Fix */}
-                    {zoomedAfterCanvas && (
-                      <canvas
-                        ref={(el) => {
-                          if (el && zoomedAfterCanvas) {
-                            const ctx = el.getContext("2d");
-                            if (el.width !== zoomedAfterCanvas.width) {
-                              el.width = zoomedAfterCanvas.width;
-                              el.height = zoomedAfterCanvas.height;
-                            }
-                            ctx.drawImage(zoomedAfterCanvas, 0, 0);
-                          }
-                        }}
+                    {/* ✅ UI BINDING: Hardened Image Viewport */}
+                    {zoomedAfterImage && (
+                      <img 
+                        src={zoomedAfterImage} 
+                        alt="Zoom"
                         style={{
                           width: "100%",
                           height: "100%",
+                          objectFit: "contain",
                           display: "block",
-                          objectFit: "contain"
+                          background: "#000"
                         }}
                       />
                     )}
