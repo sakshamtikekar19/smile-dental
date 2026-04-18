@@ -1,21 +1,35 @@
-// 🦷 ANATOMICAL ENAMEL SEGMENTATION & IDENTIFICATION ENGINE
+// 🦷 ANATOMICAL ENAMEL SEGMENTATION (CLINICAL HARDENING)
 
 /**
- * 🔥 STEP 1 — ENAMEL SEGMENTATION
+ * 🔥 STEP 1 — ENAMEL SEGMENTATION (Hardened)
  * Clusters candidate pixels into connected components to isolate actual teeth.
+ * @param {Uint8ClampedArray} data - Pixel data
+ * @param {number} w - Width
+ * @param {number} h - Height
+ * @param {Object} mouthBox - Geometric guard {minX, minY, maxX, maxY}
  */
-function segmentEnamel(data, w, h) {
+function segmentEnamel(data, w, h, mouthBox = null) {
   const visited = new Uint8Array(w * h);
   const clusters = [];
   const getIdx = (x, y) => y * w + x;
 
-  const isToothCandidate = (r, g, b) => {
+  const isToothCandidate = (r, g, b, x, y) => {
+    // 🛡️ GEOMETRIC GUARD: Reject any pixel physically outside the lips
+    if (mouthBox) {
+      if (x < mouthBox.minX || x > mouthBox.maxX || y < mouthBox.minY || y > mouthBox.maxY) return false;
+    }
+
     const lum = (r + g + b) / 3;
     if (lum < 40 || lum > 245) return false;
-    if (r > g * 1.2 && r > b * 1.25) return false; // reject lips/gums
+
+    // Reject red-dominant surfaces (Lips, Gums)
+    if (r > g * 1.15 && r > b * 1.20) return false; 
+
+    // 🛡️ SATURATION GUARD: Enamel is neutral; skin/lips are vibrant
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
     const sat = max === 0 ? 0 : (max - min) / max * 100;
-    if (sat > 60) return false; // reject saturated skin
+    if (sat > 35) return false; // Hardened threshold (was 60)
+
     return true;
   };
 
@@ -24,7 +38,9 @@ function segmentEnamel(data, w, h) {
       const i = getIdx(x, y);
       if (visited[i]) continue;
       const pi = i * 4;
-      if (!isToothCandidate(data[pi], data[pi+1], data[pi+2])) continue;
+      const r = data[pi], g = data[pi+1], b = data[pi+2];
+
+      if (!isToothCandidate(r, g, b, x, y)) continue;
 
       const queue = [i], cluster = [];
       visited[i] = 1;
@@ -37,12 +53,13 @@ function segmentEnamel(data, w, h) {
           const ni = getIdx(nx, ny);
           if (visited[ni]) return;
           const ni4 = ni * 4;
+          const nr = data[ni4], ng = data[ni4+1], nb = data[ni4+2];
 
           // 🔥 EDGE BREAKER (Surgical) - DON'T connect across teeth gaps
-          const edge = Math.abs(data[ni4] - data[cur * 4]); 
+          const edge = Math.abs(nr - data[cur * 4]); 
           if (edge > 25) return;
 
-          if (isToothCandidate(data[ni4], data[ni4+1], data[ni4+2])) {
+          if (isToothCandidate(nr, ng, nb, nx, ny)) {
             visited[ni] = 1; queue.push(ni);
           }
         });
@@ -136,6 +153,7 @@ function drawAnatomicalLabels(ctx, teeth, offsetX, offsetY) {
 export function applyWhitening(ctx, landmarks, w, h) {
   if (!landmarks || landmarks.length === 0) return;
 
+  // 1. Define Processing Region
   const pipeIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
   let minX = w, minY = h, maxX = 0, maxY = 0;
   pipeIndices.forEach(i => {
@@ -156,11 +174,21 @@ export function applyWhitening(ctx, landmarks, w, h) {
   const boxW = maxX - minX, boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
 
+  // 🛡️ 2. Build Geometric Mouth Guard (GMB)
+  // Indices: 61 (L-corner), 291 (R-corner), 13 (U-Lip), 14 (L-Lip)
+  const l61 = landmarks[61], r291 = landmarks[291], u13 = landmarks[13], l14 = landmarks[14];
+  const mouthBox = {
+    minX: (l61.x * w - minX),
+    maxX: (r291.x * w - minX),
+    minY: (u13.y * h - minY) - 10, // Small vertical safety buffer
+    maxY: (l14.y * h - minY) + 12
+  };
+
   const whiteningData = ctx.getImageData(minX, minY, boxW, boxH);
   const data = whiteningData.data;
 
   // 🧠 ANATOMICAL PIPELINE
-  const clusters = segmentEnamel(data, boxW, boxH);
+  const clusters = segmentEnamel(data, boxW, boxH, mouthBox);
   const { upper, lower } = splitUpperLower(clusters, boxW, boxH);
   const teeth = assignToothIDs(upper, lower);
 
@@ -184,7 +212,7 @@ export function applyWhitening(ctx, landmarks, w, h) {
         const avg = (nr + ng + nb) / 3;
         nr = nr * 0.90 + avg * 0.10;
         ng = ng * 0.90 + avg * 0.10;
-        nb = nb * 0.94 + avg * 0.06; // Neutralized blue lift
+        nb = nb * 0.94 + avg * 0.06; 
       }
 
       // ✨ WHITENING LIFT
