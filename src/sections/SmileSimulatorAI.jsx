@@ -71,9 +71,19 @@ async function resizeImage(url, maxDim) {
   return { url: c.toDataURL("image/jpeg", 0.94), w, h };
 }
 
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    // 🔥 CRITICAL: Prevent Tainted Canvas failures due to CORS
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
     img.onerror = reject;
@@ -345,6 +355,17 @@ const SmileSimulatorAI = () => {
       const pctx = procCanvas.getContext("2d", { willReadFrequently: true });
       const img = await loadImage(snapshotUrl);
       pctx.drawImage(img, 0, 0, iw, ih);
+
+      // 🛡️ DIAGNOSTIC PASS: Detect Tainted Canvas (CORS issues)
+      try {
+        const test = procCanvas.toDataURL("image/jpeg", 0.1);
+        console.log("EXPORT OK — Canvas is secure");
+      } catch (e) {
+        console.error("❌ TAINTED CANVAS DETECTED:", e);
+        setError("Security Error: Image source is cross-origin and lacks CORS headers.");
+        setIsProcessing(false);
+        return;
+      }
 
 
       // 🔥 ANCHOR SYNC: Calculate the exact mouth-local center for static processing
