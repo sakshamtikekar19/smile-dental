@@ -409,9 +409,19 @@ const SmileSimulatorAI = () => {
       const exportZoomAfter = document.createElement("canvas");
       exportZoomAfter.width = 1200; exportZoomAfter.height = 600;
       exportZoomAfter.getContext("2d", { willReadFrequently: true }).drawImage(zoomCanvas, 0, 0);
-      setZoomedAfterImage(exportZoomAfter.toDataURL("image/jpeg", 0.92));
+      // 1. After Image (Generate & Flush)
+      const afterFinalUrl = exportZoomAfter.toDataURL("image/jpeg", 0.92);
+      console.log("ZOOM AFTER URL LENGTH:", afterFinalUrl.length);
       
-      // 2. Generate Before Zoom (Original Photo)
+      // Force React update for After Zoom
+      setTimeout(() => {
+        setZoomedAfterImage(null);
+        setTimeout(() => {
+          setZoomedAfterImage(afterFinalUrl);
+        }, 0);
+      }, 0);
+      
+      // 2. Before Image (Generate & Flush)
       const beforeFinal = document.createElement("canvas");
       beforeFinal.width = iw; beforeFinal.height = ih;
       beforeFinal.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0);
@@ -422,7 +432,17 @@ const SmileSimulatorAI = () => {
       const exportZoomBefore = document.createElement("canvas");
       exportZoomBefore.width = 1200; exportZoomBefore.height = 600;
       exportZoomBefore.getContext("2d", { willReadFrequently: true }).drawImage(zoomCanvas, 0, 0);
-      setZoomedBeforeImage(exportZoomBefore.toDataURL("image/jpeg", 0.92));
+      
+      const beforeFinalUrl = exportZoomBefore.toDataURL("image/jpeg", 0.92);
+      console.log("ZOOM BEFORE URL LENGTH:", beforeFinalUrl.length);
+
+      // Force React update for Before Zoom
+      setTimeout(() => {
+        setZoomedBeforeImage(null);
+        setTimeout(() => {
+          setZoomedBeforeImage(beforeFinalUrl);
+        }, 0);
+      }, 0);
 
       // 🔍 FINAL EXPORT (Guaranteed Pixels)
       console.log("FINAL IMAGE LOG:", procCanvas.toDataURL("image/jpeg", 0.1).slice(0, 100));
@@ -534,7 +554,13 @@ const SmileSimulatorAI = () => {
                     </div>
                   </div>
                   
-                  <div className="relative aspect-[2.2/1] bg-black rounded-2xl overflow-hidden border border-white/5 group">
+                   {/* 🧪 DEBUG VISIBILITY (Point 3) */}
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 text-[10px] font-bold tracking-widest uppercase">
+                    {zoomedAfterImage ? <span className="text-emerald-500">ZOOM LOADED</span> : <span className="text-rose-500">NO ZOOM</span>}
+                  </div>
+                  
+                  {/* 🚨 CSS BUG CHECK (Point 4 - Red Background Test) */}
+                  <div className="relative aspect-[2.2/1] bg-red-500 rounded-2xl overflow-hidden border border-white/5 group">
                     {zoomLoading && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-20">
                         <RefreshCw size={24} className="text-brand-gold animate-spin" />
@@ -546,7 +572,15 @@ const SmileSimulatorAI = () => {
                     <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
                     <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
                     
-                    <canvas ref={zoomCanvasRef} className="w-full h-full object-contain scale-[1.02]" />
+                    {/* ✅ UI BINDING (Point 1) */}
+                    {zoomedAfterImage && (
+                      <img 
+                        src={zoomedAfterImage} 
+                        alt="zoom result"
+                        className="w-full h-full object-contain scale-[1.02]"
+                        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                      />
+                    )}
                   </div>
 
                   <div className="mt-6 grid grid-cols-2 gap-4">
