@@ -535,8 +535,8 @@ const SmileSimulatorAI = () => {
                     </div>
                   </div>
                   
-                  {/* ✅ Fix 1 — Force correct aspect ratio (Locked 2:1) */}
-                  <div className="relative w-full aspect-[2/1] bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner">
+                   {/* ✅ Fix 1 — Force correct aspect ratio (Locked 2:1) */}
+                  <div className="relative w-full aspect-[2/1] bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner" style={{ width: "100%", aspectRatio: "2/1", background: "#000", overflow: "hidden" }}>
                     {zoomLoading && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-20">
                         <RefreshCw size={24} className="text-brand-gold animate-spin" />
@@ -552,9 +552,14 @@ const SmileSimulatorAI = () => {
                     {zoomedAfterImage && (
                       <img 
                         src={zoomedAfterImage} 
-                        alt="clinical zoom window"
-                        className="w-full h-full object-contain"
-                        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                        alt="Zoom"
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "contain",
+                          display: "block",
+                          background: "#000"
+                        }}
                       />
                     )}
                   </div>
