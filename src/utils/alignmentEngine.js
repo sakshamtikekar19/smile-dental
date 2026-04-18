@@ -60,34 +60,51 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
 
       const i = (y * safeW + x) * 4;
 
-      // 🧠 STEP 1: TEETH ISOLATION (LUMINOSITY + PROXIMITY)
       const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
       const lum = (r + g + b) / 3;
       
-      // Strict Enamel Filter (Relaxed for natural variations)
-      const isEnamel = (lum > 75 && lum < 240 && r > 85 && g > 80 && (r - b) < 65);
-      if (!isEnamel) continue;
-
       // 👄 SKIN SHIELD: Scale strength to 0 near lips
       const distToLip = Math.min(Math.abs(globalY - lipUpperY), Math.abs(globalY - lipLowerY));
       const skinShield = Math.max(0, Math.min(1.0, (distToLip - 2) / 10));
       if (skinShield <= 0) continue;
 
-      // 🧠 ARCH PHYSICS
-      const dxRel = (globalX - centerX) / (safeW / 1.7);
-      const curve = dxRel * dxRel;
-      
-      const targetY = archMidY + (safeH * 0.045) * curve;
+      // 🧠 STEP 2: PROFESSIONAL ALIGNMENT PHYSICS (Production Grade)
+      // 🎯 NORMALIZED POSITION
+      const nx = (globalX - centerX) / (boxW / 2); // -1 → 1
 
-      let dy = (targetY - globalY) * 1.5 * skinShield;
-      dy += Math.sin(globalX * 0.05) * 0.4; 
+      // 🧠 CENTER WEIGHT (stronger at edges, stable at center)
+      const edgeWeight = Math.pow(Math.abs(nx), 0.7);
 
-      let dx = -dxRel * 2.8 * (1 - Math.abs(dxRel)) * skinShield;
-      dx += (dx > 0 ? 0.3 : -0.3); 
+      // 🎯 TARGET ARCH (stronger curve)
+      const curve = nx * nx;
+      const targetY = archMidY + (boxH * 0.12) * curve;
+
+      // 🚀 VERTICAL FORCE (VISIBLE)
+      let dy = (targetY - globalY) * 2.4;
+
+      // 💥 HARD SNAP (SCALED to image)
+      const minShift = Math.max(3, boxH * 0.015);
+      if (Math.abs(dy) < minShift) {
+        dy = dy > 0 ? minShift : -minShift;
+      }
+
+      // 🚀 HORIZONTAL FORCE (TRUE ALIGNMENT)
+      let dx = -nx * (boxW * 0.08) * edgeWeight;
+
+      // 🦷 TOOTH PRIORITY BOOST (CRITICAL)
+      const isTooth = r > 70 && g > 65 && b > 55 && (r - b) < 50 && b > 45;
+      if (isTooth) {
+        dx *= 1.4;
+        dy *= 1.6;
+      }
+
+      // clamp (prevent tearing)
+      dx = Math.max(-6, Math.min(6, dx));
+      dy = Math.max(-8, Math.min(8, dy));
 
       // 🎯 SAMPLING
-      const sx = Math.max(0, Math.min(safeW - 1, x - dx));
-      const sy = Math.max(0, Math.min(safeH - 1, y - dy));
+      const sx = Math.max(0, Math.min(safeW - 1, x - dx * skinShield));
+      const sy = Math.max(0, Math.min(safeH - 1, y - dy * skinShield));
 
       const x1 = Math.floor(sx), x2 = Math.min(x1 + 1, safeW - 1);
       const y1 = Math.floor(sy), y2 = Math.min(y1 + 1, safeH - 1);
@@ -114,7 +131,6 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
 
 export function applyAlignment(ctx, landmarks, w, h, options = {}) {
   const anchor = options.anchor || { x: w / 2, y: h / 2 };
-  // Process Upper and Lower with the same surgical logic
   processArch(ctx, landmarks, w, h, UPPER_ARCH_INDICES, anchor);
   processArch(ctx, landmarks, w, h, LOWER_ARCH_INDICES, anchor);
 }
