@@ -1,70 +1,102 @@
 // 🔒 DO NOT MODIFY — 3X CLINICAL ZOOM (LOCKED)
 
 /**
- * 🔍 CLINICAL VIEWPORT ENGINE (Locked Snapshot Core)
- * Magnifies the dental region exactly 3.0x for surgical inspection.
- * FIXED: Uses the 'Locked Snapshot' architecture with Persistent Source Verification.
+ * 🔍 BULLETPROOF CLINICAL ZOOM (PIXEL COPY — NO drawImage)
+ * Magnifies the dental region exactly 3.0x using direct memory mapping.
+ * FIXED: Bypasses GPU-compositor artifacts by reading raw pixel buffers.
  */
-export function applyClinicalZoom(zoomCtx, landmarks, w, h, sourceCanvas) {
-  if (!landmarks || landmarks.length === 0 || !w || !h) return;
-
-  // 🔥 STEP 4 — HARD VERIFY (PERMANENT FIX)
-  const source = sourceCanvas;
-  if (!source || source.width === 0) {
-    console.error("❌ INVALID SOURCE CANVAS");
+export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas) {
+  if (!sourceCanvas) {
+    console.error("❌ NO SOURCE PROVIDED TO ZOOM ENGINE");
     return;
   }
 
-  // Diagnostic Logs
-  console.log("ZOOM SOURCE ID:", source.id);
-  console.log("ZOOM SOURCE SIZE:", source.width, source.height);
+  const srcCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const dstW = ctx.canvas.width;
+  const dstH = ctx.canvas.height;
 
-  // 2. Dental Focus Positioning
+  // 🧪 Hard test: read pixels directly
+  let srcData;
+  try {
+    srcData = srcCtx.getImageData(0, 0, w, h);
+  } catch (e) {
+    console.error("❌ getImageData failed (tainted?)", e);
+    return;
+  }
+
+  // 🔍 Compute mouth bounding box (Surgical Focus)
   const mouthIndices = [61, 291, 78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312];
+
   let minX = w, minY = h, maxX = 0, maxY = 0;
   mouthIndices.forEach(i => {
-    const pt = landmarks[i];
-    if (!pt) return;
-    const x = pt.x * w, y = pt.y * h;
-    if (x < minX) minX = x; if (y < minY) minY = y;
-    if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+    const p = landmarks[i];
+    if (!p) return;
+    const x = p.x * w, y = p.y * h;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
   });
 
+  // Pad region for clinical context
   const padX = (maxX - minX) * 0.32;
   const padY = (maxY - minY) * 0.38;
-  minX = Math.max(0, minX - padX);
-  minY = Math.max(0, minY - padY);
-  maxX = Math.min(w, maxX + padX);
-  maxY = Math.min(h, maxY + padY);
+
+  minX = Math.max(0, Math.floor(minX - padX));
+  minY = Math.max(0, Math.floor(minY - padY));
+  maxX = Math.min(w, Math.ceil(maxX + padX));
+  maxY = Math.min(h, Math.ceil(maxY + padY));
 
   const boxW = maxX - minX;
   const boxH = maxY - minY;
-  if (boxW < 20 || boxH < 20) {
-    console.warn("Zoom skipped: invalid region");
-    return;
-  }
+  if (boxW <= 0 || boxH <= 0) return;
 
-  const targetW = zoomCtx.canvas.width;
-  const targetH = zoomCtx.canvas.height;
-  
-  // 3. Render Sequence
-  // A. Clear background (zinc-950)
-  zoomCtx.fillStyle = "#09090b";
-  zoomCtx.fillRect(0, 0, targetW, targetH);
-
-  // B. Clinical Magnification (Direct Draw)
+  // 🧠 3x scale constant
   const scale = 3.0;
-  const cx = targetW / 2;
-  const cy = targetH / 2;
+
+  // Initialize destination buffer
+  const dstData = ctx.createImageData(dstW, dstH);
+  const src = srcData.data;
+  const dst = dstData.data;
+
+  // Calculate centered viewport metrics
   const newW = boxW * scale;
   const newH = boxH * scale;
+  const offsetX = Math.floor((dstW - newW) / 2);
+  const offsetY = Math.floor((dstH - newH) / 2);
 
-  zoomCtx.imageSmoothingEnabled = false; // Surgical clarity
+  // 🔁 PIXEL MAPPING (Surgical Backward Sampling)
+  // Maps target card pixels back to high-res simulation source pixels
+  for (let y = 0; y < dstH; y++) {
+    for (let x = 0; x < dstW; x++) {
 
-  zoomCtx.drawImage(
-    source,
-    minX, minY, boxW, boxH,       // Source region from Persistent Simulation Canvas
-    cx - newW / 2, cy - newH / 2, // Centered in viewport card
-    newW, newH                    // 3x Magnified view
-  );
+      const sx = (x - offsetX) / scale + minX;
+      const sy = (y - offsetY) / scale + minY;
+
+      const ix = Math.floor(sx);
+      const iy = Math.floor(sy);
+
+      if (ix >= 0 && ix < w && iy >= 0 && iy < h) {
+        const si = (iy * w + ix) * 4;
+        const di = (y * dstW + x) * 4;
+
+        dst[di]     = src[si];
+        dst[di + 1] = src[si + 1];
+        dst[di + 2] = src[si + 2];
+        dst[di + 3] = 255; // Force opacity
+      } else {
+        // Clinical card background (zinc-950 equivalent)
+        const di = (y * dstW + x) * 4;
+        dst[di] = 9;   // R
+        dst[di+1] = 9; // G
+        dst[di+2] = 11;// B
+        dst[di+3] = 255;
+      }
+    }
+  }
+
+  // 🧾 Paint surgical result directly to context
+  ctx.putImageData(dstData, 0, 0);
+
+  console.log("✅ ZOOM VIA PIXEL COPY WORKED");
 }
