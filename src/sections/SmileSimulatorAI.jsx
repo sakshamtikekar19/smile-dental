@@ -334,7 +334,7 @@ const SmileSimulatorAI = () => {
       const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       const procCanvas = document.createElement("canvas");
       procCanvas.width = iw; procCanvas.height = ih;
-      const pctx = procCanvas.getContext("2d");
+      const pctx = procCanvas.getContext("2d", { willReadFrequently: true });
       const img = await loadImage(snapshotUrl);
       pctx.drawImage(img, 0, 0, iw, ih);
 
@@ -363,32 +363,46 @@ const SmileSimulatorAI = () => {
       }
 
       // 🔍 STEP 6: INSTANT ZOOM GENERATION (Locked Snapshot Fix)
-      // Create CPU-backed (locked) snapshots as source of truth for magnification
       const finalCanvas = document.createElement("canvas");
       finalCanvas.width = iw; finalCanvas.height = ih;
-      finalCanvas.id = "finalSource";
-      finalCanvas.getContext("2d").drawImage(procCanvas, 0, 0);
+      const fctx = finalCanvas.getContext("2d", { willReadFrequently: true });
+      fctx.drawImage(procCanvas, 0, 0);
 
       const zoomCanvas = document.createElement("canvas");
       zoomCanvas.width = 1200; zoomCanvas.height = 600;
-      const zctx = zoomCanvas.getContext("2d");
+      const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true });
       
       // 1. Generate After Zoom (Final Result)
       applyClinicalZoom(zctx, landmarks, iw, ih, finalCanvas);
-      setZoomedAfterImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
+      
+      // 🔥 SAFE EXPORT: Force CPU bitmap copy
+      const exportZoomAfter = document.createElement("canvas");
+      exportZoomAfter.width = 1200; exportZoomAfter.height = 600;
+      exportZoomAfter.getContext("2d", { willReadFrequently: true }).drawImage(zoomCanvas, 0, 0);
+      setZoomedAfterImage(exportZoomAfter.toDataURL("image/jpeg", 0.92));
       
       // 2. Generate Before Zoom (Original Photo)
       const beforeFinal = document.createElement("canvas");
       beforeFinal.width = iw; beforeFinal.height = ih;
-      beforeFinal.id = "beforeSource";
-      beforeFinal.getContext("2d").drawImage(img, 0, 0);
+      beforeFinal.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0);
 
       zctx.clearRect(0, 0, 1200, 600);
       applyClinicalZoom(zctx, landmarks, iw, ih, beforeFinal);
-      setZoomedBeforeImage(zoomCanvas.toDataURL("image/jpeg", 0.92));
+      
+      const exportZoomBefore = document.createElement("canvas");
+      exportZoomBefore.width = 1200; exportZoomBefore.height = 600;
+      exportZoomBefore.getContext("2d", { willReadFrequently: true }).drawImage(zoomCanvas, 0, 0);
+      setZoomedBeforeImage(exportZoomBefore.toDataURL("image/jpeg", 0.92));
 
+      // 🔍 FINAL EXPORT (Guaranteed Pixels)
+      console.log("FINAL IMAGE LOG:", procCanvas.toDataURL("image/jpeg", 0.1).slice(0, 100));
+      
+      const mainExport = document.createElement("canvas");
+      mainExport.width = iw; mainExport.height = ih;
+      mainExport.getContext("2d", { willReadFrequently: true }).drawImage(procCanvas, 0, 0);
+      
       setBeforeImage(snapshotUrl);
-      setAfterImage(procCanvas.toDataURL("image/jpeg", 0.93));
+      setAfterImage(mainExport.toDataURL("image/jpeg", 0.93));
       
       setFinalLandmarks(landmarks); 
       setStep("result"); 
