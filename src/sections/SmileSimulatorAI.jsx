@@ -209,8 +209,8 @@ const SmileSimulatorAI = () => {
   const [zoomLoading, setZoomLoading] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
-  const [zoomedBeforeImage, setZoomedBeforeImage] = useState(null);
-  const [zoomedAfterImage, setZoomedAfterImage] = useState(null);
+  const [zoomedBeforeCanvas, setZoomedBeforeCanvas] = useState(null);
+  const [zoomedAfterCanvas, setZoomedAfterCanvas] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const pendingTreatmentRef = useRef("whitening");
 
@@ -225,8 +225,31 @@ const SmileSimulatorAI = () => {
   const localCanvasRef = useRef(null);
   const zoomCanvasRef = useRef(null);
   const mainCanvasRef = useRef(null);
+  const zoomAfterRef = useRef(null);
+  const zoomBeforeRef = useRef(null);
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
+
+  // 🏥 PERMANENT ZOOM STABILITY (Direct Canvas Rendering)
+  useEffect(() => {
+    if (!zoomedAfterCanvas || !zoomAfterRef.current) return;
+    const canvas = zoomAfterRef.current;
+    const ctx = canvas.getContext("2d");
+    canvas.width = zoomedAfterCanvas.width;
+    canvas.height = zoomedAfterCanvas.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(zoomedAfterCanvas, 0, 0);
+  }, [zoomedAfterCanvas]);
+
+  useEffect(() => {
+    if (!zoomedBeforeCanvas || !zoomBeforeRef.current) return;
+    const canvas = zoomBeforeRef.current;
+    const ctx = canvas.getContext("2d");
+    canvas.width = zoomedBeforeCanvas.width;
+    canvas.height = zoomedBeforeCanvas.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(zoomedBeforeCanvas, 0, 0);
+  }, [zoomedBeforeCanvas]);
 
   useEffect(() => {
     const img = new Image();
@@ -389,48 +412,36 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Hardened DataURL Logic)
-      const isMobileDevice = window.innerWidth < 768;
-      const zW = isMobileDevice ? 720 : 1200;
-      const zH = isMobileDevice ? 360 : 600;
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Max Stability Architecture)
+      requestAnimationFrame(() => {
+        const isMobileDevice = window.innerWidth < 768;
+        const zW = isMobileDevice ? 720 : 1200;
+        const zH = isMobileDevice ? 360 : 600;
 
-      // 🔄 SHARED BUFFER RECYCLING
-      const sharedZoomCanvas = document.createElement("canvas");
-      sharedZoomCanvas.width = zW; sharedZoomCanvas.height = zH;
-      const zctx = sharedZoomCanvas.getContext("2d", { willReadFrequently: true });
+        // 🏥 1. GENERATE AFTER SNAPSHOT (Direct from procCanvas)
+        const afterCanvas = document.createElement("canvas");
+        afterCanvas.width = zW; afterCanvas.height = zH;
+        applyClinicalZoom(afterCanvas.getContext("2d"), landmarks, iw, ih, procCanvas);
+        setZoomedAfterCanvas(afterCanvas);
 
-      // 🔒 1. AFTER SNAPSHOT
-      const safeSource = document.createElement("canvas");
-      safeSource.width = iw; safeSource.height = ih;
-      const safeCtx = safeSource.getContext("2d", { willReadFrequently: true });
-      safeCtx.drawImage(procCanvas, 0, 0);
+        // 🏥 2. GENERATE BEFORE SNAPSHOT
+        const beforeCanvas = document.createElement("canvas");
+        beforeCanvas.width = zW; beforeCanvas.height = zH;
+        
+        // Use a temporary high-res buffer for the original image
+        const tempBefore = document.createElement("canvas");
+        tempBefore.width = iw; tempBefore.height = ih;
+        tempBefore.getContext("2d").drawImage(img, 0, 0);
+        
+        applyClinicalZoom(beforeCanvas.getContext("2d"), landmarks, iw, ih, tempBefore);
+        setZoomedBeforeCanvas(beforeCanvas);
 
-      applyClinicalZoom(zctx, landmarks, iw, ih, safeSource);
-      
-      // BAKE pixels into a stable DataURL (Mobile Visible)
-      setZoomedAfterImage(sharedZoomCanvas.toDataURL("image/jpeg", 0.90));
-      
-      // Zero out large buffers
-      safeSource.width = 0; safeSource.height = 0; 
-      
-      // 🔒 2. BEFORE SNAPSHOT
-      zctx.clearRect(0, 0, zW, zH);
-      const safeBefore = document.createElement("canvas");
-      safeBefore.width = iw; safeBefore.height = ih;
-      const safeBeforeCtx = safeBefore.getContext("2d", { willReadFrequently: true });
-      safeBeforeCtx.drawImage(img, 0, 0);
+        // Cleanup temporary buffer
+        tempBefore.width = 0; tempBefore.height = 0;
 
-      applyClinicalZoom(zctx, landmarks, iw, ih, safeBefore);
-      
-      // BAKE pixels into a stable DataURL (Mobile Visible)
-      setZoomedBeforeImage(sharedZoomCanvas.toDataURL("image/jpeg", 0.90));
-      
-      // Zero out large buffers
-      safeBefore.width = 0; safeBefore.height = 0;
-      sharedZoomCanvas.width = 0; sharedZoomCanvas.height = 0;
-
-      // Force Repaint
-      setTimeout(() => window.dispatchEvent(new Event("resize")), 100);
+        // Force Global Repaint
+        window.dispatchEvent(new Event("resize"));
+      });
 
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
@@ -556,20 +567,16 @@ const SmileSimulatorAI = () => {
                     <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
                     <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
                     
-                    {/* ✅ UI BINDING: Hardened Image Viewport */}
-                    {zoomedAfterImage && (
-                      <img 
-                        src={zoomedAfterImage} 
-                        alt="Zoom"
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "contain",
-                          display: "block",
-                          background: "#000"
-                        }}
-                      />
-                    )}
+                    {/* ✅ PERMANENT UI VIEWPORT (Direct Canvas) */}
+                    <canvas 
+                      ref={zoomAfterRef}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        display: "block",
+                        objectFit: "contain"
+                      }}
+                    />
                   </div>
 
                   <div className="mt-6 grid grid-cols-2 gap-4">
