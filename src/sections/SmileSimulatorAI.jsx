@@ -355,13 +355,10 @@ const SmileSimulatorAI = () => {
       const pctx = procCanvas.getContext("2d", { willReadFrequently: true });
       const img = await loadImage(snapshotUrl);
       pctx.drawImage(img, 0, 0, iw, ih);
-
       // 🛡️ DIAGNOSTIC PASS: Detect Tainted Canvas (CORS issues)
       try {
-        const test = procCanvas.toDataURL("image/jpeg", 0.1);
-        console.log("EXPORT OK — Canvas is secure");
+        procCanvas.toDataURL("image/jpeg", 0.1);
       } catch (e) {
-        console.error("❌ TAINTED CANVAS DETECTED:", e);
         setError("Security Error: Image source is cross-origin and lacks CORS headers.");
         setIsProcessing(false);
         return;
@@ -405,23 +402,14 @@ const SmileSimulatorAI = () => {
       // 1. Generate After Zoom (Final Result)
       applyClinicalZoom(zctx, landmarks, iw, ih, finalCanvas);
       
-      // 🔥 SAFE EXPORT: Force CPU bitmap copy
       const exportZoomAfter = document.createElement("canvas");
       exportZoomAfter.width = 1200; exportZoomAfter.height = 600;
       exportZoomAfter.getContext("2d", { willReadFrequently: true }).drawImage(zoomCanvas, 0, 0);
-      // 1. After Image (Generate & Flush)
-      const afterFinalUrl = exportZoomAfter.toDataURL("image/jpeg", 0.92);
-      console.log("ZOOM AFTER URL LENGTH:", afterFinalUrl.length);
+
+      // 1. After Image Snapshot
+      setZoomedAfterImage(exportZoomAfter.toDataURL("image/jpeg", 0.92));
       
-      // Force React update for After Zoom
-      setTimeout(() => {
-        setZoomedAfterImage(null);
-        setTimeout(() => {
-          setZoomedAfterImage(afterFinalUrl);
-        }, 0);
-      }, 0);
-      
-      // 2. Before Image (Generate & Flush)
+      // 2. Before Image Snapshot
       const beforeFinal = document.createElement("canvas");
       beforeFinal.width = iw; beforeFinal.height = ih;
       beforeFinal.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0);
@@ -433,20 +421,9 @@ const SmileSimulatorAI = () => {
       exportZoomBefore.width = 1200; exportZoomBefore.height = 600;
       exportZoomBefore.getContext("2d", { willReadFrequently: true }).drawImage(zoomCanvas, 0, 0);
       
-      const beforeFinalUrl = exportZoomBefore.toDataURL("image/jpeg", 0.92);
-      console.log("ZOOM BEFORE URL LENGTH:", beforeFinalUrl.length);
-
-      // Force React update for Before Zoom
-      setTimeout(() => {
-        setZoomedBeforeImage(null);
-        setTimeout(() => {
-          setZoomedBeforeImage(beforeFinalUrl);
-        }, 0);
-      }, 0);
+      setZoomedBeforeImage(exportZoomBefore.toDataURL("image/jpeg", 0.92));
 
       // 🔍 FINAL EXPORT (Guaranteed Pixels)
-      console.log("FINAL IMAGE LOG:", procCanvas.toDataURL("image/jpeg", 0.1).slice(0, 100));
-      
       const mainExport = document.createElement("canvas");
       mainExport.width = iw; mainExport.height = ih;
       mainExport.getContext("2d", { willReadFrequently: true }).drawImage(procCanvas, 0, 0);
@@ -552,11 +529,6 @@ const SmileSimulatorAI = () => {
                       <div className="w-1.5 h-1.5 rounded-full bg-brand-gold animate-pulse" />
                       <span className="text-brand-gold text-[10px] uppercase tracking-widest font-bold">Clinical View</span>
                     </div>
-                  </div>
-                  
-                   {/* 🧪 DEBUG VISIBILITY (Point 3) */}
-                  <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 text-[10px] font-bold tracking-widest uppercase">
-                    {zoomedAfterImage ? <span className="text-emerald-500">ZOOM LOADED</span> : <span className="text-rose-500">NO ZOOM</span>}
                   </div>
                   
                   {/* ✅ Fix 1 — Force correct aspect ratio (Locked 2:1) */}

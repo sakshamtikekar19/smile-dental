@@ -6,21 +6,17 @@
  * FIXED: Bypasses GPU-compositor artifacts by reading raw pixel buffers.
  */
 export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas) {
-  if (!sourceCanvas) {
-    console.error("❌ NO SOURCE PROVIDED TO ZOOM ENGINE");
-    return;
-  }
+  if (!sourceCanvas) return;
 
   const srcCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
   const dstW = ctx.canvas.width;
   const dstH = ctx.canvas.height;
 
-  // 🧪 Hard test: read pixels directly
+  // Read pixels directly
   let srcData;
   try {
     srcData = srcCtx.getImageData(0, 0, w, h);
-  } catch (e) {
-    console.error("❌ getImageData failed (tainted?)", e);
+  } catch {
     return;
   }
 
@@ -38,7 +34,6 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas) {
     if (y > maxY) maxY = y;
   });
 
-  // Pad region for clinical context
   const padX = (maxX - minX) * 0.32;
   const padY = (maxY - minY) * 0.38;
 
@@ -51,7 +46,6 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas) {
   const boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
 
-  // 🧠 3x scale constant
   const scale = 3.0;
 
   // Initialize destination buffer
@@ -66,7 +60,6 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas) {
   const offsetY = Math.floor((dstH - newH) / 2);
 
   // 🔁 PIXEL MAPPING (Surgical Backward Sampling)
-  // Maps target card pixels back to high-res simulation source pixels
   for (let y = 0; y < dstH; y++) {
     for (let x = 0; x < dstW; x++) {
 
@@ -83,20 +76,17 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas) {
         dst[di]     = src[si];
         dst[di + 1] = src[si + 1];
         dst[di + 2] = src[si + 2];
-        dst[di + 3] = 255; // Force opacity
+        dst[di + 3] = 255; 
       } else {
-        // Clinical card background (zinc-950 equivalent)
+        // Clinical card background (zinc-950)
         const di = (y * dstW + x) * 4;
-        dst[di] = 9;   // R
-        dst[di+1] = 9; // G
-        dst[di+2] = 11;// B
+        dst[di] = 9;   
+        dst[di+1] = 9; 
+        dst[di+2] = 11;
         dst[di+3] = 255;
       }
     }
   }
 
-  // 🧾 Paint surgical result directly to context
   ctx.putImageData(dstData, 0, 0);
-
-  console.log("✅ ZOOM VIA PIXEL COPY WORKED");
 }
