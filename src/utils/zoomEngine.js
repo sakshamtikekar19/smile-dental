@@ -40,7 +40,8 @@ export function applyClinicalZoom(ctx, landmarks, w, h, sourceCanvas = null) {
 
   const boxW = maxX - minX;
   const boxH = maxY - minY;
-  console.log("ZOOM BOX:", boxW, boxH, minX, minY);
+  console.log("ZOOM BOX:", boxW, boxH);
+  console.log("ZOOM DRAW:", minX, minY, maxX, maxY);
 
   if (boxW < 20 || boxH < 20) {
     console.warn("Zoom skipped: invalid region");
