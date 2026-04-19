@@ -429,8 +429,24 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Memory-Safe Blob Snapshot Fix)
-      procCanvas.toBlob((blob) => {
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Hardened Staging Canvas Fix)
+      const stageCanvas = document.createElement("canvas");
+      stageCanvas.width = iw; stageCanvas.height = ih;
+      const stageCtx = stageCanvas.getContext("2d", { alpha: false });
+
+      // 1A: Flatten the face background first
+      if (videoRef.current && videoRef.current.readyState >= 2) {
+        stageCtx.drawImage(videoRef.current, 0, 0, iw, ih);
+      } else {
+        stageCtx.fillStyle = "#09090b";
+        stageCtx.fillRect(0, 0, iw, ih);
+      }
+
+      // 1B: Flatten the simulation on top
+      stageCtx.drawImage(procCanvas, 0, 0);
+
+      // 🔍 STEP 7: CAPTURE THE FLATTENED SNAPSHOT
+      stageCanvas.toBlob((blob) => {
         console.log("🚨 DEBUG 1 - Blob:", blob); 
         if (!blob) return;
         
@@ -448,26 +464,28 @@ const SmileSimulatorAI = () => {
 
             const zoomCanvas = document.createElement("canvas");
             zoomCanvas.width = zW; zoomCanvas.height = zH;
-            const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true });
+            const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true, alpha: false });
 
-            // 🔥 DRAW FROM IMMUTABLE IMAGE SNAPSHOT (With Surgical 3x Math)
-            applyClinicalZoom(zctx, landmarks, procCanvas.width, procCanvas.height, finalSnap);
+            // 🔥 DRAW FROM FLATTENED IMMUTABLE SNAPSHOT
+            applyClinicalZoom(zctx, landmarks, iw, ih, finalSnap);
             setZoomedAfterCanvas(zoomCanvas);
 
             // Render Before Snapshot
             const beforeCanvas = document.createElement("canvas");
             beforeCanvas.width = zW; beforeCanvas.height = zH;
-            applyClinicalZoom(beforeCanvas.getContext("2d"), landmarks, iw, ih, img);
+            applyClinicalZoom(beforeCanvas.getContext("2d", { alpha: false }), landmarks, iw, ih, img);
             setZoomedBeforeCanvas(beforeCanvas);
 
             // 🧹 CRITICAL: Memory Flush
             URL.revokeObjectURL(blobUrl);
+            stageCanvas.width = 0; // Force GC
 
             // Force Global Repaint
             window.dispatchEvent(new Event("resize"));
           });
         };
       }, "image/jpeg", 0.95);
+原则上
 
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
