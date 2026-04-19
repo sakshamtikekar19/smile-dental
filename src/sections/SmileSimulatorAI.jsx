@@ -431,37 +431,35 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Hardened Diagnostic Fix)
-      requestAnimationFrame(() => {
-        const isMobileDevice = window.innerWidth < 768;
-        const zW = isMobileDevice ? 800 : 1200;
-        const zH = isMobileDevice ? 400 : 600;
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Immutable Image Snapshot Fix)
+      const finalSnap = new Image();
+      finalSnap.src = procCanvas.toDataURL("image/jpeg", 0.95);
+      
+      finalSnap.onload = () => {
+        requestAnimationFrame(() => {
+          const isMobileDevice = window.innerWidth < 768;
+          const zW = isMobileDevice ? 800 : 1200;
+          const zH = isMobileDevice ? 400 : 600;
 
-        const zoomCanvas = document.createElement("canvas");
-        zoomCanvas.width = zW;
-        zoomCanvas.height = zH;
-        const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true });
+          const zoomCanvas = document.createElement("canvas");
+          zoomCanvas.width = zW;
+          zoomCanvas.height = zH;
+          const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true });
 
-        // 🔥 FORCE SAFE COPY
-        const safeCanvas = document.createElement("canvas");
-        safeCanvas.width = procCanvas.width;
-        safeCanvas.height = procCanvas.height;
-        const sctx = safeCanvas.getContext("2d");
-        sctx.drawImage(procCanvas, 0, 0);
+          // 🔥 DRAW FROM IMMUTABLE IMAGE SNAPSHOT (NOT CANVAS)
+          applyClinicalZoom(zctx, landmarks, iw, ih, finalSnap);
+          setZoomedAfterCanvas(zoomCanvas);
 
-        // 🔥 TEST DRAW
-        applyClinicalZoom(zctx, landmarks, iw, ih, safeCanvas);
-        setZoomedAfterCanvas(zoomCanvas);
+          // Render Before Snapshot
+          const beforeCanvas = document.createElement("canvas");
+          beforeCanvas.width = zW; beforeCanvas.height = zH;
+          applyClinicalZoom(beforeCanvas.getContext("2d"), landmarks, iw, ih, img);
+          setZoomedBeforeCanvas(beforeCanvas);
 
-        // Repeat for Before if needed
-        const beforeCanvas = document.createElement("canvas");
-        beforeCanvas.width = zW; beforeCanvas.height = zH;
-        applyClinicalZoom(beforeCanvas.getContext("2d"), landmarks, iw, ih, img);
-        setZoomedBeforeCanvas(beforeCanvas);
-
-        // Force Global Repaint
-        window.dispatchEvent(new Event("resize"));
-      });
+          // Force Global Repaint
+          window.dispatchEvent(new Event("resize"));
+        });
+      };
 
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
