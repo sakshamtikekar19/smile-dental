@@ -197,6 +197,19 @@ function TreatmentDockButton({ treatment, active, onSelect }) {
 }
 
 // ── Main Component ───────────────────────────────────────────────────────────
+/**
+ * 🛡️ GPU-to-CPU Bridge
+ * Forces a hardware synchronized copy to ensure the buffer is readable on mobile devices.
+ */
+function createSafeCanvasCopy(canvas) {
+  const safe = document.createElement("canvas");
+  safe.width = canvas.width;
+  safe.height = canvas.height;
+  const sctx = safe.getContext("2d", { willReadFrequently: true });
+  sctx.drawImage(canvas, 0, 0);
+  return safe;
+}
+
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("entry");
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
@@ -418,33 +431,38 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Max Stability Architecture)
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Hardened GPU-to-CPU logic)
       requestAnimationFrame(() => {
         const isMobileDevice = window.innerWidth < 768;
         const zW = isMobileDevice ? 720 : 1200;
         const zH = isMobileDevice ? 360 : 600;
 
-        // 🏥 1. GENERATE AFTER SNAPSHOT (Direct from procCanvas)
+        // ✅ Step 1: Force safe CPU snapshots BEFORE magnification
+        const safeAfterSource = createSafeCanvasCopy(procCanvas);
+        
+        // 🏥 1. GENERATE AFTER SNAPSHOT
         const afterCanvas = document.createElement("canvas");
         afterCanvas.width = zW; afterCanvas.height = zH;
         const afterCtx = afterCanvas.getContext("2d", { willReadFrequently: true });
-        applyClinicalZoom(afterCtx, landmarks, iw, ih, procCanvas);
+        applyClinicalZoom(afterCtx, landmarks, iw, ih, safeAfterSource);
         setZoomedAfterCanvas(afterCanvas);
+
+        // ✅ Step 2: Safe snapshot for original
+        const tempBefore = document.createElement("canvas");
+        tempBefore.width = iw; tempBefore.height = ih;
+        tempBefore.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0);
+        const safeBeforeSource = createSafeCanvasCopy(tempBefore);
 
         // 🏥 2. GENERATE BEFORE SNAPSHOT
         const beforeCanvas = document.createElement("canvas");
         beforeCanvas.width = zW; beforeCanvas.height = zH;
         const beforeCtx = beforeCanvas.getContext("2d", { willReadFrequently: true });
-        
-        // Use a temporary high-res buffer for the original image
-        const tempBefore = document.createElement("canvas");
-        tempBefore.width = iw; tempBefore.height = ih;
-        tempBefore.getContext("2d", { willReadFrequently: true }).drawImage(img, 0, 0);
-        
-        applyClinicalZoom(beforeCtx, landmarks, iw, ih, tempBefore);
+        applyClinicalZoom(beforeCtx, landmarks, iw, ih, safeBeforeSource);
         setZoomedBeforeCanvas(beforeCanvas);
 
-        // Cleanup temporary buffer
+        // Hard Memory Cleanup
+        safeAfterSource.width = 0; safeAfterSource.height = 0;
+        safeBeforeSource.width = 0; safeBeforeSource.height = 0;
         tempBefore.width = 0; tempBefore.height = 0;
 
         // Force Global Repaint
