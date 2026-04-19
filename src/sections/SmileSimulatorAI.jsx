@@ -235,8 +235,11 @@ const SmileSimulatorAI = () => {
     if (!zoomedAfterCanvas || !zoomAfterRef.current) return;
     const canvas = zoomAfterRef.current;
     const ctx = canvas.getContext("2d");
+    
+    // Explicitly sync dimensions from snapshot
     canvas.width = zoomedAfterCanvas.width;
     canvas.height = zoomedAfterCanvas.height;
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(zoomedAfterCanvas, 0, 0);
   }, [zoomedAfterCanvas]);
@@ -245,8 +248,11 @@ const SmileSimulatorAI = () => {
     if (!zoomedBeforeCanvas || !zoomBeforeRef.current) return;
     const canvas = zoomBeforeRef.current;
     const ctx = canvas.getContext("2d");
+    
+    // Explicitly sync dimensions from snapshot
     canvas.width = zoomedBeforeCanvas.width;
     canvas.height = zoomedBeforeCanvas.height;
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(zoomedBeforeCanvas, 0, 0);
   }, [zoomedBeforeCanvas]);
@@ -569,14 +575,14 @@ const SmileSimulatorAI = () => {
                     <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
                     <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
                     
-                    {/* ✅ PERMANENT UI VIEWPORT (Direct Canvas) */}
+                    {/* ✅ PERMANENT UI VIEWPORT (Direct Canvas Rendering) */}
                     <canvas 
                       ref={zoomAfterRef}
                       style={{
                         width: "100%",
-                        height: "100%",
+                        height: "auto",
                         display: "block",
-                        objectFit: "contain"
+                        background: "#000"
                       }}
                     />
                   </div>
