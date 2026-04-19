@@ -247,26 +247,24 @@ const SmileSimulatorAI = () => {
   useEffect(() => {
     if (!zoomedAfterCanvas || !zoomAfterRef.current) return;
     const canvas = zoomAfterRef.current;
-    const ctx = canvas.getContext("2d");
     
     // Explicitly sync dimensions from snapshot
     canvas.width = zoomedAfterCanvas.width;
     canvas.height = zoomedAfterCanvas.height;
     
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const ctx = canvas.getContext("2d", { alpha: false });
     ctx.drawImage(zoomedAfterCanvas, 0, 0);
   }, [zoomedAfterCanvas]);
 
   useEffect(() => {
     if (!zoomedBeforeCanvas || !zoomBeforeRef.current) return;
     const canvas = zoomBeforeRef.current;
-    const ctx = canvas.getContext("2d");
-    
+
     // Explicitly sync dimensions from snapshot
     canvas.width = zoomedBeforeCanvas.width;
     canvas.height = zoomedBeforeCanvas.height;
     
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const ctx = canvas.getContext("2d", { alpha: false });
     ctx.drawImage(zoomedBeforeCanvas, 0, 0);
   }, [zoomedBeforeCanvas]);
 
@@ -431,35 +429,42 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Immutable Image Snapshot Fix)
-      const finalSnap = new Image();
-      finalSnap.src = procCanvas.toDataURL("image/jpeg", 0.95);
-      
-      finalSnap.onload = () => {
-        requestAnimationFrame(() => {
-          const isMobileDevice = window.innerWidth < 768;
-          const zW = isMobileDevice ? 800 : 1200;
-          const zH = isMobileDevice ? 400 : 600;
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Memory-Safe Blob Snapshot Fix)
+      procCanvas.toBlob((blob) => {
+        if (!blob) return;
+        
+        const blobUrl = URL.createObjectURL(blob);
+        const finalSnap = new Image();
+        finalSnap.src = blobUrl;
 
-          const zoomCanvas = document.createElement("canvas");
-          zoomCanvas.width = zW;
-          zoomCanvas.height = zH;
-          const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true });
+        finalSnap.onload = () => {
+          requestAnimationFrame(() => {
+            const isMobileDevice = window.innerWidth < 768;
+            const zW = isMobileDevice ? 800 : 1200;
+            const zH = isMobileDevice ? 400 : 600;
 
-          // 🔥 DRAW FROM IMMUTABLE IMAGE SNAPSHOT (NOT CANVAS)
-          applyClinicalZoom(zctx, landmarks, iw, ih, finalSnap);
-          setZoomedAfterCanvas(zoomCanvas);
+            const zoomCanvas = document.createElement("canvas");
+            zoomCanvas.width = zW; zoomCanvas.height = zH;
+            const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true });
 
-          // Render Before Snapshot
-          const beforeCanvas = document.createElement("canvas");
-          beforeCanvas.width = zW; beforeCanvas.height = zH;
-          applyClinicalZoom(beforeCanvas.getContext("2d"), landmarks, iw, ih, img);
-          setZoomedBeforeCanvas(beforeCanvas);
+            // 🔥 DRAW FROM IMMUTABLE IMAGE SNAPSHOT (With Surgical 3x Math)
+            applyClinicalZoom(zctx, landmarks, procCanvas.width, procCanvas.height, finalSnap);
+            setZoomedAfterCanvas(zoomCanvas);
 
-          // Force Global Repaint
-          window.dispatchEvent(new Event("resize"));
-        });
-      };
+            // Render Before Snapshot
+            const beforeCanvas = document.createElement("canvas");
+            beforeCanvas.width = zW; beforeCanvas.height = zH;
+            applyClinicalZoom(beforeCanvas.getContext("2d"), landmarks, iw, ih, img);
+            setZoomedBeforeCanvas(beforeCanvas);
+
+            // 🧹 CRITICAL: Memory Flush
+            URL.revokeObjectURL(blobUrl);
+
+            // Force Global Repaint
+            window.dispatchEvent(new Event("resize"));
+          });
+        };
+      }, "image/jpeg", 0.95);
 
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
