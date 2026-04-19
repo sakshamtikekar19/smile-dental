@@ -431,6 +431,7 @@ const SmileSimulatorAI = () => {
 
       // 🔍 STEP 6: INSTANT ZOOM GENERATION (Memory-Safe Blob Snapshot Fix)
       procCanvas.toBlob((blob) => {
+        console.log("🚨 DEBUG 1 - Blob:", blob); 
         if (!blob) return;
         
         const blobUrl = URL.createObjectURL(blob);
@@ -439,6 +440,8 @@ const SmileSimulatorAI = () => {
 
         finalSnap.onload = () => {
           requestAnimationFrame(() => {
+            console.log("🚨 DEBUG 2 - Image Dimensions:", finalSnap.width, finalSnap.height);
+            console.log("🚨 DEBUG 3 - Landmarks Array:", landmarks);
             const isMobileDevice = window.innerWidth < 768;
             const zW = isMobileDevice ? 800 : 1200;
             const zH = isMobileDevice ? 400 : 600;
