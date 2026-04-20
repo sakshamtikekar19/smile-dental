@@ -77,7 +77,8 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
           if (r > g * 1.15 && r > b * 1.25) continue;
 
           // PLAQUE DETECTOR
-          const isPlaque = (r > 90 && g > 90 && b < g - 15);
+          // 🧬 PLAQUE DETECTOR: Broadened to catch mid-range yellow/brown tones
+          const isPlaque = (r > 70 && g > 70 && b < g - 12);
 
           // SOFT SHADOW LOGIC
           let processIntensity = intensity;
@@ -87,25 +88,27 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
 
           // --- BLEACHING & NORMALIZATION ---
 
-          // 1. Plaque Killer
+          // 🧪 PLAQUE KILLER: Aggressively force Blue channel up (2.2x multiplier)
           let newB = b;
           if (isPlaque) {
-              newB = b + (g - b) * processIntensity * 1.3; 
+              newB = b + (g - b) * processIntensity * 2.2; 
           }
 
           // 2. Color Unification
-          let cleanR = r + (lum - r) * processIntensity * 0.8;
-          let cleanG = g + (lum - g) * processIntensity * 0.8;
-          let cleanB = newB + (lum - newB) * processIntensity * 0.8;
+          // 🎨 ENAMEL NORMALIZATION: Reduced pull (0.45) to preserve natural texture
+          let cleanR = r + (lum - r) * processIntensity * 0.45;
+          let cleanG = g + (lum - g) * processIntensity * 0.45;
+          let cleanB = newB + (lum - newB) * processIntensity * 0.45;
 
-          // Natural Ivory Warmth
-          cleanR += 10 * processIntensity;
-          cleanG += 8 * processIntensity;
-          cleanB += 5 * processIntensity;
+          // subtler Ivory Warmth (+6, +4, +2)
+          cleanR += 6 * processIntensity;
+          cleanG += 4 * processIntensity;
+          cleanB += 2 * processIntensity;
 
           // 3. Inverse Luminance Lift (Anti-Glow)
+          // 💡 INVERSE LUMINANCE LIFT: Dialed down (0.10) to eliminate plastic glow
           const inverseLift = (255 - lum) / 255; 
-          const brightnessCap = 1.0 + (processIntensity * 0.25 * inverseLift);
+          const brightnessCap = 1.0 + (processIntensity * 0.10 * inverseLift);
 
           data[i] = Math.min(255, cleanR * brightnessCap);
           data[i + 1] = Math.min(255, cleanG * brightnessCap);
