@@ -1,5 +1,5 @@
-// 🦷 CLINICAL WHITENING V3 (YELLOW REMOVAL + NATURAL LOOK)
-// Features targeted stain neutralization and texture-preserving contrast restoration.
+// 🦷 CLINICAL WHITENING V4 (VISIBLE + NATURAL)
+// Features enhanced stain neutralization and increased visual impact with deep shadow preservation.
 
 const UPPER_INNER_LIP = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
 const LOWER_INNER_LIP = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
@@ -21,8 +21,8 @@ function isPixelInsidePolygon(px, py, polygon) {
 }
 
 /**
- * 🚀 High-Fidelity Clinical Whitening V3
- * Features targeted yellow neutralization and contrast-based brightening.
+ * 🚀 High-Fidelity Clinical Whitening V4
+ * Features stronger yellow neutralization and increased blend weight for visible impact.
  * 
  * @param {CanvasRenderingContext2D} ctx - Main simulation context
  * @param {Array} landmarks - MediaPipe face mesh landmarks
@@ -67,7 +67,7 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
       // The absolute physical width of the array returned by the browser
       const actualWidth = imgData.width;
 
-      // 2. 🧪 THE CLINICAL V3 PIXEL LOOP
+      // 2. 🧪 THE CLINICAL V4 PIXEL LOOP
       for (let i = 0; i < data.length; i += 4) {
           const pixelIndex = i / 4;
           const px = minX + (pixelIndex % actualWidth);
@@ -80,54 +80,53 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
           const g = data[i + 1];
           const b = data[i + 2];
 
-          // 🛡️ GATE 1: SKIP DARK (Gaps / Mouth depth)
+          // 🛡️ GATE 1: SKIP DARK (Mouth depth preservation)
           const lum = (r + g + b) / 3;
-          if (lum < 60) continue;
+          if (lum < 60) continue; // High threshold maintained for shadow realism
 
-          // 🛡️ GATE 2: LIP / GUM PROTECTION (STRONGER)
-          const isLip = r > g * 1.15 && r > b * 1.25;
+          // 🛡️ GATE 2: LIP / GUM PROTECTION (STRONGER V4)
+          const isLip = r > g * 1.12 && r > b * 1.22;
           const isGum = r > 130 && g < 115 && b < 115;
           if (isLip || isGum) continue;
 
-          // 🛡️ GATE 3: TOOTH DETECTION (TIGHTENED)
+          // 🛡️ GATE 3: TOOTH DETECTION (V4)
           const isTooth =
-            r > 75 && g > 70 && b > 60 &&
-            r < 245 && g < 245 && b < 245 &&
-            (r - b) < 55 &&
-            (g - b) < 35;
+            r > 70 && g > 65 && b > 55 &&
+            (r - b) < 60 &&
+            (g - b) < 40;
 
           if (!isTooth) continue;
 
-          // 🔥 STEP 1: YELLOW NEUTRALIZATION (Deficit Calculation)
+          // 🔥 STEP 1: STRONG YELLOW NEUTRALIZATION (V4)
           const yellow = (r + g) / 2 - b;
 
           let nr = r;
           let ng = g;
           let nb = b;
 
-          if (yellow > 6) {
+          if (yellow > 5) {
             // Push toward neutral white (Reduce yellow tone)
-            nb += yellow * 0.6;
-            nr -= yellow * 0.15;
-            ng -= yellow * 0.08;
+            nb += yellow * 0.9;
+            nr -= yellow * 0.25;
+            ng -= yellow * 0.12;
           }
 
-          // 🔥 STEP 2: SUBTLE WHITENING (NO SHINE)
-          const lift = 1.035; // Very controlled boost
+          // 🔥 STEP 2: CONTROLLED WHITENING (VISIBLE)
+          const lift = 1.06; // Increased lift for clear impact
           nr *= lift;
           ng *= lift;
           nb *= lift;
 
-          // 🔥 STEP 3: EDGE PRESERVATION (Contrast Restore)
-          // Preserves enamel texture and prevents the "plastic" look
-          const contrast = 1.04;
+          // 🔥 STEP 3: SOFT CONTRAST (Avoid shine)
+          // Balances the higher lift to keep textures organic
+          const contrast = 1.02;
           nr = (nr - 128) * contrast + 128;
           ng = (ng - 128) * contrast + 128;
           nb = (nb - 128) * contrast + 128;
 
-          // 🔥 STEP 4: CONTROLLED BLEND (Final commit)
-          // Binary geometric mask ensures zero film artifacts
-          const blend = 0.48; 
+          // 🔥 STEP 4: STRONGER BLEND (VISIBLE DIFFERENCE)
+          // Increased weight for a clear clinical "After" result
+          const blend = 0.65; 
 
           data[i]     = Math.min(255, r * (1 - blend) + nr * blend);
           data[i + 1] = Math.min(255, g * (1 - blend) + ng * blend);
