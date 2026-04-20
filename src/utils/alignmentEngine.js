@@ -1,48 +1,72 @@
 /**
- * ALIGNMENT ENGINE: FULL-CANVAS V6 (WHOLE FRAME)
- * Production-Safe Orthodontic Core with Zero-Clipping Architecture.
+ * ALIGNMENT ENGINE: PROFESSIONAL MOUTH-BOX MODE (V7)
+ * Localized Orthodontic Core with Soft-Edge Blending.
  */
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT FUNCTION STARTED");
+  console.log("✅ ALIGNMENT V7 STARTED");
 
   if (!ctx || !landmarks) return;
 
+  // 🦷 STEP 1: DEFINE MOUTH BOUNDARY (ROI)
+  const mouthIndices = [61, 291, 78, 95, 88, 178, 87, 14, 317, 402, 318, 324];
+
+  let minX = w, minY = h, maxX = 0, maxY = 0;
+
+  mouthIndices.forEach(i => {
+    const px = landmarks[i].x * w;
+    const py = landmarks[i].y * h;
+
+    minX = Math.min(minX, px);
+    minY = Math.min(minY, py);
+    maxX = Math.max(maxX, px);
+    maxY = Math.max(maxY, py);
+  });
+
+  // Dynamic Padding (Professional Margin)
+  const padX = (maxX - minX) * 0.25;
+  const padY = (maxY - minY) * 0.35;
+
+  minX = Math.max(0, minX - padX);
+  maxX = Math.min(w, maxX + padX);
+  minY = Math.max(0, minY - padY);
+  maxY = Math.min(h, maxY + padY);
+
+  console.log(`📍 MOUTH ROI: [${Math.floor(minX)}, ${Math.floor(minY)}] to [${Math.floor(maxX)}, ${Math.floor(maxY)}]`);
+
   const imageData = ctx.getImageData(0, 0, w, h);
-  const src = new Uint8ClampedArray(imageData.data); // IMPORTANT COPY
-  const dst = imageData.data;
+  const src = new Uint8ClampedArray(imageData.data); // Source Copy
+  const dst = imageData.data;                      // Destination Pointer
 
-  const safeW = w;
-  const safeH = h;
-
-  // 🧠 TRUE FACE CENTER (NOT BOX CENTER)
-  const centerX = landmarks[13].x * w;
-  const archMidY = landmarks[13].y * h;
+  // 🧠 STEP 2: CALIBRATE CENTER (ROI BASED)
+  const centerX = (minX + maxX) / 2;
+  const archMidY = (minY + maxY) / 2;
 
   // 🧠 LIP POSITIONS (for protection)
   const lipTopY = landmarks[13].y * h;
   const lipBottomY = landmarks[14].y * h;
 
-  for (let y = 0; y < safeH; y++) {
-    for (let x = 0; x < safeW; x++) {
+  const boxW = maxX - minX;
 
-      const i = (y * safeW + x) * 4;
+  // 🧪 STEP 3: CONSTRAINED ORTHODONTIC LOOP (V7)
+  for (let y = minY | 0; y < maxY; y++) {
+    for (let x = minX | 0; x < maxX; x++) {
 
-      const r = src[i];
-      const g = src[i + 1];
-      const b = src[i + 2];
+      const i = (y * w + x) * 4;
 
-      const nx = (x - centerX) / (safeW * 0.5);
+      const r = src[i], g = src[i + 1], b = src[i + 2];
 
-      // 🦷 TARGET ARCH (natural curve)
+      const nx = (x - centerX) / (boxW * 0.5);
+
+      // 🦷 TARGET ARCH (Natural professional curve)
       const curve = nx * nx;
-      const targetY = archMidY + (safeH * 0.06) * curve;
+      const targetY = archMidY + (h * 0.06) * curve;
 
-      // 🔥 STRONG VISIBLE MOVEMENT
-      let dx = -nx * (safeW * 0.22);
-      let dy = (targetY - y) * 1.6;
+      // 🔥 CONTROLLED PROFESSIONAL FORCES (V7)
+      let dx = -nx * (boxW * 0.08);         // Balanced horizontal pull
+      let dy = (targetY - y) * 0.9;         // Surgical vertical lift
 
-      // 🦷 TOOTH DETECTION (stable)
+      // 🦷 TOOTH DETECTION (V7)
       const lum = (r + g + b) / 3;
       const isTooth =
         lum > 85 &&
@@ -58,29 +82,42 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
         dy *= 0.5;
       }
 
-      // 🛡️ SKIN SHIELD (FIXED — never zero)
+      // 🛡️ SKIN SHIELD (Minimum Flow)
       const distToLip = Math.min(
         Math.abs(y - lipTopY),
         Math.abs(y - lipBottomY)
       );
-
       const skinShield = Math.max(0.4, Math.min(1, distToLip / 25));
 
       dx *= skinShield;
       dy *= skinShield;
 
-      // 🛑 LIMIT (avoid distortion)
+      // ✨ STEP 4: SOFT EDGE BLENDING (CRITICAL)
+      // Linear falloff at box boundaries to prevent artifacts
+      const edgeFadeX = Math.min(
+        (x - minX) / 20,
+        (maxX - x) / 20
+      );
+      const edgeFadeY = Math.min(
+        (y - minY) / 20,
+        (maxY - y) / 20
+      );
+      const edgeFade = Math.max(0, Math.min(1, Math.min(edgeFadeX, edgeFadeY)));
+
+      dx *= edgeFade;
+      dy *= edgeFade;
+
+      // 🛑 LIMIT
       dx = Math.max(-35, Math.min(35, dx));
       dy = Math.max(-25, Math.min(25, dy));
 
-      // 🎯 SAMPLING
-      const sx = Math.max(0, Math.min(safeW - 1, x - dx));
-      const sy = Math.max(0, Math.min(safeH - 1, y - dy));
+      // 🎯 SAMPLING (Explicit Floor)
+      const sx = Math.max(0, Math.min(w - 1, x - dx));
+      const sy = Math.max(0, Math.min(h - 1, y - dy));
 
       const sx0 = Math.floor(sx);
       const sy0 = Math.floor(sy);
-
-      const srcIdx = (sy0 * safeW + sx0) * 4;
+      const srcIdx = (sy0 * w + sx0) * 4;
 
       dst[i]     = src[srcIdx];
       dst[i + 1] = src[srcIdx + 1];
@@ -90,7 +127,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   }
 
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT APPLIED TO CANVAS");
+  console.log("✅ ALIGNMENT V7 APPLIED");
 }
 
 // Compatibility Alias
