@@ -579,6 +579,9 @@ const SmileSimulatorAI = () => {
                 </div>
               </motion.div>
             )}
+            {step === "result" && afterImage && (
+              <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
+                <ReactCompareImage leftImage={beforeImage} rightImage={afterImage} sliderLineColor="#D4AF37" />
                 <button onClick={reset} className="py-5 bg-zinc-950 text-white rounded-2xl font-bold">New Simulation</button>
               </motion.div>
             )}
@@ -587,7 +590,7 @@ const SmileSimulatorAI = () => {
           {/* 🔍 THE PERMANENT CLINICAL VIEWPORT (Direct Injection Hub) */}
           <div className={cn(
             "bg-zinc-950 border border-zinc-800 rounded-[32px] p-8 mt-4 overflow-hidden relative shadow-2xl transition-all duration-700",
-            step === "result" ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10 pointer-events-none h-0 p-0 m-0"
+            step === "result" ? "opacity-100 translate-y-0 h-auto" : "opacity-0 translate-y-10 pointer-events-none h-0 p-0 m-0"
           )}>
             <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 blur-[80px] rounded-full pointer-events-none" />
             <div className="flex items-center justify-between mb-6 relative z-10">
@@ -614,6 +617,8 @@ const SmileSimulatorAI = () => {
                 style={{ background: "#000", display: "block" }}
               />
             </div>
+            {/* Hidden Before Reference for Direct Injection Sync */}
+            <canvas ref={zoomBeforeRef} className="hidden invisible absolute pointer-events-none" />
 
             <div className="mt-6 grid grid-cols-2 gap-4">
               <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5">
@@ -626,9 +631,6 @@ const SmileSimulatorAI = () => {
               </div>
             </div>
           </div>
-
-          {/* Hidden Before Reference for Direct Injection Sync */}
-          <canvas ref={zoomBeforeRef} className="hidden invisible" />
           
           {isProcessing && (
             <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md rounded-[32px]">
@@ -636,10 +638,6 @@ const SmileSimulatorAI = () => {
               <h3 className="text-xl font-serif text-zinc-900">{processingLog}</h3>
             </motion.div>
           )}
-          <div className="sr-only opacity-0 pointer-events-none fixed bottom-0 left-0">
-             <canvas ref={zoomAfterRef} />
-             <canvas ref={zoomBeforeRef} />
-          </div>
         </div>
       </div>
     </section>
