@@ -579,70 +579,67 @@ const SmileSimulatorAI = () => {
                 </div>
               </motion.div>
             )}
-            {step === "result" && afterImage && (
-              <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
-                <ReactCompareImage leftImage={beforeImage} rightImage={afterImage} sliderLineColor="#D4AF37" />
-                
-                <div className="bg-zinc-950 border border-zinc-800 rounded-[32px] p-8 mt-4 overflow-hidden relative shadow-2xl">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 blur-[80px] rounded-full pointer-events-none" />
-                  <div className="flex items-center justify-between mb-6 relative z-10">
-                    <div>
-                      <h4 className="font-serif text-2xl text-zinc-100 italic">Anatomical Zoom</h4>
-                      <p className="text-zinc-500 text-sm tracking-tight">3.0x Whole Smile & Dental HD Magnification</p>
-                    </div>
-                    <div className="px-3 py-1 bg-brand-gold/10 border border-brand-gold/20 rounded-full flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-brand-gold animate-pulse" />
-                      <span className="text-brand-gold text-[10px] uppercase tracking-widest font-bold">Clinical View</span>
-                    </div>
-                  </div>
-                  
-                   {/* ✅ Fix 1 — Force correct aspect ratio (Locked 2:1) */}
-                  <div className="relative w-full aspect-[2/1] bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner" style={{ width: "100%", aspectRatio: "2/1", background: "#000", overflow: "hidden" }}>
-                    {zoomLoading && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-20">
-                        <RefreshCw size={24} className="text-brand-gold animate-spin" />
-                      </div>
-                    )}
-                    {/* Viewport Corners */}
-                    <div className="absolute top-4 left-4 w-4 h-4 border-t border-l border-white/20 z-10" />
-                    <div className="absolute top-4 right-4 w-4 h-4 border-t border-r border-white/20 z-10" />
-                    <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
-                    <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
-                    
-                    {/* ✅ PERMANENT UI VIEWPORT (Direct Canvas Rendering) */}
-                    <canvas 
-                      ref={zoomAfterRef}
-                      style={{
-                        width: "100%",
-                        height: "auto",
-                        display: "block",
-                        background: "#000"
-                      }}
-                    />
-                  </div>
-
-                  <div className="mt-6 grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5 group hover:border-brand-gold/20 transition-colors">
-                      <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Enamel Profile</p>
-                      <p className="text-xs text-zinc-300 font-medium">Radiance Optimized</p>
-                    </div>
-                    <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5 group hover:border-brand-gold/20 transition-colors">
-                      <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Anatomical Sync</p>
-                      <p className="text-xs text-zinc-300 font-medium">Position Locked</p>
-                    </div>
-                  </div>
-                </div>
-
                 <button onClick={reset} className="py-5 bg-zinc-950 text-white rounded-2xl font-bold">New Simulation</button>
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* 🔍 THE PERMANENT CLINICAL VIEWPORT (Direct Injection Hub) */}
+          <div className={cn(
+            "bg-zinc-950 border border-zinc-800 rounded-[32px] p-8 mt-4 overflow-hidden relative shadow-2xl transition-all duration-700",
+            step === "result" ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10 pointer-events-none h-0 p-0 m-0"
+          )}>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 blur-[80px] rounded-full pointer-events-none" />
+            <div className="flex items-center justify-between mb-6 relative z-10">
+              <div>
+                <h4 className="font-serif text-2xl text-zinc-100 italic">Anatomical Zoom</h4>
+                <p className="text-zinc-500 text-sm tracking-tight">3.0x Whole Smile & Dental HD Magnification</p>
+              </div>
+              <div className="px-3 py-1 bg-brand-gold/10 border border-brand-gold/20 rounded-full flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-brand-gold animate-pulse" />
+                <span className="text-brand-gold text-[10px] uppercase tracking-widest font-bold">Clinical View</span>
+              </div>
+            </div>
+            
+            <div className="relative w-full aspect-[2/1] bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner">
+              {/* Viewport Corners */}
+              <div className="absolute top-4 left-4 w-4 h-4 border-t border-l border-white/20 z-10" />
+              <div className="absolute top-4 right-4 w-4 h-4 border-t border-r border-white/20 z-10" />
+              <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
+              <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
+              
+              <canvas 
+                ref={zoomAfterRef}
+                className="w-full h-full object-cover"
+                style={{ background: "#000", display: "block" }}
+              />
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-4">
+              <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5">
+                <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Enamel Profile</p>
+                <p className="text-xs text-zinc-300 font-medium">Radiance Optimized</p>
+              </div>
+              <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5">
+                <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Anatomical Sync</p>
+                <p className="text-xs text-zinc-300 font-medium">Position Locked</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Hidden Before Reference for Direct Injection Sync */}
+          <canvas ref={zoomBeforeRef} className="hidden invisible" />
+          
           {isProcessing && (
             <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md rounded-[32px]">
               <div className="w-20 h-20 border-4 border-brand-gold rounded-full border-t-transparent animate-spin mb-4" />
               <h3 className="text-xl font-serif text-zinc-900">{processingLog}</h3>
             </motion.div>
           )}
+          <div className="sr-only opacity-0 pointer-events-none fixed bottom-0 left-0">
+             <canvas ref={zoomAfterRef} />
+             <canvas ref={zoomBeforeRef} />
+          </div>
         </div>
       </div>
     </section>
