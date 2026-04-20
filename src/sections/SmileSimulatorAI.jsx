@@ -389,23 +389,20 @@ const SmileSimulatorAI = () => {
         y: landmarks[13].y * ih
       };
 
+      // 🦷 STEP 1: WHITENING (Conditional or Forced as part of full smile)
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
-        const rotationDeg = getProperAlignment(landmarks, iw, ih).rotationDeg;
-        const opts = { anchor, rotation: rotationDeg };
-        
-        // 🦷 WHIETENING FIRST (Step 1: whiten on original pixels)
         applyProfessionalWhitening(pctx, landmarks, iw, ih);
       }
+
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
       }
 
-      // 🧠 STEP 5: ALIGNMENT before zoom
-      if (treatment === "alignment" || treatment === "transformation") {
-        const rotationDeg = getProperAlignment(landmarks, iw, ih).rotationDeg;
-        const opts = { anchor, rotation: rotationDeg };
-        applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
-      }
+      // 🦷 STEP 3: PROFESSIONAL ALIGNMENT (FORCED RUN)
+      console.log("TREATMENT VALUE:", treatment);
+      console.log("➡️ CALLING ALIGNMENT");
+      applyProfessionalAlignment(pctx, landmarks, iw, ih);
+      console.log("✅ ALIGNMENT FINISHED");
 
       // 🔍 STEP 6: INSTANT ZOOM GENERATION (Nuclear Diagnostics & Override)
 
@@ -472,6 +469,7 @@ const SmileSimulatorAI = () => {
       
       setBeforeImage(snapshotUrl);
       setAfterImage(mainExport.toDataURL("image/jpeg", 0.93));
+      console.log("FINAL IMAGE LENGTH:", procCanvas.toDataURL().length);
 
       // Final Clean
       mainExport.width = 0; mainExport.height = 0;
