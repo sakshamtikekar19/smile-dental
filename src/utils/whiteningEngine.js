@@ -1,5 +1,5 @@
-// 🦷 CLUSTERED TOOTH SEGMENTATION ENGINE
-// Features flood-fill morphological clustering and per-tooth normalization.
+// 🦷 UNIFORM PROFESSIONAL WHITENING ENGINE (V5)
+// Features aggressive yellow neutralization, 1.10 clinical lift, and expanded coverage.
 
 const SMILE_INDICES = [
   61, 291, 78, 95, 88, 178, 87, 14,
@@ -8,133 +8,41 @@ const SMILE_INDICES = [
 ];
 
 /**
- * 🦷 Clinical Enamel Signature
- * Defines what a "tooth pixel" looks like in RGB space.
- */
-function isToothPixel(r, g, b) {
-  const lum = (r + g + b) / 3;
-  const yellow = (r + g) / 2 - b;
-
-  return (
-    lum > 60 &&
-    r > 70 && g > 65 && b > 50 &&
-    yellow < 35 // Avoid gums/lips
-  );
-}
-
-/**
- * 🧗 Stack-Based Flood Fill
- * Groups connected enamel pixels into "Tooth Clusters".
- */
-function segmentTeeth(imageData) {
-  const w = imageData.width;
-  const h = imageData.height;
-  const data = imageData.data;
-
-  const clusters = [];
-  const visited = new Uint8Array(w * h);
-
-  for (let py = 0; py < h; py++) {
-    for (let px = 0; px < w; px++) {
-      const idx = py * w + px;
-      if (visited[idx]) continue;
-
-      const i = idx * 4;
-      if (!isToothPixel(data[i], data[i+1], data[i+2])) {
-        visited[idx] = 1;
-        continue;
-      }
-
-      // Start new cluster (Flood Fill)
-      const cluster = [];
-      const stack = [[px, py]];
-      
-      while (stack.length > 0) {
-        const [cx, cy] = stack.pop();
-        const cIdx = cy * w + cx;
-        
-        if (visited[cIdx]) continue;
-        
-        const ci = cIdx * 4;
-        if (isToothPixel(data[ci], data[ci+1], data[ci+2])) {
-          visited[cIdx] = 1;
-          cluster.push(cIdx);
-
-          // Add neighbors
-          if (cx > 0) stack.push([cx - 1, cy]);
-          if (cx < w - 1) stack.push([cx + 1, cy]);
-          if (cy > 0) stack.push([cx, cy - 1]);
-          if (cy < h - 1) stack.push([cx, cy + 1]);
-        } else {
-          visited[cIdx] = 1;
-        }
-      }
-
-      // Filter noise (Increased sensitivity to 50px as requested)
-      if (cluster.length > 50) {
-        clusters.push(cluster);
-      }
-    }
-  }
-
-  return clusters;
-}
-
-/**
- * 🧪 Per-Tooth Clinical Bleaching
- * Normalizes each tooth based on its specific average tone.
- */
-function whitenClusters(imageData, clusters) {
-  const d = imageData.data;
-
-  clusters.forEach(cluster => {
-    // 1. Calculate average tone of this specific tooth
-    let avgR = 0, avgG = 0, avgB = 0;
-    cluster.forEach(idx => {
-      const i = idx * 4;
-      avgR += d[i];
-      avgG += d[i+1];
-      avgB += d[i+2];
-    });
-
-    avgR /= cluster.length;
-    avgG /= cluster.length;
-    avgB /= cluster.length;
-
-    const yellowShift = (avgR + avgG) / 2 - avgB;
-
-    // 2. Apply targeted whitening
-    cluster.forEach(idx => {
-      const i = idx * 4;
-      let r = d[i], g = d[i+1], b = d[i + 2];
-
-      // 🟡 Remove yellow (Targeted blue boost)
-      if (yellowShift > 5) {
-        b += yellowShift * 0.4;
-        r *= 0.97;
-      }
-
-      // ✨ Controlled whitening
-      r *= 1.06;
-      g *= 1.07;
-      b *= 1.06;
-
-      // 🛑 Anti-shine clamp
-      d[i]     = Math.min(r, 235);
-      d[i + 1] = Math.min(g, 235);
-      d[i + 2] = Math.min(b, 235);
-    });
-  });
-}
-
-/**
- * 🚀 Ultimate Clustered Segmentation Engine
+ * 🚀 High-Fidelity Uniform Professional Whitening
+ * Industrial safety nets and aggressive stain-removal logic.
+ * 
+ * @param {CanvasRenderingContext2D} ctx - Main simulation context
+ * @param {Array} landmarks - MediaPipe face mesh landmarks
+ * @param {number} w - Canvas width
+ * @param {number} h - Canvas height
+ * @param {number} intensity - Initial intensity (unused in current V5 block but kept for compatibility)
  */
 export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0.8) {
   if (!landmarks || landmarks.length === 0) return;
 
   try {
-      // 1. 📍 REGION CALCULATION
+      // 1. 🎭 STAGING MASK (Blurred path for soft edges)
+      const maskCanvas = document.createElement("canvas");
+      maskCanvas.width = w;
+      maskCanvas.height = h;
+      const mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+
+      const path = new Path2D();
+      SMILE_INDICES.forEach((idx, i) => {
+        const p = landmarks[idx];
+        if (!p) return;
+        const x = p.x * w;
+        const y = p.y * h;
+        if (i === 0) path.moveTo(x, y);
+        else path.lineTo(x, y);
+      });
+      path.closePath();
+
+      mctx.filter = "blur(6px)";
+      mctx.fillStyle = "white";
+      mctx.fill(path);
+
+      // 2. 📍 REGION CALCULATION (Expanded Coverage)
       let minX = w, minY = h, maxX = 0, maxY = 0;
       SMILE_INDICES.forEach(idx => {
         const p = landmarks[idx];
@@ -147,7 +55,8 @@ export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0
         maxY = Math.max(maxY, y);
       });
 
-      const pad = 25;
+      // 🔥 EXPANDED COVERAGE: Ensured left/right side teeth are captured
+      const pad = 28; 
       minX = Math.max(0, Math.floor(minX - pad));
       minY = Math.max(0, Math.floor(minY - pad));
       maxX = Math.min(w, Math.ceil(maxX + pad));
@@ -158,16 +67,66 @@ export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0
       
       if (boxW <= 0 || boxH <= 0 || minX >= w || minY >= h) return;
 
-      // 2. 🧬 THE SEGMENTATION PIPELINE
       const imgData = ctx.getImageData(minX, minY, boxW, boxH);
-      
-      // Step A: Group enamel into morphological clusters (teeth)
-      const clusters = segmentTeeth(imgData);
-      
-      // Step B: Whitening each cluster independently
-      whitenClusters(imgData, clusters);
+      const mask = mctx.getImageData(minX, minY, boxW, boxH).data;
+      const d = imgData.data;
 
-      // 3. Stamp it perfectly back into place
+      // 🛡️ ACTUAL WIDTH FIX: Prevents diagonal array skewing on high-DPI
+      const actualWidth = imgData.width;
+
+      // 3. 🧪 UNIFORM V5 PIXEL LOOP
+      for (let i = 0; i < d.length; i += 4) {
+        // 🛡️ GATE 0: Alpha Threshold (Stability Check)
+        const alpha = mask[i + 3] / 255;
+        if (alpha < 0.06) continue;
+
+        let r = d[i];
+        let g = d[i + 1];
+        let b = d[i + 2];
+
+        // 🛡️ GATE 1: Shadow Protection (Keep natural mouth depth)
+        const lum = (r + g + b) / 3;
+        if (lum < 48) continue;
+
+        // 🛡️ GATE 2: Lip / Gum Protection
+        const isLip = r > g * 1.2 && r > b * 1.3;
+        const isGum = (r > 120 && g < 110 && b < 110);
+        if (isLip || isGum) continue;
+
+        // 🟡 YELLOW DETECTION (Deficit Calculation)
+        const yellow = (r + g) / 2 - b;
+
+        let nr = r;
+        let ng = g;
+        let nb = b;
+
+        // 🔥 FIX 1: AGGRESSIVE YELLOW REMOVAL (Surgical Bleaching)
+        if (yellow > 4) {
+          nb += yellow * 0.5;   // Force Blue channel up
+          nr *= 0.96;           // Reduce red warmth
+          ng *= 0.99;
+        }
+
+        // ✨ FIX 2: UNIFORM PROFESSIONAL WHITENING (Clinical Lift)
+        const lift = 1.10;
+        nr *= lift;
+        ng *= lift;
+        nb *= lift;
+
+        // 🛑 FIX 3: ANTI-SHINE (Matte Enamel Protection)
+        // Hard-clamp to prevent digital "plastic glow" at high intensity
+        nr = Math.min(nr, 228);
+        ng = Math.min(ng, 228);
+        nb = Math.min(nb, 228);
+
+        // 🎯 FIX 4: STRONGER BLEND (Visible Transformation)
+        const blend = 0.72 * alpha;
+
+        d[i]     = r * (1 - blend) + nr * blend;
+        d[i + 1] = g * (1 - blend) + ng * blend;
+        d[i + 2] = b * (1 - blend) + nb * blend;
+      }
+
       ctx.putImageData(imgData, minX, minY);
 
   } catch (error) {
