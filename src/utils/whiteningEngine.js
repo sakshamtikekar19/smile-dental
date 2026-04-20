@@ -1,11 +1,11 @@
-// 🦷 HYBRID "BEST OF BOTH WORLDS" WHITENING ENGINE
-// Combines pixel-surgical gap protection with surgical Lip-Masking.
+// 🦷 "COLOR UNIFIED" WHITENING ENGINE
+// Reduces webcam noise via RGB-to-Luminance unification and adds organic ivory tinting.
 
 const UPPER_INNER_LIP = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
 const LOWER_INNER_LIP = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
 
 /**
- * 🚀 High-Fidelity Hybrid Clinical Whitening
+ * 🚀 High-Fidelity Color-Unified Whitening
  * 
  * @param {CanvasRenderingContext2D} ctx - Main simulation context
  * @param {Array} landmarks - MediaPipe face mesh landmarks
@@ -16,7 +16,7 @@ const LOWER_INNER_LIP = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
 export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity = 0.8) {
   if (!landmarks || landmarks.length === 0) return;
 
-  // 1. Calculate the exact boundaries of the mouth (with safety padding)
+  // 1. Calculate boundaries (with 25px safety padding for drift)
   let minX = Infinity, maxX = -Infinity;
   let minY = Infinity, maxY = -Infinity;
   const allLipPoints = [...UPPER_INNER_LIP, ...LOWER_INNER_LIP];
@@ -31,7 +31,6 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
       if (y > maxY) maxY = y;
   });
 
-  // 🛡️ Safety Padding (Increased to 25px for drift stability)
   const pad = 25;
   minX = Math.max(0, Math.floor(minX - pad));
   minY = Math.max(0, Math.floor(minY - pad));
@@ -42,11 +41,11 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
   const boxH = maxY - minY;
   if (boxW <= 0 || boxH <= 0) return;
 
-  // 2. Extract the raw pixel data
+  // 2. Extract pixel data
   let imgData = ctx.getImageData(minX, minY, boxW, boxH);
   let data = imgData.data;
 
-  // 3. 🧪 THE PIXEL MATH: Protect shadows, Neutralize yellow, Boost luminance
+  // 3. 🧪 THE PIXEL MATH: Color Unification, Shadow Protection, Luminance Lift
   for (let i = 0; i < data.length; i += 4) {
       let r = data[i];
       let g = data[i + 1];
@@ -54,37 +53,43 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
       
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-      // 🛑 GAP PROTECTOR: Ensures shadows stay dark for realistic 3D depth
+      // 🛑 GAP PROTECTOR: 3D depth preservation
       let gapProtection = 1.0; 
       if (lum < 40) {
-          continue; // Deep shadow: Do absolutely nothing
+          continue; 
       } else if (lum < 85) {
-          gapProtection = (lum - 40) / 45; // Smooth transition for soft shadows
+          gapProtection = (lum - 40) / 45;
       }
 
       const activeIntensity = intensity * gapProtection; 
 
-      // NEUTRALIZE YELLOW: Lift the blue channel to match Red/Green
-      const rgAvg = (r + g) / 2;
-      let newB = b + ((rgAvg - b) * (activeIntensity * 0.9)); 
-      
-      // LUMINANCE LIFT: Brighten midtones and highlights (dialed down for realism)
-      const liftCurve = (lum / 255); 
-      const brightMultiplier = 1.0 + (activeIntensity * 0.32 * liftCurve);
+      // 🎨 COLOR UNIFICATION: Kills chromatic aberration/webcam noise
+      // Pull RGB tightly toward clean grayscale luminance base
+      let cleanR = r + (lum - r) * (activeIntensity * 0.95);
+      let cleanG = g + (lum - g) * (activeIntensity * 0.95);
+      let cleanB = b + (lum - b) * (activeIntensity * 0.95);
 
-      data[i] = Math.min(255, r * brightMultiplier);
-      data[i + 1] = Math.min(255, g * brightMultiplier);
-      data[i + 2] = Math.min(255, newB * brightMultiplier);
+      // 🦷 NATURAL IVORY TINT: Microscopic clinical warmth
+      cleanR += 4 * activeIntensity; 
+      cleanG += 1 * activeIntensity; 
+      
+      // 💡 LUMINANCE LIFT: Safe brightening
+      const liftCurve = (lum / 255); 
+      const brightMultiplier = 1.0 + (activeIntensity * 0.30 * liftCurve);
+
+      data[i]     = Math.min(255, cleanR * brightMultiplier);
+      data[i + 1] = Math.min(255, cleanG * brightMultiplier);
+      data[i + 2] = Math.min(255, cleanB * brightMultiplier);
   }
 
-  // 4. Put the processed pixels onto an invisible Staging Canvas
+  // 4. Staging
   const stageCanvas = document.createElement('canvas');
   stageCanvas.width = boxW;
   stageCanvas.height = boxH;
   const stageCtx = stageCanvas.getContext('2d');
   stageCtx.putImageData(imgData, 0, 0);
 
-  // 5. ✂️ THE MASK: Create the Cookie-Cutter shape on the main canvas
+  // 5. ✂️ THE MASK: Cookie-Cutter (Internal Lip Path)
   ctx.save();
   ctx.beginPath();
   
@@ -104,9 +109,9 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
   });
   
   ctx.closePath();
-  ctx.clip(); // 🔥 Physically blocks any pixels outside the lips
+  ctx.clip(); // 🔥 Surgical Precision
 
-  // 6. Stamp the highly-detailed staging canvas through the cookie cutter
+  // 6. Stamp
   ctx.drawImage(stageCanvas, minX, minY);
   
   ctx.restore(); 
