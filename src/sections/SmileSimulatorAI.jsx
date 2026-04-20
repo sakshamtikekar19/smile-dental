@@ -243,30 +243,8 @@ const SmileSimulatorAI = () => {
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
 
-  // 🏥 PERMANENT ZOOM STABILITY (Direct Canvas Rendering)
-  useEffect(() => {
-    if (!zoomedAfterCanvas || !zoomAfterRef.current) return;
-    const canvas = zoomAfterRef.current;
-    
-    // Explicitly sync dimensions from snapshot
-    canvas.width = zoomedAfterCanvas.width;
-    canvas.height = zoomedAfterCanvas.height;
-    
-    const ctx = canvas.getContext("2d", { alpha: false });
-    ctx.drawImage(zoomedAfterCanvas, 0, 0);
-  }, [zoomedAfterCanvas]);
-
-  useEffect(() => {
-    if (!zoomedBeforeCanvas || !zoomBeforeRef.current) return;
-    const canvas = zoomBeforeRef.current;
-
-    // Explicitly sync dimensions from snapshot
-    canvas.width = zoomedBeforeCanvas.width;
-    canvas.height = zoomedBeforeCanvas.height;
-    
-    const ctx = canvas.getContext("2d", { alpha: false });
-    ctx.drawImage(zoomedBeforeCanvas, 0, 0);
-  }, [zoomedBeforeCanvas]);
+  // 🏥 PERMANENT ZOOM STABILITY (DIRECT INJECTION ARCHITECTURE)
+  // Rendering logic moved to startHeavyProcessingPipeline for zero-latency DOM injection.
 
   useEffect(() => {
     const img = new Image();
@@ -447,7 +425,6 @@ const SmileSimulatorAI = () => {
 
       // 🔍 STEP 7: CAPTURE THE FLATTENED SNAPSHOT
       stageCanvas.toBlob((blob) => {
-        console.log("🚨 DEBUG 1 - Blob:", blob); 
         if (!blob) return;
         
         const blobUrl = URL.createObjectURL(blob);
@@ -456,25 +433,25 @@ const SmileSimulatorAI = () => {
 
         finalSnap.onload = () => {
           requestAnimationFrame(() => {
-            console.log("🚨 DEBUG 2 - Image Dimensions:", finalSnap.width, finalSnap.height);
-            console.log("🚨 DEBUG 3 - Landmarks Array:", landmarks);
             const isMobileDevice = window.innerWidth < 768;
             const zW = isMobileDevice ? 800 : 1200;
             const zH = isMobileDevice ? 400 : 600;
 
-            const zoomCanvas = document.createElement("canvas");
-            zoomCanvas.width = zW; zoomCanvas.height = zH;
-            const zctx = zoomCanvas.getContext("2d", { willReadFrequently: true, alpha: false });
+            // 1. DIRECT AFTER INJECTION
+            const screenAfter = zoomAfterRef.current;
+            if (screenAfter) {
+              screenAfter.width = zW; screenAfter.height = zH;
+              const sCtx = screenAfter.getContext("2d", { alpha: false });
+              applyClinicalZoom(sCtx, landmarks, iw, ih, finalSnap);
+            }
 
-            // 🔥 DRAW FROM FLATTENED IMMUTABLE SNAPSHOT
-            applyClinicalZoom(zctx, landmarks, iw, ih, finalSnap);
-            setZoomedAfterCanvas(zoomCanvas);
-
-            // Render Before Snapshot
-            const beforeCanvas = document.createElement("canvas");
-            beforeCanvas.width = zW; beforeCanvas.height = zH;
-            applyClinicalZoom(beforeCanvas.getContext("2d", { alpha: false }), landmarks, iw, ih, img);
-            setZoomedBeforeCanvas(beforeCanvas);
+            // 2. DIRECT BEFORE INJECTION
+            const screenBefore = zoomBeforeRef.current;
+            if (screenBefore) {
+              screenBefore.width = zW; screenBefore.height = zH;
+              const bCtx = screenBefore.getContext("2d", { alpha: false });
+              applyClinicalZoom(bCtx, landmarks, iw, ih, img);
+            }
 
             // 🧹 CRITICAL: Memory Flush
             URL.revokeObjectURL(blobUrl);
@@ -485,7 +462,6 @@ const SmileSimulatorAI = () => {
           });
         };
       }, "image/jpeg", 0.95);
-原则上
 
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
