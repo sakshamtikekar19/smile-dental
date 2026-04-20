@@ -1,5 +1,5 @@
-// 🦷 DENTAL AESTHETIC MASTERING ENGINE
-// Features morphological clinical logic: translucency, micro-contrast, and lighting normalization.
+// 🦷 CLEAN, STABLE WHITENING ENGINE
+// Features simplified clinical math for zero-artifact stability and natural results.
 
 const SMILE_INDICES = [
   61, 291, 78, 95, 88, 178, 87, 14,
@@ -8,14 +8,14 @@ const SMILE_INDICES = [
 ];
 
 /**
- * 🚀 High-Fidelity Aesthetic Mastering
- * Professional morphological logic with horizontal lighting balance.
+ * 🚀 High-Fidelity Clean & Stable Whitening
+ * Simplified clinical logic for production reliability.
  * 
  * @param {CanvasRenderingContext2D} ctx - Main simulation context
  * @param {Array} landmarks - MediaPipe face mesh landmarks
  * @param {number} w - Canvas width
  * @param {number} h - Canvas height
- * @param {number} intensity - Initial intensity (unused in current mastering block but kept for compatibility)
+ * @param {number} intensity - Initial intensity (unused in current stable block but kept for compatibility)
  */
 export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0.8) {
   if (!landmarks || landmarks.length === 0) return;
@@ -70,13 +70,10 @@ export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0
       const mask = mctx.getImageData(minX, minY, boxW, boxH).data;
       const d = imgData.data;
 
-      // 🛡️ ACTUAL WIDTH FIX: Prevents diagonal array skewing on high-DPI
-      const actualWidth = imgData.width;
-
-      // 3. 🧪 AESTHETIC MASTERING LOOP
+      // 3. 🧪 CLEAN / STABLE PIXEL LOOP
       for (let i = 0; i < d.length; i += 4) {
         const alpha = mask[i + 3] / 255;
-        if (alpha < 0.05) continue;
+        if (alpha < 0.08) continue; // Slightly tighter alpha gate for stability
 
         let r = d[i];
         let g = d[i + 1];
@@ -84,79 +81,40 @@ export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0
 
         const lum = (r + g + b) / 3;
 
-        // 🔒 SKIP DARK GAPS (Keep natural depth)
-        if (lum < 45) continue;
+        // 🔒 Skip dark gaps (Keep natural depth)
+        if (lum < 50) continue;
 
-        // 🔒 SKIP LIPS / GUMS
+        // 🔒 Skip lips/gums
         if (r > g * 1.2 && r > b * 1.3) continue;
 
-        // --- 🎯 CORE TRANSFORMATION ---
+        // 🟡 Detect yellow
         const yellow = (r + g) / 2 - b;
 
         let nr = r;
         let ng = g;
         let nb = b;
 
-        // 🧪 BLEACHING: Targeted yellow neutralization
-        if (yellow > 6) {
-          nb += yellow * 0.35;
-          nr *= 0.96;
-          ng *= 0.98;
+        // 👉 ONLY FIX YELLOW (Main correction)
+        if (yellow > 5) {
+          nb += yellow * 0.25;  // Neutralize yellow tone
         }
 
-        // ⚖️ NORMALIZE BASE (Base unification)
-        const avg = (nr + ng + nb) / 3;
-        nr = nr * 0.92 + avg * 0.08;
-        ng = ng * 0.92 + avg * 0.08;
-        nb = nb * 0.92 + avg * 0.08;
+        // 👉 LIGHT WHITENING (No shine)
+        nr *= 1.05;
+        ng *= 1.06;
+        nb *= 1.05;
 
-        // ✨ INITIAL LIFT
-        const baseLift = 1.08;
-        nr *= baseLift;
-        ng *= baseLift;
-        nb *= baseLift;
-
-        // --- 🧬 DENTAL AESTHETICS (The "Mastering" Suite) ---
-
-        // 1. 🧬 ENAMEL MICRO-CONTRAST: Adds natural enamel depth
-        const contrast = 1.06;
-        const mid = 128;
-        nr = (nr - mid) * contrast + mid;
-        ng = (ng - mid) * contrast + mid;
-        nb = (nb - mid) * contrast + mid;
-
-        // 2. ✨ EDGE TRANSLUCENCY: Adds cool tone to incisal edges
-        if (lum > 180 && alpha > 0.3) {
-          nb *= 1.04;
-          nr *= 0.98;
-        }
-
-        // 3. 🟡 INTERDENTAL DEPTH: Prevents "white slab" look by preserving tiny shadows
-        if (lum < 80 && lum > 45) {
-          nr *= 0.97;
-          ng *= 0.97;
-          nb *= 0.97;
-        }
-
-        // 4. ⚖️ CENTER BALANCE FIX: Horizontal lighting normalization
-        // Ensures uniform whitening even if the user has uneven side-lighting
-        const xRatio = ((i / 4) % actualWidth) / actualWidth;
-        const sideBoost = 1 + (0.08 * (0.5 - xRatio));
-        nr *= sideBoost;
-        ng *= sideBoost;
-        nb *= sideBoost;
-
-        // 5. 🌟 ANTI-SHINE CONTROL: Hard-caps highlights for matte finish
+        // 👉 Clamp highlights to avoid digital gloss / shine
         nr = Math.min(nr, 235);
         ng = Math.min(ng, 235);
         nb = Math.min(nb, 235);
 
-        // --- 🧠 FINAL CLINICAL BLEND ---
-        const blend = 0.72 * alpha;
+        // 👉 Smooth blend (Clinical weighting)
+        const blend = 0.65 * alpha;
 
-        d[i]     = Math.min(255, r * (1 - blend) + nr * blend);
-        d[i + 1] = Math.min(255, g * (1 - blend) + ng * blend);
-        d[i + 2] = Math.min(255, b * (1 - blend) + nb * blend);
+        d[i]     = r * (1 - blend) + nr * blend;
+        d[i + 1] = g * (1 - blend) + ng * blend;
+        d[i + 2] = b * (1 - blend) + nb * blend;
       }
 
       ctx.putImageData(imgData, minX, minY);
