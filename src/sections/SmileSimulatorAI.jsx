@@ -408,6 +408,7 @@ const SmileSimulatorAI = () => {
       }
 
       // 🔍 STEP 6: INSTANT ZOOM GENERATION (Hardened Staging Canvas Fix)
+      console.log("🚨 DEBUG 0 - Snapshot Function Triggered!");
       const stageCanvas = document.createElement("canvas");
       stageCanvas.width = iw; stageCanvas.height = ih;
       const stageCtx = stageCanvas.getContext("2d", { alpha: false });
