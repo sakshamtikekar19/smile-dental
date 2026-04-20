@@ -1,5 +1,5 @@
-// 🦷 PRODUCTION-LEVEL RECTIFIED WHITENING ENGINE
-// Features blurred-mask blending, clinical color-normalization, and industrial-grade stability.
+// 🦷 DENTAL AESTHETIC MASTERING ENGINE
+// Features morphological clinical logic: translucency, micro-contrast, and lighting normalization.
 
 const SMILE_INDICES = [
   61, 291, 78, 95, 88, 178, 87, 14,
@@ -8,20 +8,20 @@ const SMILE_INDICES = [
 ];
 
 /**
- * 🚀 High-Fidelity Rectified Professional Whitening
- * Industrial safety nets and advanced blurred-mask blending.
+ * 🚀 High-Fidelity Aesthetic Mastering
+ * Professional morphological logic with horizontal lighting balance.
  * 
  * @param {CanvasRenderingContext2D} ctx - Main simulation context
  * @param {Array} landmarks - MediaPipe face mesh landmarks
  * @param {number} w - Canvas width
  * @param {number} h - Canvas height
- * @param {number} intensity - Whitening power (unused in current rectified block but kept for compatibility)
+ * @param {number} intensity - Initial intensity (unused in current mastering block but kept for compatibility)
  */
 export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0.8) {
   if (!landmarks || landmarks.length === 0) return;
 
   try {
-      // 1. 🎭 STAGING MASK (Fixes horizontal smile coverage)
+      // 1. 🎭 STAGING MASK (Blurred path)
       const maskCanvas = document.createElement("canvas");
       maskCanvas.width = w;
       maskCanvas.height = h;
@@ -73,7 +73,7 @@ export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0
       // 🛡️ ACTUAL WIDTH FIX: Prevents diagonal array skewing on high-DPI
       const actualWidth = imgData.width;
 
-      // 3. 🧪 CORE RECTIFIED ENGINE
+      // 3. 🧪 AESTHETIC MASTERING LOOP
       for (let i = 0; i < d.length; i += 4) {
         const alpha = mask[i + 3] / 255;
         if (alpha < 0.05) continue;
@@ -90,38 +90,73 @@ export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0
         // 🔒 SKIP LIPS / GUMS
         if (r > g * 1.2 && r > b * 1.3) continue;
 
-        // 🟡 YELLOW DETECTION (Deficit Calculation)
+        // --- 🎯 CORE TRANSFORMATION ---
         const yellow = (r + g) / 2 - b;
 
         let nr = r;
         let ng = g;
         let nb = b;
 
-        // 🧪 REMOVE YELLOW
+        // 🧪 BLEACHING: Targeted yellow neutralization
         if (yellow > 6) {
-          nb += yellow * 0.35;     // Push blue up
-          nr *= 0.96;              // Reduce red tint
+          nb += yellow * 0.35;
+          nr *= 0.96;
           ng *= 0.98;
         }
 
-        // ⚖️ NORMALIZE COLOR (Kills uneven tones via 8% luminance pull)
+        // ⚖️ NORMALIZE BASE (Base unification)
         const avg = (nr + ng + nb) / 3;
         nr = nr * 0.92 + avg * 0.08;
         ng = ng * 0.92 + avg * 0.08;
         nb = nb * 0.92 + avg * 0.08;
 
-        // ✨ CONTROLLED WHITENING (NO SHINE)
-        const lift = 1.08;
-        nr *= lift;
-        ng *= lift;
-        nb *= lift;
+        // ✨ INITIAL LIFT
+        const baseLift = 1.08;
+        nr *= baseLift;
+        ng *= baseLift;
+        nb *= baseLift;
 
-        // 🧠 SMART BLEND (Balance with original frame)
-        const blend = 0.75 * alpha;
+        // --- 🧬 DENTAL AESTHETICS (The "Mastering" Suite) ---
 
-        d[i]     = r * (1 - blend) + nr * blend;
-        d[i + 1] = g * (1 - blend) + ng * blend;
-        d[i + 2] = b * (1 - blend) + nb * blend;
+        // 1. 🧬 ENAMEL MICRO-CONTRAST: Adds natural enamel depth
+        const contrast = 1.06;
+        const mid = 128;
+        nr = (nr - mid) * contrast + mid;
+        ng = (ng - mid) * contrast + mid;
+        nb = (nb - mid) * contrast + mid;
+
+        // 2. ✨ EDGE TRANSLUCENCY: Adds cool tone to incisal edges
+        if (lum > 180 && alpha > 0.3) {
+          nb *= 1.04;
+          nr *= 0.98;
+        }
+
+        // 3. 🟡 INTERDENTAL DEPTH: Prevents "white slab" look by preserving tiny shadows
+        if (lum < 80 && lum > 45) {
+          nr *= 0.97;
+          ng *= 0.97;
+          nb *= 0.97;
+        }
+
+        // 4. ⚖️ CENTER BALANCE FIX: Horizontal lighting normalization
+        // Ensures uniform whitening even if the user has uneven side-lighting
+        const xRatio = ((i / 4) % actualWidth) / actualWidth;
+        const sideBoost = 1 + (0.08 * (0.5 - xRatio));
+        nr *= sideBoost;
+        ng *= sideBoost;
+        nb *= sideBoost;
+
+        // 5. 🌟 ANTI-SHINE CONTROL: Hard-caps highlights for matte finish
+        nr = Math.min(nr, 235);
+        ng = Math.min(ng, 235);
+        nb = Math.min(nb, 235);
+
+        // --- 🧠 FINAL CLINICAL BLEND ---
+        const blend = 0.72 * alpha;
+
+        d[i]     = Math.min(255, r * (1 - blend) + nr * blend);
+        d[i + 1] = Math.min(255, g * (1 - blend) + ng * blend);
+        d[i + 2] = Math.min(255, b * (1 - blend) + nb * blend);
       }
 
       ctx.putImageData(imgData, minX, minY);
