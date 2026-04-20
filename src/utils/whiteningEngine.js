@@ -159,8 +159,12 @@ function drawAnatomicalLabels(ctx, teeth, offsetX, offsetY) {
 export function applyWhitening(ctx, landmarks, w, h, intensity = 0.75) {
   if (!landmarks || landmarks.length === 0) return;
 
-  // 1. Define Processing Region
-  const pipeIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+  // 1. Define Processing Region (Expanded to include corners and outer lips)
+  const pipeIndices = [
+    78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95,
+    61, 291, // Mouth Corners (Fixes Cutoffs)
+    0, 17, 37, 267, 84, 314 // Outer Lip Contours
+  ];
   let minX = w, minY = h, maxX = 0, maxY = 0;
   pipeIndices.forEach(i => {
     const pt = landmarks[i];
@@ -171,7 +175,7 @@ export function applyWhitening(ctx, landmarks, w, h, intensity = 0.75) {
     }
   });
 
-  const pad = 30;
+  const pad = 35; // Slightly increased padding for safety
   minX = Math.max(0, Math.floor(minX - pad));
   minY = Math.max(0, Math.floor(minY - pad));
   maxX = Math.min(w, Math.ceil(maxX + pad));
@@ -204,17 +208,24 @@ export function applyWhitening(ctx, landmarks, w, h, intensity = 0.75) {
 
       // 1. Calculate visual luminance (Accurate formula)
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (lum < 30) return; // skip deep gaps
+      
+      // 🛡️ SOFT SHADOW GAP PROTECTOR
+      // Instead of hard-rejecting dark pixels, we scale the power down in shadows.
+      // 0% at lum=45, 100% at lum=90
+      const gapWeight = Math.max(0, Math.min(1, (lum - 45) / (90 - 45)));
+      const effectiveIntensity = intensity * gapWeight;
+
+      if (effectiveIntensity <= 0) return; // Skip deep shadows
 
       // 2. STAIN NEUTRALIZATION (The Blue Lift)
       const rgAvg = (r + g) / 2;
-      let newB = b + ((rgAvg - b) * (intensity * 0.85)); 
+      let newB = b + ((rgAvg - b) * (effectiveIntensity * 0.85)); 
       let newR = r;
       let newG = g;
 
       // 3. LUMINANCE LIFT (Non-Linear Curve)
       const liftCurve = (lum / 255);
-      const brightMultiplier = 1.0 + (intensity * 0.45 * liftCurve);
+      const brightMultiplier = 1.0 + (effectiveIntensity * 0.45 * liftCurve);
 
       newR *= brightMultiplier;
       newG *= brightMultiplier;
