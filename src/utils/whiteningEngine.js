@@ -1,5 +1,5 @@
-// 🦷 "COLOR-CORRECTION MASTERING" WHITENING ENGINE
-// Features deficit-based bleaching, sin-wave luminance lifts, and anatomical geometric isolation.
+// 🦷 CLINICAL WHITENING V3 (YELLOW REMOVAL + NATURAL LOOK)
+// Features targeted stain neutralization and texture-preserving contrast restoration.
 
 const UPPER_INNER_LIP = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
 const LOWER_INNER_LIP = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
@@ -21,8 +21,8 @@ function isPixelInsidePolygon(px, py, polygon) {
 }
 
 /**
- * 🚀 High-Fidelity Color-Correction Mastering
- * Features sine-wave lifts and deficit-based bleaching logic.
+ * 🚀 High-Fidelity Clinical Whitening V3
+ * Features targeted yellow neutralization and contrast-based brightening.
  * 
  * @param {CanvasRenderingContext2D} ctx - Main simulation context
  * @param {Array} landmarks - MediaPipe face mesh landmarks
@@ -31,7 +31,6 @@ function isPixelInsidePolygon(px, py, polygon) {
  * @param {number} intensity - Whitening power (0.0 to 1.0)
  */
 export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity = 0.8) {
-  // 🛡️ SAFETY NET: Ensure FaceMesh found a face
   if (!landmarks || landmarks.length === 0) return;
 
   try {
@@ -50,7 +49,7 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
           if (pt.y > maxY) maxY = pt.y;
       });
 
-      // 🧤 PADDING: Safely reach extreme left and right teeth
+      // 🧤 PADDING: Reach targets in shadows and corners
       const pad = 10;
       minX = Math.max(0, Math.floor(minX - pad));
       minY = Math.max(0, Math.floor(minY - pad));
@@ -60,17 +59,15 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
       const reqBoxW = maxX - minX;
       const reqBoxH = maxY - minY;
       
-      // Prevent Canvas crash if mouth box is invalid
       if (reqBoxW <= 0 || reqBoxH <= 0 || minX >= iw || minY >= ih) return;
 
-      // Extract raw image data
       const imgData = ctx.getImageData(minX, minY, reqBoxW, reqBoxH);
       const data = imgData.data;
       
       // The absolute physical width of the array returned by the browser
       const actualWidth = imgData.width;
 
-      // 2. 🧪 THE COLOR-CORRECTION LOOP
+      // 2. 🧪 THE CLINICAL V3 PIXEL LOOP
       for (let i = 0; i < data.length; i += 4) {
           const pixelIndex = i / 4;
           const px = minX + (pixelIndex % actualWidth);
@@ -79,48 +76,65 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
           // 🛡️ GATE 0: THE INVISIBLE FENCE (Geometric Isolation)
           if (!isPixelInsidePolygon(px, py, mouthPolygon)) continue;
 
-          let r = data[i];
-          let g = data[i + 1];
-          let b = data[i + 2];
-          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
 
-          // 🛑 GATE 1: Deep Shadow Protection
-          if (lum < 20) continue;
+          // 🛡️ GATE 1: SKIP DARK (Gaps / Mouth depth)
+          const lum = (r + g + b) / 3;
+          if (lum < 60) continue;
 
-          // 🛑 GATE 2: Flesh Protector (Strict red-dominance check for gums/tongue)
-          if (r > g * 1.15 && r > b * 1.15) continue;
+          // 🛡️ GATE 2: LIP / GUM PROTECTION (STRONGER)
+          const isLip = r > g * 1.15 && r > b * 1.25;
+          const isGum = r > 130 && g < 115 && b < 115;
+          if (isLip || isGum) continue;
 
-          // --- 🎯 STAIN NEUTRALIZATION (Deficit-Based) ---
-          const rgAvg = (r + g) / 2.0;
-          const blueDeficit = Math.max(0, rgAvg - b);
+          // 🛡️ GATE 3: TOOTH DETECTION (TIGHTENED)
+          const isTooth =
+            r > 75 && g > 70 && b > 60 &&
+            r < 245 && g < 245 && b < 245 &&
+            (r - b) < 55 &&
+            (g - b) < 35;
 
-          // Forcefully lift the Blue channel to chemically neutralize the yellow staining
-          const newB = b + (blueDeficit * intensity * 1.2); 
+          if (!isTooth) continue;
 
-          // --- 🎨 ENAMEL UNIFICATION ---
-          const newLum = 0.299 * r + 0.587 * g + 0.114 * newB;
-          
-          let cleanR = r + (newLum - r) * (intensity * 0.65);
-          let cleanG = g + (newLum - g) * (intensity * 0.65);
-          let cleanB = newB + (newLum - newB) * (intensity * 0.65);
+          // 🔥 STEP 1: YELLOW NEUTRALIZATION (Deficit Calculation)
+          const yellow = (r + g) / 2 - b;
 
-          // 🦷 Clinical Ivory Warmth (+8R, +6G, +3B)
-          cleanR += 8 * intensity;
-          cleanG += 6 * intensity;
-          cleanB += 3 * intensity;
+          let nr = r;
+          let ng = g;
+          let nb = b;
 
-          // --- 💡 GENTLE LUMINANCE LIFT (Sine-Wave Modeling) ---
-          // Creates a natural taper for shadows and highlights targeting mid-tones specifically
-          const liftCurve = Math.sin(Math.PI * (newLum / 255)); 
-          const brightMultiplier = 1.0 + (intensity * 0.12 * liftCurve);
+          if (yellow > 6) {
+            // Push toward neutral white (Reduce yellow tone)
+            nb += yellow * 0.6;
+            nr -= yellow * 0.15;
+            ng -= yellow * 0.08;
+          }
 
-          // Apply and clamp
-          data[i]     = Math.min(255, cleanR * brightMultiplier);
-          data[i + 1] = Math.min(255, cleanG * brightMultiplier);
-          data[i + 2] = Math.min(255, cleanB * brightMultiplier);
+          // 🔥 STEP 2: SUBTLE WHITENING (NO SHINE)
+          const lift = 1.035; // Very controlled boost
+          nr *= lift;
+          ng *= lift;
+          nb *= lift;
+
+          // 🔥 STEP 3: EDGE PRESERVATION (Contrast Restore)
+          // Preserves enamel texture and prevents the "plastic" look
+          const contrast = 1.04;
+          nr = (nr - 128) * contrast + 128;
+          ng = (ng - 128) * contrast + 128;
+          nb = (nb - 128) * contrast + 128;
+
+          // 🔥 STEP 4: CONTROLLED BLEND (Final commit)
+          // Binary geometric mask ensures zero film artifacts
+          const blend = 0.48; 
+
+          data[i]     = Math.min(255, r * (1 - blend) + nr * blend);
+          data[i + 1] = Math.min(255, g * (1 - blend) + ng * blend);
+          data[i + 2] = Math.min(255, b * (1 - blend) + nb * blend);
       }
 
-      // 3. Stamp it perfectly back into place
+      // 3. Direct pixel replacement (Eliminates masked film artifacts)
       ctx.putImageData(imgData, minX, minY);
 
   } catch (error) {
