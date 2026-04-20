@@ -407,63 +407,84 @@ const SmileSimulatorAI = () => {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, opts);
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Hardened Staging Canvas Fix)
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Nuclear Diagnostics & Override)
       console.log("🚨 DEBUG 0 - Snapshot Function Triggered!");
-      const stageCanvas = document.createElement("canvas");
-      stageCanvas.width = iw; stageCanvas.height = ih;
-      const stageCtx = stageCanvas.getContext("2d", { alpha: false });
 
-      // 1A: Flatten the face background first
-      if (videoRef.current && videoRef.current.readyState >= 2) {
-        stageCtx.drawImage(videoRef.current, 0, 0, iw, ih);
-      } else {
-        stageCtx.fillStyle = "#09090b";
-        stageCtx.fillRect(0, 0, iw, ih);
+      try {
+        // 1. Prepare Staging Canvas
+        const stageCanvas = document.createElement("canvas");
+        stageCanvas.width = iw; stageCanvas.height = ih;
+        const stageCtx = stageCanvas.getContext("2d", { alpha: false });
+
+        if (videoRef.current && videoRef.current.readyState >= 2) {
+          stageCtx.drawImage(videoRef.current, 0, 0, iw, ih);
+        } else {
+          stageCtx.fillStyle = "#09090b";
+          stageCtx.fillRect(0, 0, iw, ih);
+        }
+        stageCtx.drawImage(procCanvas, 0, 0);
+
+        // 2. Capture Snapshot
+        stageCanvas.toBlob((blob) => {
+          console.log("🚨 DEBUG 1 - Blob:", blob); 
+          if (!blob) return; 
+          
+          const blobUrl = URL.createObjectURL(blob);
+          const finalSnap = new Image();
+          finalSnap.src = blobUrl;
+
+          finalSnap.onload = () => {
+            requestAnimationFrame(() => {
+              const screenCanvas = zoomAfterRef.current;
+              if (!screenCanvas) {
+                console.error("🚨 DEBUG ERR: zoomAfterRef is disconnected from the UI!");
+                return;
+              }
+
+              // 🔥 NUCLEAR VISIBILITY OVERRIDE: Force the canvas to show up
+              screenCanvas.style.display = "block";
+              screenCanvas.style.opacity = "1";
+              screenCanvas.style.visibility = "visible";
+              screenCanvas.style.border = "4px solid #00ff00"; // Neon Green Border
+              
+              // Lock Dimensions to prevent React re-render wipes
+              const isMobileDevice = window.innerWidth < 768;
+              screenCanvas.width = isMobileDevice ? 800 : 1200;
+              screenCanvas.height = isMobileDevice ? 400 : 600;
+
+              const ctx = screenCanvas.getContext("2d", { alpha: false });
+              
+              // BYPASS CROP: Draw full snapshot to prove pipeline works
+              ctx.fillStyle = "#09090b";
+              ctx.fillRect(0, 0, screenCanvas.width, screenCanvas.height);
+              ctx.drawImage(finalSnap, 0, 0, screenCanvas.width, screenCanvas.height);
+
+              console.log("🚨 DEBUG 4 - Painted to Neon Green Canvas!");
+
+              // Render Before Snapshot (Direct)
+              const screenBefore = zoomBeforeRef.current;
+              if (screenBefore) {
+                screenBefore.style.display = "block";
+                screenBefore.style.border = "4px solid #00ff00";
+                screenBefore.width = screenCanvas.width;
+                screenBefore.height = screenCanvas.height;
+                const bCtx = screenBefore.getContext("2d", { alpha: false });
+                bCtx.drawImage(img, 0, 0, screenBefore.width, screenBefore.height);
+              }
+
+              // Cleanup
+              URL.revokeObjectURL(blobUrl);
+              stageCanvas.width = 0; 
+              
+              // Force Global Repaint
+              window.dispatchEvent(new Event("resize"));
+            });
+          };
+        }, "image/jpeg", 0.95);
+
+      } catch (error) {
+        console.error("🚨 SILENT CRASH CAUGHT:", error);
       }
-
-      // 1B: Flatten the simulation on top
-      stageCtx.drawImage(procCanvas, 0, 0);
-
-      // 🔍 STEP 7: CAPTURE THE FLATTENED SNAPSHOT
-      stageCanvas.toBlob((blob) => {
-        if (!blob) return;
-        
-        const blobUrl = URL.createObjectURL(blob);
-        const finalSnap = new Image();
-        finalSnap.src = blobUrl;
-
-        finalSnap.onload = () => {
-          requestAnimationFrame(() => {
-            const isMobileDevice = window.innerWidth < 768;
-            const zW = isMobileDevice ? 800 : 1200;
-            const zH = isMobileDevice ? 400 : 600;
-
-            // 1. DIRECT AFTER INJECTION
-            const screenAfter = zoomAfterRef.current;
-            if (screenAfter) {
-              screenAfter.width = zW; screenAfter.height = zH;
-              const sCtx = screenAfter.getContext("2d", { alpha: false });
-              applyClinicalZoom(sCtx, landmarks, iw, ih, finalSnap);
-            }
-
-            // 2. DIRECT BEFORE INJECTION
-            const screenBefore = zoomBeforeRef.current;
-            if (screenBefore) {
-              screenBefore.width = zW; screenBefore.height = zH;
-              const bCtx = screenBefore.getContext("2d", { alpha: false });
-              applyClinicalZoom(bCtx, landmarks, iw, ih, img);
-            }
-
-            // 🧹 CRITICAL: Memory Flush
-            URL.revokeObjectURL(blobUrl);
-            stageCanvas.width = 0; // Force GC
-
-            // Force Global Repaint
-            window.dispatchEvent(new Event("resize"));
-          });
-        };
-      }, "image/jpeg", 0.95);
-
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
       mainExport.width = iw; mainExport.height = ih;
