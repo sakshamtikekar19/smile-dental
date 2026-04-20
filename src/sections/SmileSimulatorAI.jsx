@@ -225,6 +225,7 @@ const SmileSimulatorAI = () => {
   const [zoomedBeforeCanvas, setZoomedBeforeCanvas] = useState(null);
   const [zoomedAfterCanvas, setZoomedAfterCanvas] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
+  const [isProcessingZoom, setIsProcessingZoom] = useState(false);
   const pendingTreatmentRef = useRef("whitening");
 
   const videoRef = useRef(null);
@@ -315,7 +316,7 @@ const SmileSimulatorAI = () => {
         const t = selectedTreatment;
         const opts = { anchor: { x: s.x, y: s.y }, rotation: s.ang };
         if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, opts);
-        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, opts);
+        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, 0.85);
       }
     }
     if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
@@ -393,8 +394,8 @@ const SmileSimulatorAI = () => {
         const rotationDeg = getProperAlignment(landmarks, iw, ih).rotationDeg;
         const opts = { anchor, rotation: rotationDeg };
         
-        // 🦷 WHIETENING FIRST (Step 1: whiten on original pixels)
-        applyProfessionalWhitening(pctx, landmarks, iw, ih);
+        // 🦷 REALISTIC WHITENING (Step 1: whiten on original pixels)
+        applyProfessionalWhitening(pctx, landmarks, iw, ih, 0.85);
       }
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
@@ -408,73 +409,70 @@ const SmileSimulatorAI = () => {
       }
 
       // 🔍 STEP 6: INSTANT ZOOM GENERATION (Nuclear Diagnostics & Override)
-      console.log("🚨 DEBUG 0 - Snapshot Function Triggered!");
+      setIsProcessingZoom(true);
 
-      try {
-        // 1. Prepare Staging Canvas
-        const stageCanvas = document.createElement("canvas");
-        stageCanvas.width = iw; stageCanvas.height = ih;
-        const stageCtx = stageCanvas.getContext("2d", { alpha: false });
+      // 1. Prepare Staging Canvas
+      const stageCanvas = document.createElement("canvas");
+      stageCanvas.width = iw; stageCanvas.height = ih;
+      const stageCtx = stageCanvas.getContext("2d", { alpha: false });
 
-        if (videoRef.current && videoRef.current.readyState >= 2) {
-          stageCtx.drawImage(videoRef.current, 0, 0, iw, ih);
-        } else {
-          stageCtx.fillStyle = "#09090b";
-          stageCtx.fillRect(0, 0, iw, ih);
-        }
-        stageCtx.drawImage(procCanvas, 0, 0);
-
-        // 2. Capture Snapshot
-        stageCanvas.toBlob((blob) => {
-          console.log("🚨 DEBUG 1 - Blob:", blob); 
-          if (!blob) return; 
-          
-          const blobUrl = URL.createObjectURL(blob);
-          const finalSnap = new Image();
-          finalSnap.src = blobUrl;
-
-          finalSnap.onload = () => {
-            requestAnimationFrame(() => {
-              const screenCanvas = zoomAfterRef.current;
-              if (!screenCanvas) {
-                console.error("🚨 DEBUG ERR: zoomAfterRef is disconnected from the UI!");
-                return;
-              }
-
-              // Lock Dimensions to prevent React re-render wipes
-              const isMobileDevice = window.innerWidth < 768;
-              screenCanvas.width = isMobileDevice ? 800 : 1200;
-              screenCanvas.height = isMobileDevice ? 400 : 600;
-
-              const ctx = screenCanvas.getContext("2d", { alpha: false });
-              
-              // 🚀 PRODUCTION DRAW: Apply surgical zoom math
-              applyClinicalZoom(ctx, landmarks, iw, ih, finalSnap);
-
-              console.log("🚨 DEBUG 4 - Clinical Frame Committed");
-
-              // Render Before Snapshot (Direct)
-              const screenBefore = zoomBeforeRef.current;
-              if (screenBefore) {
-                screenBefore.width = screenCanvas.width;
-                screenBefore.height = screenCanvas.height;
-                const bCtx = screenBefore.getContext("2d", { alpha: false });
-                applyClinicalZoom(bCtx, landmarks, iw, ih, img);
-              }
-
-              // Cleanup
-              URL.revokeObjectURL(blobUrl);
-              stageCanvas.width = 0; 
-              
-              // Force Global Repaint
-              window.dispatchEvent(new Event("resize"));
-            });
-          };
-        }, "image/jpeg", 0.95);
-
-      } catch (error) {
-        console.error("🚨 SILENT CRASH CAUGHT:", error);
+      if (videoRef.current && videoRef.current.readyState >= 2) {
+        stageCtx.drawImage(videoRef.current, 0, 0, iw, ih);
+      } else {
+        stageCtx.fillStyle = "#09090b";
+        stageCtx.fillRect(0, 0, iw, ih);
       }
+      stageCtx.drawImage(procCanvas, 0, 0);
+
+      // 2. Capture Snapshot
+      stageCanvas.toBlob((blob) => {
+        if (!blob) {
+          setIsProcessingZoom(false);
+          return; 
+        }
+        
+        const blobUrl = URL.createObjectURL(blob);
+        const finalSnap = new Image();
+        finalSnap.src = blobUrl;
+
+        finalSnap.onload = () => {
+          requestAnimationFrame(() => {
+            const screenCanvas = zoomAfterRef.current;
+            if (!screenCanvas) {
+              return;
+            }
+
+            // Lock Dimensions to prevent React re-render wipes
+            const isMobileDevice = window.innerWidth < 768;
+            screenCanvas.width = isMobileDevice ? 800 : 1200;
+            screenCanvas.height = isMobileDevice ? 400 : 600;
+
+            const ctx = screenCanvas.getContext("2d", { alpha: false });
+            
+            // 🚀 PRODUCTION DRAW: Apply surgical zoom math
+            applyClinicalZoom(ctx, landmarks, iw, ih, finalSnap);
+
+            // Render Before Snapshot (Direct)
+            const screenBefore = zoomBeforeRef.current;
+            if (screenBefore) {
+              screenBefore.width = screenCanvas.width;
+              screenBefore.height = screenCanvas.height;
+              const bCtx = screenBefore.getContext("2d", { alpha: false });
+              applyClinicalZoom(bCtx, landmarks, iw, ih, img);
+            }
+
+            // Cleanup
+            URL.revokeObjectURL(blobUrl);
+            stageCanvas.width = 0; 
+            
+            // ✨ THE MAGIC: Turn off the spinner to trigger the smooth CSS fade-out
+            setIsProcessingZoom(false);
+
+            // Force Global Repaint
+            window.dispatchEvent(new Event("resize"));
+          });
+        };
+      }, "image/jpeg", 0.95);
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
       mainExport.width = iw; mainExport.height = ih;
@@ -606,6 +604,17 @@ const SmileSimulatorAI = () => {
                 className="w-full h-full object-cover"
                 style={{ background: "#000", display: "block" }}
               />
+
+              {/* 💎 The Premium Glassmorphism Overlay */}
+              <div 
+                className={cn(
+                  "absolute inset-0 z-10 flex flex-col items-center justify-center backdrop-blur-md bg-black/60 transition-opacity duration-500 ease-in-out",
+                  isProcessingZoom ? "opacity-100" : "opacity-0 pointer-events-none"
+                )}
+              >
+                <div className="w-6 h-6 border-2 border-zinc-700 border-t-white rounded-full animate-spin mb-2" />
+                <span className="text-zinc-400 text-[10px] tracking-widest uppercase font-bold">Processing</span>
+              </div>
             </div>
             {/* Hidden Before Reference for Direct Injection Sync */}
             <canvas ref={zoomBeforeRef} className="hidden invisible absolute pointer-events-none" />
