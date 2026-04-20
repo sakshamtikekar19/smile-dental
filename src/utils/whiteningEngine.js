@@ -1,4 +1,6 @@
 // 🦷 ANATOMICAL ENAMEL SEGMENTATION (CLINICAL HARDENING)
+const UPPER_INNER_LIP = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
+const LOWER_INNER_LIP = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
 
 /**
  * 🔥 STEP 1 — ENAMEL SEGMENTATION (Hardened)
@@ -225,7 +227,42 @@ export function applyWhitening(ctx, landmarks, w, h, intensity = 0.75) {
     });
   });
 
-  ctx.putImageData(whiteningData, minX, minY);
+  // 🛡️ 5. SURGICAL STAMP (The Ghost-Box Fix)
+  // We use a temporary staging canvas to "stamp" the modified pixels 
+  // through a cookie-cutter path defined by the inner lips.
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = boxW;
+  tempCanvas.height = boxH;
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCtx.putImageData(whiteningData, 0, 0);
+
+  ctx.save();
+  ctx.beginPath();
+  
+  // Trace upper inner lip
+  UPPER_INNER_LIP.forEach((idx, i) => {
+    const pt = landmarks[idx];
+    const x = pt.x <= 1 ? pt.x * w : pt.x;
+    const y = pt.y <= 1 ? pt.y * h : pt.y;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  
+  // Trace lower inner lip backwards to close the loop
+  LOWER_INNER_LIP.forEach((idx) => {
+     const pt = landmarks[idx];
+     const x = pt.x <= 1 ? pt.x * w : pt.x;
+     const y = pt.y <= 1 ? pt.y * h : pt.y;
+     ctx.lineTo(x, y);
+  });
+  
+  ctx.closePath();
+  ctx.clip(); // 🔥 Cookie-cutter mask
+
+  // Draw the whitened pixels through the mask
+  ctx.drawImage(tempCanvas, minX, minY);
+
+  ctx.restore(); 
 }
 
 export const applyProfessionalWhitening = applyWhitening;
