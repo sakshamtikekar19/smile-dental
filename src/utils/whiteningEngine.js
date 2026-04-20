@@ -241,3 +241,5 @@ export function applyWhitening(ctx, landmarks, w, h) {
   // 🔍 DEBUG VISUALIZATION (ID Labels Removed for Production)
   // drawAnatomicalLabels(ctx, teeth, minX, minY);
 }
+
+export const applyProfessionalWhitening = applyWhitening;
