@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: LOCAL MODE (SURGICAL PRECISION)
- * Coordinate-Locked Orthodontic Core for Orchestra Stabilizer
+ * ALIGNMENT ENGINE: PRODUCTION-SAFE MODE (V5)
+ * Coordination-Locked Orthodontic Core with Facial Midline Anchoring.
  */
 
 const UPPER_ARCH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
@@ -35,13 +35,13 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   
   if (boxW <= 0 || boxH <= 0) return;
 
-  const centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
-  const archMidY = ys.reduce((s, p) => s + p, 0) / ys.length;
+  // 🛡️ ANCHOR FIX: True Facial Midline (Landmark 13)
+  const globalMidX = landmarks[13].x * vW;
+  const globalMidY = landmarks[13].y * vH;
+  const localMidX = globalMidX - anchor.x + (ctx.canvas.width / 2);
+  const localMidY = globalMidY - anchor.y + (ctx.canvas.height * 0.1);
 
-  // 👄 LIP SHIELD ANCHORS
-  const lipUpperY = (landmarks[13].y * vH) - anchor.y + (ctx.canvas.width * 0.1);
-  const lipLowerY = (landmarks[14].y * vH) - anchor.y + (ctx.canvas.width * 0.1);
-
+  // Bounds for local crop
   const safeX = Math.max(0, minX);
   const safeY = Math.max(0, minY);
   const safeW = Math.min(ctx.canvas.width - safeX, boxW);
@@ -49,83 +49,82 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
 
   if (safeW <= 0 || safeH <= 0) return;
 
-  const imageData = ctx.getImageData(safeX, safeY, safeW, safeH);
-  const sourceData = new Uint8ClampedArray(imageData.data);
-  const newData = new Uint8ClampedArray(sourceData);
+  // Center coordinates relative to the safe crop
+  const centerX = localMidX - safeX;
+  const archMidY = localMidY - safeY;
 
+  // 👄 LIP SHIELD ANCHORS (Relative to safe crop)
+  const lipTopY = (landmarks[13].y * vH) - anchor.y + (ctx.canvas.height * 0.1) - safeY;
+  const lipBottomY = (landmarks[14].y * vH) - anchor.y + (ctx.canvas.height * 0.1) - safeY;
+
+  const imageData = ctx.getImageData(safeX, safeY, safeW, safeH);
+  const src = new Uint8ClampedArray(imageData.data);
+  const dst = new Uint8ClampedArray(src);
+
+  // 2. 🧪 PRODUCTION-SAFE ORTHODONTIC LOOP
   for (let y = 0; y < safeH; y++) {
     for (let x = 0; x < safeW; x++) {
-      const globalY = y + safeY;
-      const globalX = x + safeX;
-
       const i = (y * safeW + x) * 4;
 
-      const r = sourceData[i], g = sourceData[i+1], b = sourceData[i+2];
-      const lum = (r + g + b) / 3;
-      
-      // 👄 SKIN SHIELD: Scale strength to 0 near lips
-      const distToLip = Math.min(Math.abs(globalY - lipUpperY), Math.abs(globalY - lipLowerY));
-      const skinShield = Math.max(0, Math.min(1.0, (distToLip - 2) / 10));
-      if (skinShield <= 0) continue;
+      const r = src[i], g = src[i + 1], b = src[i + 2];
+      const globalX = x; // Relative to crop
+      const globalY = y;
 
-      // 🧠 STEP 2: PROFESSIONAL ALIGNMENT PHYSICS (Production Grade)
-      // 🎯 NORMALIZED POSITION
-      const nx = (globalX - centerX) / (boxW / 2); // -1 → 1
+      // ✅ NORMALIZED POSITION (Relative to Midline)
+      const nx = (globalX - centerX) / (boxW * 0.5);
 
-      // 🧠 CENTER WEIGHT (stronger at edges, stable at center)
-      const edgeWeight = Math.pow(Math.abs(nx), 0.7);
-
-      // 🎯 TARGET ARCH (stronger curve)
+      // ✅ PARABOLIC TARGET (Stabilized)
       const curve = nx * nx;
-      const targetY = archMidY + (boxH * 0.12) * curve;
+      const targetY = archMidY + (boxH * 0.07) * curve;
 
-      // 🚀 VERTICAL FORCE (VISIBLE)
-      let dy = (targetY - globalY) * 2.4;
+      // ✅ CONTROLLED FORCES (V5)
+      let dy = (targetY - globalY) * 1.2;   // Optimized for stability
+      let dx = -nx * (boxW * 0.12);         // Stronger horizontal pull
 
-      // 💥 HARD SNAP (SCALED to image)
-      const minShift = Math.max(3, boxH * 0.015);
-      if (Math.abs(dy) < minShift) {
-        dy = dy > 0 ? minShift : -minShift;
-      }
+      // ✅ TOOTH DETECTION (Refined)
+      const lum = (r + g + b) / 3;
+      const isTooth =
+        lum > 90 &&              // Bright enough
+        r > b &&                 // Not bluish
+        (r - g) < 35 &&          // Avoid gums/lips
+        (r - b) < 55;            // Avoid non-dental reds
 
-      // 🚀 HORIZONTAL FORCE (TRUE ALIGNMENT)
-      let dx = -nx * (boxW * 0.08) * edgeWeight;
-
-      // 🦷 TOOTH PRIORITY BOOST (CRITICAL)
-      const isTooth = r > 70 && g > 65 && b > 55 && (r - b) < 50 && b > 45;
       if (isTooth) {
-        dx *= 1.4;
-        dy *= 1.6;
+        dx *= 1.5;
+        dy *= 1.3;
+      } else {
+        dx *= 0.6;  // Protect gums/lips
+        dy *= 0.5;
       }
 
-      // clamp (prevent tearing)
-      dx = Math.max(-6, Math.min(6, dx));
-      dy = Math.max(-8, Math.min(8, dy));
+      // ✅ STRONGER SKIN SHIELD (20px transition)
+      const distToLip = Math.min(
+        Math.abs(globalY - lipTopY),
+        Math.abs(globalY - lipBottomY)
+      );
+      const skinShield = Math.max(0, Math.min(1, distToLip / 20));
 
-      // 🎯 SAMPLING
-      const sx = Math.max(0, Math.min(safeW - 1, x - dx * skinShield));
-      const sy = Math.max(0, Math.min(safeH - 1, y - dy * skinShield));
+      dx *= skinShield;
+      dy *= skinShield;
 
-      const x1 = Math.floor(sx), x2 = Math.min(x1 + 1, safeW - 1);
-      const y1 = Math.floor(sy), y2 = Math.min(y1 + 1, safeH - 1);
-      const tx = sx - x1, ty = sy - y1;
+      // ✅ FORCE CLAMPING (Avoid distortion)
+      dx = Math.max(-18, Math.min(18, dx));
+      dy = Math.max(-14, Math.min(14, dy));
 
-      const i11 = (y1 * safeW + x1) * 4, i21 = (y1 * safeW + x2) * 4;
-      const i12 = (y2 * safeW + x1) * 4, i22 = (y2 * safeW + x2) * 4;
+      // ✅ SAFE SAMPLING (Direct)
+      const sx = Math.max(0, Math.min(safeW - 1, x - dx));
+      const sy = Math.max(0, Math.min(safeH - 1, y - dy));
 
-      for (let c = 0; c < 3; c++) {
-        let v = sourceData[i11+c]*(1-tx)*(1-ty) + sourceData[i21+c]*tx*(1-ty) +
-                sourceData[i12+c]*(1-tx)*ty + sourceData[i22+c]*tx*ty;
-        
-        // ✨ MICRO-CONTRAST (Professional Separations)
-        if (lum > 95) v = (v - 128) * 1.08 + 128;
-        newData[i + c] = Math.max(0, Math.min(255, v));
-      }
-      newData[i+3] = 255;
+      const srcIdx = ((sy | 0) * safeW + (sx | 0)) * 4;
+
+      dst[i]     = src[srcIdx];
+      dst[i + 1] = src[srcIdx + 1];
+      dst[i + 2] = src[srcIdx + 2];
+      dst[i + 3] = 255;
     }
   }
 
-  imageData.data.set(newData);
+  imageData.data.set(dst);
   ctx.putImageData(imageData, safeX, safeY); 
 }
 
