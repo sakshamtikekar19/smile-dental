@@ -19,16 +19,20 @@ function segmentEnamel(data, w, h, mouthBox = null) {
       if (x < mouthBox.minX || x > mouthBox.maxX || y < mouthBox.minY || y > mouthBox.maxY) return false;
     }
 
-    const lum = (r + g + b) / 3;
-    if (lum < 40 || lum > 245) return false;
+    // 💡 Visual Luminance (Accurate human-eye formula)
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    
+    // Lower floor to keep gaps dark, but catch glossy highlights (No ceiling)
+    if (lum < 30) return false; 
 
     // Reject red-dominant surfaces (Lips, Gums)
-    if (r > g * 1.15 && r > b * 1.20) return false; 
+    // More aggressive ratio to ensure no inner lip bleeding
+    if (r > g * 1.25 && r > b * 1.25) return false; 
 
-    // 🛡️ SATURATION GUARD: Enamel is neutral; skin/lips are vibrant
+    // 🛡️ SATURATION GUARD: Relaxed to 50% to catch deep yellow stains
     const max = Math.max(r, g, b), min = Math.min(r, g, b);
     const sat = max === 0 ? 0 : (max - min) / max * 100;
-    if (sat > 35) return false; // Hardened threshold (was 60)
+    if (sat > 50) return false;
 
     return true;
   };
@@ -150,7 +154,7 @@ function drawAnatomicalLabels(ctx, teeth, offsetX, offsetY) {
 /**
  * PRODUCTION-SAFE ANATOMICAL WHITENING PIPELINE
  */
-export function applyWhitening(ctx, landmarks, w, h) {
+export function applyWhitening(ctx, landmarks, w, h, intensity = 0.75) {
   if (!landmarks || landmarks.length === 0) return;
 
   // 1. Define Processing Region
@@ -175,12 +179,11 @@ export function applyWhitening(ctx, landmarks, w, h) {
   if (boxW <= 0 || boxH <= 0) return;
 
   // 🛡️ 2. Build Geometric Mouth Guard (GMB)
-  // Indices: 61 (L-corner), 291 (R-corner), 13 (U-Lip), 14 (L-Lip)
   const l61 = landmarks[61], r291 = landmarks[291], u13 = landmarks[13], l14 = landmarks[14];
   const mouthBox = {
     minX: (l61.x * w - minX),
     maxX: (r291.x * w - minX),
-    minY: (u13.y * h - minY) - 10, // Small vertical safety buffer
+    minY: (u13.y * h - minY) - 10,
     maxY: (l14.y * h - minY) + 12
   };
 
@@ -197,49 +200,32 @@ export function applyWhitening(ctx, landmarks, w, h) {
       const i = idx * 4;
       let r = data[i], g = data[i+1], b = data[i+2];
 
-      // 🧠 COLOR ANALYSIS
-      const lum = (r + g + b) / 3;
-      if (lum < 35) return; // skip deep gaps
-      
-      const warm = (r + g) / 2 - b;
+      // 1. Calculate visual luminance (Accurate formula)
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (lum < 30) return; // skip deep gaps
 
-      // 🎯 STRONGER YELLOW DETECTION (Production Grade)
-      const isYellow = warm > 6;   // lower threshold catches more stains
+      // 2. STAIN NEUTRALIZATION (The Blue Lift)
+      const rgAvg = (r + g) / 2;
+      let newB = b + ((rgAvg - b) * (intensity * 0.85)); 
+      let newR = r;
+      let newG = g;
 
-      let nr = r, ng = g, nb = b;
+      // 3. LUMINANCE LIFT (Non-Linear Curve)
+      const liftCurve = (lum / 255);
+      const brightMultiplier = 1.0 + (intensity * 0.45 * liftCurve);
 
-      // 🧪 STEP 1: REAL STAIN REMOVAL (NOT BRIGHTENING)
-      if (isYellow) {
-        // reduce red dominance (yellow/orange source)
-        nr *= 0.88;
-        ng *= 0.94;
+      newR *= brightMultiplier;
+      newG *= brightMultiplier;
+      newB *= brightMultiplier;
 
-        // 🎯 NORMALIZE TOWARD IVORY (NOT white/blue)
-        const target = 210; // ivory enamel base tone
-        nr = nr * 0.85 + target * 0.15;
-        ng = ng * 0.88 + target * 0.12;
-        nb = nb * 0.92 + target * 0.08;
-      }
-
-      // ✨ STEP 2 — VERY SUBTLE LIFT (NO SHINE)
-      const wr = nr * 1.015;
-      const wg = ng * 1.02;
-      const wb = nb * 1.015;
-
-      // 🎯 STEP 3 — CALIBRATED BLEND (ANTI-PLASTIC)
-      // Maintaining texture and depth while neutralizing stains
-      const blend = 0.42; 
-      
-      data[i]     = Math.max(0, Math.min(255, r * (1 - blend) + wr * blend));
-      data[i + 1] = Math.max(0, Math.min(255, g * (1 - blend) + wg * blend));
-      data[i + 2] = Math.max(0, Math.min(255, b * (1 - blend) + wb * blend));
+      // 4. APPLY & CLAMP
+      data[i]     = Math.min(255, newR);
+      data[i + 1] = Math.min(255, newG);
+      data[i + 2] = Math.min(255, newB);
     });
   });
 
   ctx.putImageData(whiteningData, minX, minY);
-
-  // 🔍 DEBUG VISUALIZATION (ID Labels Removed for Production)
-  // drawAnatomicalLabels(ctx, teeth, minX, minY);
 }
 
 export const applyProfessionalWhitening = applyWhitening;
