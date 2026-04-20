@@ -1,23 +1,37 @@
-// 🦷 ULTIMATE, PRODUCTION-READY WHITENING ENGINE (FIXED)
-// Features industrial safety nets and absolute width calculation to prevent array skewing.
+// 🦷 "COLOR-CORRECTION MASTERING" WHITENING ENGINE
+// Features deficit-based bleaching, sin-wave luminance lifts, and anatomical geometric isolation.
 
 const UPPER_INNER_LIP = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
 const LOWER_INNER_LIP = [308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78];
 
-// Mathematical fence to prevent lip bleed (Ray-Casting)
+/**
+ * 🛡️ RAY-CASTING ALGORITHM
+ * Mathematically confines the simulation to the anatomical mouth opening.
+ */
 function isPixelInsidePolygon(px, py, polygon) {
     let isInside = false;
     for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
         let xi = polygon[i].x, yi = polygon[i].y;
         let xj = polygon[j].x, yj = polygon[j].y;
-        let intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        let intersect = ((yi > py) !== (yj > py)) && 
+                        (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
         if (intersect) isInside = !isInside;
     }
     return isInside;
 }
 
+/**
+ * 🚀 High-Fidelity Color-Correction Mastering
+ * Features sine-wave lifts and deficit-based bleaching logic.
+ * 
+ * @param {CanvasRenderingContext2D} ctx - Main simulation context
+ * @param {Array} landmarks - MediaPipe face mesh landmarks
+ * @param {number} iw - Canvas width
+ * @param {number} ih - Canvas height
+ * @param {number} intensity - Whitening power (0.0 to 1.0)
+ */
 export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity = 0.8) {
-  // 🛡️ SAFETY NET: Ensure FaceMesh actually found a face
+  // 🛡️ SAFETY NET: Ensure FaceMesh found a face
   if (!landmarks || landmarks.length === 0) return;
 
   try {
@@ -36,33 +50,33 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
           if (pt.y > maxY) maxY = pt.y;
       });
 
-      // ADD PADDING: Reach the extreme left and right teeth safely
-      minX = Math.max(0, Math.floor(minX - 10));
-      minY = Math.max(0, Math.floor(minY - 10));
-      maxX = Math.min(iw, Math.ceil(maxX + 10));
-      maxY = Math.min(ih, Math.ceil(maxY + 10));
+      // 🧤 PADDING: Safely reach extreme left and right teeth
+      const pad = 10;
+      minX = Math.max(0, Math.floor(minX - pad));
+      minY = Math.max(0, Math.floor(minY - pad));
+      maxX = Math.min(iw, Math.ceil(maxX + pad));
+      maxY = Math.min(ih, Math.ceil(maxY + pad));
 
       const reqBoxW = maxX - minX;
       const reqBoxH = maxY - minY;
       
-      // Prevent Canvas API crash if mouth box is invalid
+      // Prevent Canvas crash if mouth box is invalid
       if (reqBoxW <= 0 || reqBoxH <= 0 || minX >= iw || minY >= ih) return;
 
       // Extract raw image data
-      let imgData = ctx.getImageData(minX, minY, reqBoxW, reqBoxH);
-      let data = imgData.data;
+      const imgData = ctx.getImageData(minX, minY, reqBoxW, reqBoxH);
+      const data = imgData.data;
       
-      // 🔥 THE FIX: Get the absolute physical width of the array returned by the browser
+      // The absolute physical width of the array returned by the browser
       const actualWidth = imgData.width;
 
-      // 2. 🧪 TRIPLE-GATE PIXEL LOOP
+      // 2. 🧪 THE COLOR-CORRECTION LOOP
       for (let i = 0; i < data.length; i += 4) {
-          // 🔥 THE FIX: Use actualWidth to prevent diagonal array skewing!
           const pixelIndex = i / 4;
           const px = minX + (pixelIndex % actualWidth);
           const py = minY + Math.floor(pixelIndex / actualWidth);
 
-          // GATE 0: Geometric Fence (Skip if outside lips)
+          // 🛡️ GATE 0: THE INVISIBLE FENCE (Geometric Isolation)
           if (!isPixelInsidePolygon(px, py, mouthPolygon)) continue;
 
           let r = data[i];
@@ -70,49 +84,40 @@ export function applyUltraRealisticWhitening(ctx, landmarks, iw, ih, intensity =
           let b = data[i + 2];
           const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-          // GATE 1: Deep Shadow Protection
-          if (lum < 25) continue;
+          // 🛑 GATE 1: Deep Shadow Protection
+          if (lum < 20) continue;
 
-          // GATE 2: Flesh Protector (Backup check for gums/tongue)
-          if (r > g * 1.15 && r > b * 1.25) continue;
+          // 🛑 GATE 2: Flesh Protector (Strict red-dominance check for gums/tongue)
+          if (r > g * 1.15 && r > b * 1.15) continue;
 
-          // PLAQUE DETECTOR
-          // 🧬 PLAQUE DETECTOR: Broadened to catch mid-range yellow/brown tones
-          const isPlaque = (r > 70 && g > 70 && b < g - 12);
+          // --- 🎯 STAIN NEUTRALIZATION (Deficit-Based) ---
+          const rgAvg = (r + g) / 2.0;
+          const blueDeficit = Math.max(0, rgAvg - b);
 
-          // SOFT SHADOW LOGIC
-          let processIntensity = intensity;
-          if (lum < 60 && !isPlaque) {
-              processIntensity = intensity * ((lum - 25) / 35); 
-          }
+          // Forcefully lift the Blue channel to chemically neutralize the yellow staining
+          const newB = b + (blueDeficit * intensity * 1.2); 
 
-          // --- BLEACHING & NORMALIZATION ---
+          // --- 🎨 ENAMEL UNIFICATION ---
+          const newLum = 0.299 * r + 0.587 * g + 0.114 * newB;
+          
+          let cleanR = r + (newLum - r) * (intensity * 0.65);
+          let cleanG = g + (newLum - g) * (intensity * 0.65);
+          let cleanB = newB + (newLum - newB) * (intensity * 0.65);
 
-          // 🧪 PLAQUE KILLER: Aggressively force Blue channel up (2.2x multiplier)
-          let newB = b;
-          if (isPlaque) {
-              newB = b + (g - b) * processIntensity * 2.2; 
-          }
+          // 🦷 Clinical Ivory Warmth (+8R, +6G, +3B)
+          cleanR += 8 * intensity;
+          cleanG += 6 * intensity;
+          cleanB += 3 * intensity;
 
-          // 2. Color Unification
-          // 🎨 ENAMEL NORMALIZATION: Reduced pull (0.45) to preserve natural texture
-          let cleanR = r + (lum - r) * processIntensity * 0.45;
-          let cleanG = g + (lum - g) * processIntensity * 0.45;
-          let cleanB = newB + (lum - newB) * processIntensity * 0.45;
+          // --- 💡 GENTLE LUMINANCE LIFT (Sine-Wave Modeling) ---
+          // Creates a natural taper for shadows and highlights targeting mid-tones specifically
+          const liftCurve = Math.sin(Math.PI * (newLum / 255)); 
+          const brightMultiplier = 1.0 + (intensity * 0.12 * liftCurve);
 
-          // subtler Ivory Warmth (+6, +4, +2)
-          cleanR += 6 * processIntensity;
-          cleanG += 4 * processIntensity;
-          cleanB += 2 * processIntensity;
-
-          // 3. Inverse Luminance Lift (Anti-Glow)
-          // 💡 INVERSE LUMINANCE LIFT: Dialed down (0.10) to eliminate plastic glow
-          const inverseLift = (255 - lum) / 255; 
-          const brightnessCap = 1.0 + (processIntensity * 0.10 * inverseLift);
-
-          data[i] = Math.min(255, cleanR * brightnessCap);
-          data[i + 1] = Math.min(255, cleanG * brightnessCap);
-          data[i + 2] = Math.min(255, cleanB * brightnessCap);
+          // Apply and clamp
+          data[i]     = Math.min(255, cleanR * brightMultiplier);
+          data[i + 1] = Math.min(255, cleanG * brightMultiplier);
+          data[i + 2] = Math.min(255, cleanB * brightMultiplier);
       }
 
       // 3. Stamp it perfectly back into place
