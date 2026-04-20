@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: PRODUCTION-SAFE MODE (V5)
- * Coordination-Locked Orthodontic Core with Facial Midline Anchoring.
+ * ALIGNMENT ENGINE: VISIBLE FORCE MODE (V6)
+ * Coordination-Locked Orthodontic Core with Minimum-Flow Shielding.
  */
 
 const UPPER_ARCH_INDICES = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291];
@@ -35,7 +35,7 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   
   if (boxW <= 0 || boxH <= 0) return;
 
-  // 🛡️ ANCHOR FIX: True Facial Midline (Landmark 13)
+  // 🛡️ ANCHOR: True Facial Midline (Landmark 13)
   const globalMidX = landmarks[13].x * vW;
   const globalMidY = landmarks[13].y * vH;
   const localMidX = globalMidX - anchor.x + (ctx.canvas.width / 2);
@@ -58,10 +58,12 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
   const lipBottomY = (landmarks[14].y * vH) - anchor.y + (ctx.canvas.height * 0.1) - safeY;
 
   const imageData = ctx.getImageData(safeX, safeY, safeW, safeH);
-  const src = new Uint8ClampedArray(imageData.data);
-  const dst = new Uint8ClampedArray(src);
+  
+  // ✅ SEPARATE BUFFERS (CRITICAL for transformation)
+  const src = new Uint8ClampedArray(imageData.data); // Source Copy
+  const dst = imageData.data;                      // Destination Pointer
 
-  // 2. 🧪 PRODUCTION-SAFE ORTHODONTIC LOOP
+  // 2. 🧪 VISIBLE FORCE ORTHODONTIC LOOP (V6)
   for (let y = 0; y < safeH; y++) {
     for (let x = 0; x < safeW; x++) {
       const i = (y * safeW + x) * 4;
@@ -73,49 +75,57 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
       // ✅ NORMALIZED POSITION (Relative to Midline)
       const nx = (globalX - centerX) / (boxW * 0.5);
 
-      // ✅ PARABOLIC TARGET (Stabilized)
+      // ✅ PARABOLIC TARGET (V6 - 0.07 Curve)
       const curve = nx * nx;
       const targetY = archMidY + (boxH * 0.07) * curve;
 
-      // ✅ CONTROLLED FORCES (V5)
-      let dy = (targetY - globalY) * 1.2;   // Optimized for stability
-      let dx = -nx * (boxW * 0.12);         // Stronger horizontal pull
+      // ✅ STRONG BUT CONTROLLED FORCES (V6)
+      let dx = -nx * (boxW * 0.22);         // BIG horizontal movement
+      let dy = (targetY - globalY) * 1.6;   // Stronger vertical lift
 
-      // ✅ TOOTH DETECTION (Refined)
+      // ✅ TOOTH DETECTION (V6 Improved)
       const lum = (r + g + b) / 3;
       const isTooth =
         lum > 90 &&              // Bright enough
         r > b &&                 // Not bluish
-        (r - g) < 35 &&          // Avoid gums/lips
-        (r - b) < 55;            // Avoid non-dental reds
+        (r - g) < 35 &&          // Avoid lips
+        (r - b) < 55;            // Avoid dental reds
 
       if (isTooth) {
         dx *= 1.5;
         dy *= 1.3;
       } else {
-        dx *= 0.6;  // Protect gums/lips
+        dx *= 0.6;  // Protect gums/lips (dampened but not killed)
         dy *= 0.5;
       }
 
-      // ✅ STRONGER SKIN SHIELD (20px transition)
+      // ✅ MINIMUM FLOW SKIN SHIELD (V6 - Never kill movement)
       const distToLip = Math.min(
         Math.abs(globalY - lipTopY),
         Math.abs(globalY - lipBottomY)
       );
-      const skinShield = Math.max(0, Math.min(1, distToLip / 20));
+      // 🔥 FIX: Minimum force of 0.4 ensures visible movement at edges
+      const skinShield = Math.max(0.4, Math.min(1, distToLip / 25));
 
       dx *= skinShield;
       dy *= skinShield;
 
-      // ✅ FORCE CLAMPING (Avoid distortion)
-      dx = Math.max(-18, Math.min(18, dx));
-      dy = Math.max(-14, Math.min(14, dy));
+      // ✅ FORCE CLAMPING (Increased for V6)
+      dx = Math.max(-35, Math.min(35, dx));
+      dy = Math.max(-25, Math.min(25, dy));
 
-      // ✅ SAFE SAMPLING (Direct)
+      // 🧪 DEBUG: Trace center-point force once per frame
+      if (Math.abs(x - centerX) < 0.5 && Math.abs(y - archMidY) < 0.5) {
+        // console.log("ORTHO V6 DEBUG [DX, DY]:", dx, dy);
+      }
+
+      // ✅ SAFE SAMPLING (Explicit Floor)
       const sx = Math.max(0, Math.min(safeW - 1, x - dx));
       const sy = Math.max(0, Math.min(safeH - 1, y - dy));
 
-      const srcIdx = ((sy | 0) * safeW + (sx | 0)) * 4;
+      const sx0 = Math.floor(sx);
+      const sy0 = Math.floor(sy);
+      const srcIdx = (sy0 * safeW + sx0) * 4;
 
       dst[i]     = src[srcIdx];
       dst[i + 1] = src[srcIdx + 1];
@@ -124,7 +134,7 @@ function processArch(ctx, landmarks, vW, vH, indices, anchor) {
     }
   }
 
-  imageData.data.set(dst);
+  // ctx.putImageData already writes to safeX/safeY from the modified buffer pointer
   ctx.putImageData(imageData, safeX, safeY); 
 }
 
