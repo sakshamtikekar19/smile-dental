@@ -225,7 +225,6 @@ const SmileSimulatorAI = () => {
   const [zoomedBeforeCanvas, setZoomedBeforeCanvas] = useState(null);
   const [zoomedAfterCanvas, setZoomedAfterCanvas] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
-  const [isProcessingZoom, setIsProcessingZoom] = useState(false);
   const pendingTreatmentRef = useRef("whitening");
 
   const videoRef = useRef(null);
@@ -409,7 +408,6 @@ const SmileSimulatorAI = () => {
       }
 
       // 🔍 STEP 6: INSTANT ZOOM GENERATION (Nuclear Diagnostics & Override)
-      setIsProcessingZoom(true);
 
       // 1. Prepare Staging Canvas
       const stageCanvas = document.createElement("canvas");
@@ -426,10 +424,7 @@ const SmileSimulatorAI = () => {
 
       // 2. Capture Snapshot
       stageCanvas.toBlob((blob) => {
-        if (!blob) {
-          setIsProcessingZoom(false);
-          return; 
-        }
+        if (!blob) return; 
         
         const blobUrl = URL.createObjectURL(blob);
         const finalSnap = new Image();
@@ -465,9 +460,6 @@ const SmileSimulatorAI = () => {
             URL.revokeObjectURL(blobUrl);
             stageCanvas.width = 0; 
             
-            // ✨ THE MAGIC: Turn off the spinner to trigger the smooth CSS fade-out
-            setIsProcessingZoom(false);
-
             // Force Global Repaint
             window.dispatchEvent(new Event("resize"));
           });
@@ -604,17 +596,6 @@ const SmileSimulatorAI = () => {
                 className="w-full h-full object-cover"
                 style={{ background: "#000", display: "block" }}
               />
-
-              {/* 💎 The Premium Glassmorphism Overlay */}
-              <div 
-                className={cn(
-                  "absolute inset-0 z-10 flex flex-col items-center justify-center backdrop-blur-md bg-black/60 transition-opacity duration-500 ease-in-out",
-                  isProcessingZoom ? "opacity-100" : "opacity-0 pointer-events-none"
-                )}
-              >
-                <div className="w-6 h-6 border-2 border-zinc-700 border-t-white rounded-full animate-spin mb-2" />
-                <span className="text-zinc-400 text-[10px] tracking-widest uppercase font-bold">Processing</span>
-              </div>
             </div>
             {/* Hidden Before Reference for Direct Injection Sync */}
             <canvas ref={zoomBeforeRef} className="hidden invisible absolute pointer-events-none" />
