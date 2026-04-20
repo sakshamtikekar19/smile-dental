@@ -441,12 +441,6 @@ const SmileSimulatorAI = () => {
                 return;
               }
 
-              // 🔥 NUCLEAR VISIBILITY OVERRIDE: Force the canvas to show up
-              screenCanvas.style.display = "block";
-              screenCanvas.style.opacity = "1";
-              screenCanvas.style.visibility = "visible";
-              screenCanvas.style.border = "4px solid #00ff00"; // Neon Green Border
-              
               // Lock Dimensions to prevent React re-render wipes
               const isMobileDevice = window.innerWidth < 768;
               screenCanvas.width = isMobileDevice ? 800 : 1200;
@@ -454,22 +448,18 @@ const SmileSimulatorAI = () => {
 
               const ctx = screenCanvas.getContext("2d", { alpha: false });
               
-              // BYPASS CROP: Draw full snapshot to prove pipeline works
-              ctx.fillStyle = "#09090b";
-              ctx.fillRect(0, 0, screenCanvas.width, screenCanvas.height);
-              ctx.drawImage(finalSnap, 0, 0, screenCanvas.width, screenCanvas.height);
+              // 🚀 PRODUCTION DRAW: Apply surgical zoom math
+              applyClinicalZoom(ctx, landmarks, iw, ih, finalSnap);
 
-              console.log("🚨 DEBUG 4 - Painted to Neon Green Canvas!");
+              console.log("🚨 DEBUG 4 - Clinical Frame Committed");
 
               // Render Before Snapshot (Direct)
               const screenBefore = zoomBeforeRef.current;
               if (screenBefore) {
-                screenBefore.style.display = "block";
-                screenBefore.style.border = "4px solid #00ff00";
                 screenBefore.width = screenCanvas.width;
                 screenBefore.height = screenCanvas.height;
                 const bCtx = screenBefore.getContext("2d", { alpha: false });
-                bCtx.drawImage(img, 0, 0, screenBefore.width, screenBefore.height);
+                applyClinicalZoom(bCtx, landmarks, iw, ih, img);
               }
 
               // Cleanup
