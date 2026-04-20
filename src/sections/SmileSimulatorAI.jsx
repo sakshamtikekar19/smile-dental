@@ -316,7 +316,7 @@ const SmileSimulatorAI = () => {
         const t = selectedTreatment;
         const opts = { anchor: { x: s.x, y: s.y }, rotation: s.ang };
         if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, opts);
-        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, 0.85);
+        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, opts);
       }
     }
     if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
@@ -394,8 +394,8 @@ const SmileSimulatorAI = () => {
         const rotationDeg = getProperAlignment(landmarks, iw, ih).rotationDeg;
         const opts = { anchor, rotation: rotationDeg };
         
-        // 🦷 REALISTIC WHITENING (Step 1: whiten on original pixels)
-        applyProfessionalWhitening(pctx, landmarks, iw, ih, 0.85);
+        // 🦷 WHIETENING FIRST (Step 1: whiten on original pixels)
+        applyProfessionalWhitening(pctx, landmarks, iw, ih);
       }
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
