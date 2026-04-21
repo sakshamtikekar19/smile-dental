@@ -1,7 +1,6 @@
 /**
- * ALIGNMENT ENGINE: THE HYBRID MATRIX (V20)
- * Smooth Bilinear Enamel + 4-Point Bio-Gated Lip Protection.
- * Physics: Gaussian Falloff for noticeable but subtle shifting.
+ * ALIGNMENT ENGINE: THE SOLID-STATE MATRIX (V19)
+ * Solves Laptop Pink Bleed (Nearest Neighbor) & Mobile Tearing (Integer Matrix).
  */
 
 const INNER_LIP_INDICES = [
@@ -21,14 +20,8 @@ function isPixelInsidePolygon(px, py, polygon) {
     return isInside;
 }
 
-// 🩸 Biochemical Flesh Detector
-function isFlesh(r, g, b) {
-    // Detects pink/red mucosal tissue (Lips & Gums)
-    return (r > g * 1.15 && r > b * 1.15); 
-}
-
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V20 (HYBRID MATRIX) START");
+  console.log("✅ ALIGNMENT V19 (SOLID-STATE MATRIX) REVERTED START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -36,7 +29,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const src = new Uint8ClampedArray(imageData.data); 
   const dst = imageData.data;
   
-  // Force absolute array synchronization for multi-device stability
+  // 🔥 Force absolute array synchronization for multi-device stability
   const actualW = imageData.width;
   const actualH = imageData.height;
 
@@ -56,11 +49,11 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
   });
 
-  // Tighter padding for focused surgery
+  // Tighter padding for focused orthodontic pass
   const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.20;
   minX = Math.max(0, Math.floor(minX - padX)); 
   maxX = Math.min(actualW, Math.ceil(maxX + padX));
-  minY = Math.max(0, Math.floor(minY - padY)); 
+  minY = Math.max(0, minY - padY); 
   maxY = Math.min(actualH, Math.ceil(maxY + padY));
 
   const centerX = (minX + maxX) / 2;
@@ -68,83 +61,58 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V20 LOOP: Hybrid Bilinear Math (Smooth Enamel + Hard Lips)
+  // 🧪 V19 LOOP: Solid-State Nearest Neighbor (No-Bleed Architecture)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
       
-      // 🛑 GATE 1: Geometric Outside Fence
+      // 🛑 GATE 0: Geometric Fence
       if (!isPixelInsidePolygon(x, y, mouthPolygon)) continue;
 
       const i = (y * actualW + x) * 4;
 
-      // 🩸 GATE 2: Dest Flesh Protector (Don't overwrite the lips)
-      if (isFlesh(src[i], src[i+1], src[i+2])) continue;
+      // 🔥 GATE 1: Destination Flesh Protector (R > G/B 1.12x)
+      if (src[i] > src[i+1]*1.12 && src[i] > src[i+2]*1.12) continue;
 
       const nx = (x - centerX) / (roiW / 2);
       const ny = (y - archMidY) / (roiH / 2);
       
-      // 🔥 FIX 1: Gaussian Falloff (Silky smooth, subtle physics)
-      const distSq = nx * nx + ny * ny;
-      if (distSq > 1.2) continue; 
-      const falloff = Math.exp(-distSq * 2.2);
+      // Radial Mask Calculation
+      const dist = Math.sqrt(nx * nx + ny * ny);
+      if (dist > 1.0) continue; 
 
-      // Noticeable but subtle movement vectors
-      let dx = nx * roiW * 0.035 * falloff; 
-      let dy = Math.abs(nx) * roiH * 0.045 * falloff; 
+      // 🔥 FIX 1: Cosine Falloff (Smooth, clinical physics)
+      const falloff = Math.cos(dist * Math.PI / 2);
 
-      const sx = x - dx;
-      const sy = y - dy;
+      // Physics Vectors
+      let dx = nx * roiW * 0.04 * falloff; 
+      let dy = Math.abs(nx) * roiH * 0.05 * falloff; 
 
-      // 🛑 GATE 3: Geometric Source Denial
+      // 🔥 FIX 2: NEAREST NEIGHBOR ROUNDING (Kills Mobile Tearing & Pink Bleed)
+      // Strict Integer Mapping: No color blending allowed.
+      let sx = Math.round(x + dx);
+      let sy = Math.round(y + dy);
+
+      // Safe Array Bounding
+      sx = Math.max(0, Math.min(actualW - 1, sx));
+      sy = Math.max(0, Math.min(actualH - 1, sy));
+
+      // 🛑 GATE 2: Geometric Source Denial
       if (!isPixelInsidePolygon(sx, sy, mouthPolygon)) continue;
 
-      // Prepare indices for sampling
-      const x0 = Math.max(0, Math.min(actualW - 2, Math.floor(sx)));
-      const y0 = Math.max(0, Math.min(actualH - 2, Math.floor(sy)));
-      const x1 = x0 + 1;
-      const y1 = y0 + 1;
-      const wx = sx - x0;
-      const wy = sy - y0;
+      const si = (sy * actualW + sx) * 4;
 
-      // Extract the 4 surrounding pixel indices
-      const p00 = (y0 * actualW + x0) * 4;
-      const p10 = (y0 * actualW + x1) * 4;
-      const p01 = (y1 * actualW + x0) * 4;
-      const p11 = (y1 * actualW + x1) * 4;
+      // 🔥 GATE 3: Source Flesh Protector
+      if (src[si] > src[si+1]*1.12 && src[si] > src[si+2]*1.12) continue;
 
-      // 🔥 FIX 2: The 4-Point Bio-Gate
-      // If ANY of the 4 source pixels are pink flesh, we ABORT the smooth blend to prevent 
-      // the "Pink Ghost" bleed, and instantly snap to a safe, solid tooth pixel.
-      let isSafeToBlend = true;
-      if (isFlesh(src[p00], src[p00+1], src[p00+2]) ||
-          isFlesh(src[p10], src[p10+1], src[p10+2]) ||
-          isFlesh(src[p01], src[p01+1], src[p01+2]) ||
-          isFlesh(src[p11], src[p11+1], src[p11+2])) {
-          isSafeToBlend = false;
-      }
-
-      if (isSafeToBlend) {
-          // HD Bilinear: Smooth Enamel (98% of teeth)
-          for (let c = 0; c < 3; c++) {
-              dst[i + c] = src[p00 + c] * (1 - wx) * (1 - wy) +
-                           src[p10 + c] * wx * (1 - wy) +
-                           src[p01 + c] * (1 - wx) * wy +
-                           src[p11 + c] * wx * wy;
-          }
-      } else {
-          // Safe Fast-Snap: Prevents the pink bleed at the exact lip line
-          const safeIdx = (Math.round(sy) * actualW + Math.round(sx)) * 4;
-          if (isFlesh(src[safeIdx], src[safeIdx+1], src[safeIdx+2])) continue;
-          dst[i] = src[safeIdx];
-          dst[i+1] = src[safeIdx+1];
-          dst[i+2] = src[safeIdx+2];
-      }
-      
+      // 🔥 SOLID PIXEL COPY: 100% Solid-State Transmission
+      dst[i] = src[si];
+      dst[i+1] = src[si+1];
+      dst[i+2] = src[si+2];
       dst[i+3] = 255;
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V20 (HYBRID MATRIX) APPLIED");
+  console.log("✅ ALIGNMENT V19 (SOLID-STATE) REVERTED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
