@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: CLINICAL GRADE (V22)
- * Parabolic Arch + Soft ROI Edge-Fading.
+ * ALIGNMENT ENGINE: PRODUCTION GRADE (V23)
+ * Center-Focused Power + Power-Fade Lip Protection.
  */
 
 const INNER_LIP_INDICES = [
@@ -9,7 +9,7 @@ const INNER_LIP_INDICES = [
 ];
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V22 (CLINICAL GRADE) START");
+  console.log("✅ ALIGNMENT V23 (PRODUCTION GRADE) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -42,30 +42,36 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🔥 V22 LOOP (CLINICAL FIX)
+  // 🔥 V23 LOOP (PRODUCTION GRADE)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
 
       const i = (y * actualW + x) * 4;
 
+      // NORMALIZED POSITION
       const nx = (x - centerX) / (roiW / 2);
 
-      // 🦷 TRUE PARABOLIC ARCH
+      // ✅ TRUE PARABOLIC ARCH (CLINICAL)
       const curve = nx * nx;
-      const targetY = archMidY + roiH * 0.10 * curve;
+      const targetY = archMidY - (roiH * 0.10) * curve;
 
-      // 🎯 FORCE (VISIBLE BUT SAFE)
-      let dx = -nx * roiW * 0.06;
-      let dy = (targetY - y) * 0.9;
+      // DISTANCE FROM IDEAL ARCH
+      const dyRaw = targetY - y;
 
-      // 🛡️ SOFT EDGE FADE (REPLACES POLYGON)
-      // Smoothly tapers the forces to 0 at the ROI edges to protect lips/skin
-      const fadeX = Math.min((x - minX) / 20, (maxX - x) / 20);
-      const fadeY = Math.min((y - minY) / 20, (maxY - y) / 20);
-      const smoothFade = Math.max(0, Math.min(1, Math.min(fadeX, fadeY)));
+      // ✅ CENTER-FOCUSED POWER (IMPORTANT FIX)
+      // Transformation is strongest at center-encisors, tapers at edges
+      const centerWeight = 1.0 - Math.abs(nx); 
+      const power = Math.pow(Math.max(0, centerWeight), 1.5); 
 
-      dx *= smoothFade;
-      dy *= smoothFade;
+      // ✅ FINAL CONTROLLED MOVEMENT (High-End Subtle correction)
+      let dy = dyRaw * 0.6 * power;   
+      let dx = -nx * roiW * 0.015 * power; 
+
+      // ✅ SOFT LIP PROTECTION (Power-Fade Gate)
+      const fade = Math.max(0, 1 - Math.pow(Math.abs(nx), 2.2));
+
+      dx *= fade;
+      dy *= fade;
 
       // 🎯 REVERSE SAMPLING (High-Fidelity Bilinear)
       const sx = Math.max(0, Math.min(actualW - 2, x - dx));
