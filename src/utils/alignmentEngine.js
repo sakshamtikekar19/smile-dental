@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V17 - Mobile Optimizer)
- * Sub-pixel attrition fixed. Array width synchronized.
+ * ALIGNMENT ENGINE: BIOCHEMICAL PRECISION (V18)
+ * Integrates Color-Gating to mathematically prevent lip and gum dragging.
  */
 
 const INNER_LIP_INDICES = [
@@ -21,7 +21,7 @@ function isPixelInsidePolygon(px, py, polygon) {
 }
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V17 (MOBILE OPTIMIZER) START");
+  console.log("✅ ALIGNMENT V18 (BIOCHEMICAL PRECISION) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -34,7 +34,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     });
   });
 
-  // 🦷 ROI: Surgical bounding box (Tighter for mobile focus)
+  // 🦷 ROI: Surgical bounding box
   const mouthIndices = [61, 291, 78, 13, 14, 308];
   let minX = w, minY = h, maxX = 0, maxY = 0;
   mouthIndices.forEach(i => {
@@ -51,7 +51,6 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const src = new Uint8ClampedArray(imageData.data); 
   const dst = imageData.data;
   
-  // 🔥 FIX 1: Mobile Canvas Array Synchronization (Retina/High-DPI Fix)
   const actualWidth = imageData.width;
 
   const centerX = (minX + maxX) / 2;
@@ -59,35 +58,43 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V17 LOOP: Mobile-Safe Pure Math Warping
+  // 🧪 V18 LOOP: Bio-Gated Warping
   for (let y = minY | 0; y < maxY; y++) {
     for (let x = minX | 0; x < maxX; x++) {
       
-      // 🛑 GATE 1: If target pixel is outside the inner lips, skip.
+      // 🛑 GATE 0: Geometric Fence
       if (!isPixelInsidePolygon(x, y, mouthPolygon)) continue;
 
       const i = (y * actualWidth + x) * 4;
 
+      // 🔥 GATE 1: DESTINATION FLESH PROTECTOR
+      // If the pixel currently sitting here is lip/gum tissue, leave it alone!
+      const dr = src[i], dg = src[i+1], db = src[i+2];
+      if (dr > dg * 1.15 && dr > db * 1.15) continue;
+
       const nx = (x - centerX) / (roiW / 2);
       const ny = (y - archMidY) / (roiH / 2);
 
-      // 🔥 FIX 2: Softer Edge Fade (Linear for Mobile Visibility)
       let edgeFade = 1.0 - Math.sqrt(nx * nx + ny * ny);
       if (edgeFade < 0) edgeFade = 0;
 
       const curve = nx * nx;
       const targetY = archMidY + roiH * 0.05 * curve;
 
-      // 🔥 FIX 3: Boosted Warp Physics (Subtle but Visible)
       let dx = -nx * roiW * 0.045 * edgeFade; 
       let dy = (targetY - y) * 0.65 * edgeFade; 
 
       const sx = x - dx;
       const sy = y - dy;
 
-      // 🔥 FIX 4: THE GLITCH KILLER (Source Denial)
-      // Aborts if it tries to steal a pixel from the lip/skin.
+      // 🛑 GATE 2: Geometric Source Denial
       if (!isPixelInsidePolygon(sx, sy, mouthPolygon)) continue;
+
+      // 🔥 GATE 3: SOURCE FLESH PROTECTOR (The "Double Lip" Killer)
+      // If the math tries to steal a pixel that belongs to the mucosal lip/gum, abort!
+      const sIdx = (Math.floor(sy) * actualWidth + Math.floor(sx)) * 4;
+      const sr = src[sIdx], sg = src[sIdx+1], sb = src[sIdx+2];
+      if (sr > sg * 1.15 && sr > sb * 1.15) continue;
 
       // Reverse map with Bilinear Interpolation
       const x0 = Math.floor(sx), y0 = Math.floor(sy);
@@ -109,7 +116,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V17 (MOBILE OPTIMIZER) APPLIED");
+  console.log("✅ ALIGNMENT V18 (BIOCHEMICAL PRECISION) APPLIED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
