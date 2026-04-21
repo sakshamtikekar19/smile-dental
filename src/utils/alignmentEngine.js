@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: THE SOLID-STATE MATRIX (V19)
- * Solves Laptop Pink Bleed (Nearest Neighbor) & Mobile Tearing (Integer Matrix).
+ * ALIGNMENT ENGINE: CLINICAL GRADE (V22)
+ * Parabolic Arch + Soft ROI Edge-Fading.
  */
 
 const INNER_LIP_INDICES = [
@@ -8,20 +8,8 @@ const INNER_LIP_INDICES = [
   324, 318, 402, 317, 14, 87, 178, 88, 95          // Lower inner
 ];
 
-// 🧠 The Mathematical Fence (Ray-Casting Algorithm)
-function isPixelInsidePolygon(px, py, polygon) {
-    let isInside = false;
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-        let xi = polygon[i].x, yi = polygon[i].y;
-        let xj = polygon[j].x, yj = polygon[j].y;
-        let intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
-        if (intersect) isInside = !isInside;
-    }
-    return isInside;
-}
-
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V19 (SOLID-STATE MATRIX) REVERTED START");
+  console.log("✅ ALIGNMENT V22 (CLINICAL GRADE) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -29,18 +17,11 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const src = new Uint8ClampedArray(imageData.data); 
   const dst = imageData.data;
   
-  // 🔥 Force absolute array synchronization for multi-device stability
+  // Array sync for Multi-Device/Mobile stability
   const actualW = imageData.width;
   const actualH = imageData.height;
 
-  const mouthPolygon = [];
-  INNER_LIP_INDICES.forEach((idx) => {
-    mouthPolygon.push({
-      x: landmarks[idx].x * actualW,
-      y: landmarks[idx].y * actualH
-    });
-  });
-
+  // 🦷 ROI Calculation (Bounding box of the mouth)
   const mouthIndices = [61, 291, 78, 13, 14, 308];
   let minX = actualW, minY = actualH, maxX = 0, maxY = 0;
   mouthIndices.forEach(i => {
@@ -49,11 +30,11 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
   });
 
-  // Tighter padding for focused orthodontic pass
-  const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.20;
+  // ROI Padding
+  const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.25;
   minX = Math.max(0, Math.floor(minX - padX)); 
   maxX = Math.min(actualW, Math.ceil(maxX + padX));
-  minY = Math.max(0, minY - padY); 
+  minY = Math.max(0, Math.floor(minY - padY)); 
   maxY = Math.min(actualH, Math.ceil(maxY + padY));
 
   const centerX = (minX + maxX) / 2;
@@ -61,58 +42,54 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V19 LOOP: Solid-State Nearest Neighbor (No-Bleed Architecture)
+  // 🔥 V22 LOOP (CLINICAL FIX)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
-      
-      // 🛑 GATE 0: Geometric Fence
-      if (!isPixelInsidePolygon(x, y, mouthPolygon)) continue;
 
       const i = (y * actualW + x) * 4;
 
-      // 🔥 GATE 1: Destination Flesh Protector (R > G/B 1.12x)
-      if (src[i] > src[i+1]*1.12 && src[i] > src[i+2]*1.12) continue;
-
       const nx = (x - centerX) / (roiW / 2);
-      const ny = (y - archMidY) / (roiH / 2);
-      
-      // Radial Mask Calculation
-      const dist = Math.sqrt(nx * nx + ny * ny);
-      if (dist > 1.0) continue; 
 
-      // 🔥 FIX 1: Cosine Falloff (Smooth, clinical physics)
-      const falloff = Math.cos(dist * Math.PI / 2);
+      // 🦷 TRUE PARABOLIC ARCH
+      const curve = nx * nx;
+      const targetY = archMidY + roiH * 0.10 * curve;
 
-      // Physics Vectors
-      let dx = nx * roiW * 0.04 * falloff; 
-      let dy = Math.abs(nx) * roiH * 0.05 * falloff; 
+      // 🎯 FORCE (VISIBLE BUT SAFE)
+      let dx = -nx * roiW * 0.06;
+      let dy = (targetY - y) * 0.9;
 
-      // 🔥 FIX 2: NEAREST NEIGHBOR ROUNDING (Kills Mobile Tearing & Pink Bleed)
-      // Strict Integer Mapping: No color blending allowed.
-      let sx = Math.round(x + dx);
-      let sy = Math.round(y + dy);
+      // 🛡️ SOFT EDGE FADE (REPLACES POLYGON)
+      // Smoothly tapers the forces to 0 at the ROI edges to protect lips/skin
+      const fadeX = Math.min((x - minX) / 20, (maxX - x) / 20);
+      const fadeY = Math.min((y - minY) / 20, (maxY - y) / 20);
+      const smoothFade = Math.max(0, Math.min(1, Math.min(fadeX, fadeY)));
 
-      // Safe Array Bounding
-      sx = Math.max(0, Math.min(actualW - 1, sx));
-      sy = Math.max(0, Math.min(actualH - 1, sy));
+      dx *= smoothFade;
+      dy *= smoothFade;
 
-      // 🛑 GATE 2: Geometric Source Denial
-      if (!isPixelInsidePolygon(sx, sy, mouthPolygon)) continue;
+      // 🎯 REVERSE SAMPLING (High-Fidelity Bilinear)
+      const sx = Math.max(0, Math.min(actualW - 2, x - dx));
+      const sy = Math.max(0, Math.min(actualH - 2, y - dy));
 
-      const si = (sy * actualW + sx) * 4;
+      const x0 = Math.floor(sx), y0 = Math.floor(sy);
+      const x1 = x0 + 1, y1 = y0 + 1;
+      const wx = sx - x0, wy = sy - y0;
 
-      // 🔥 GATE 3: Source Flesh Protector
-      if (src[si] > src[si+1]*1.12 && src[si] > src[si+2]*1.12) continue;
+      const p00 = (y0 * actualW + x0) * 4;
+      const p10 = (y0 * actualW + x1) * 4;
+      const p01 = (y1 * actualW + x0) * 4;
+      const p11 = (y1 * actualW + x1) * 4;
 
-      // 🔥 SOLID PIXEL COPY: 100% Solid-State Transmission
-      dst[i] = src[si];
-      dst[i+1] = src[si+1];
-      dst[i+2] = src[si+2];
-      dst[i+3] = 255;
+      for (let c = 0; c < 3; c++) {
+        dst[i + c] = src[p00 + c] * (1 - wx) * (1 - wy) +
+                     src[p10 + c] * wx * (1 - wy) +
+                     src[p01 + c] * (1 - wx) * wy +
+                     src[p11 + c] * wx * wy;
+      }
+      dst[i + 3] = 255;
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V19 (SOLID-STATE) REVERTED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
