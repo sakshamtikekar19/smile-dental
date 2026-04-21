@@ -1,18 +1,18 @@
 /**
- * ALIGNMENT ENGINE: MASTER V8 (HIGH-FIDELITY)
- * Orthodontics with Bilinear Interpolation for Texture Preservation.
+ * ALIGNMENT ENGINE: PROFESSIONAL STABILIZED (V9)
+ * Clinical-Grade Orthodontics with Non-Linear Damping and Skin Protection.
  */
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT MASTER START");
+  console.log("✅ ALIGNMENT V9 STABILIZED START");
 
   if (!ctx || !landmarks) return;
 
   const imageData = ctx.getImageData(0, 0, w, h);
-  const src = new Uint8ClampedArray(imageData.data); // LOCK SOURCE
+  const src = new Uint8ClampedArray(imageData.data); 
   const dst = imageData.data;
 
-  // 🦷 MOUTH ROI (Surgical Focus)
+  // 🦷 MOUTH ROI (Localized focus for stability)
   const mouthIndices = [61, 291, 78, 95, 88, 178, 87, 14, 317, 402, 318, 324];
 
   let minX = w, minY = h, maxX = 0, maxY = 0;
@@ -26,7 +26,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     maxY = Math.max(maxY, y);
   });
 
-  // Balanced Padding (Focus on Smile Curve)
+  // Balanced Padding (Ensures zero-clipping of lateral teeth)
   const padX = (maxX - minX) * 0.2;
   const padY = (maxY - minY) * 0.3;
 
@@ -41,7 +41,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🔥 MAIN LOOP (ROI ONLY)
+  // 🧪 V9 STABILIZED LOOP
   for (let y = minY | 0; y < maxY; y++) {
     for (let x = minX | 0; x < maxX; x++) {
 
@@ -53,36 +53,47 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
 
       const nx = (x - centerX) / (roiW / 2);
 
-      // 🦷 TARGET ARCH (Natural Professional Curve)
+      // 🦷 TARGET ARCH (V9 - Flatter Clinical Curve)
       const curve = nx * nx;
-      const targetY = archMidY + roiH * 0.08 * curve;
+      const targetY = archMidY + roiH * 0.05 * curve;
 
-      // 🧠 CONTROLLED MOVEMENT (V8 Master Forces)
-      let dx = -nx * roiW * 0.06;
-      let dy = (targetY - y) * 0.8;
+      // 🧠 V9 DAMPENED FORCES (Prevents lip-smear glitches)
+      let dx = -nx * roiW * 0.04;    // Subtle horizontal pull
+      let dy = (targetY - y) * 0.5;  // Stabilized vertical lift
 
-      // 🦷 TOOTH DETECTION (Stability Gate)
-      const lum = (r + g + b) / 3;
-      const isTooth = lum > 90 && r > g && r > b;
-
-      if (isTooth) {
-        dx *= 1.3;
-        dy *= 1.2;
+      // 🛡️ SKIN PROTECTION GATE (Color-Based Masking)
+      const isLip = r > g * 1.35 && r > b * 1.35; // Strong red tint detection
+      const isSkin = r > 105 && g > 65 && b > 45 && (r - g) > 15; // Basic flesh detection
+      
+      let forceMult = 1.0;
+      if (isLip || isSkin) {
+        forceMult = 0.2; // Aggressively drop force on soft tissue
+      } else {
+        // Boost for enamel pixels (Brightness/Croma Check)
+        const lum = (r + g + b) / 3;
+        if (lum > 90 && r > g && r > 110) {
+          forceMult = 1.3; 
+        }
       }
 
-      // 🛡️ EDGE FADE (15px Surgical Window)
-      const edgeFade = Math.min(
-        (x - minX) / 15,
-        (maxX - x) / 15,
-        (y - minY) / 15,
-        (maxY - y) / 15,
+      dx *= forceMult;
+      dy *= forceMult;
+
+      // ✨ ULTRA-SMOOTH EDGE FADE (35px squared window)
+      let edgeFade = Math.min(
+        (x - minX) / 35,
+        (maxX - x) / 35,
+        (y - minY) / 35,
+        (maxY - y) / 35,
         1
       );
+      edgeFade = Math.max(0, edgeFade);
+      edgeFade *= edgeFade; // Non-linear falloff for seamless blending
 
       dx *= edgeFade;
       dy *= edgeFade;
 
-      // 🎯 SOURCE COORD (Reverse Mapping)
+      // 🎯 SOURCE COORD (High-Fidelity Bilinear Mapping)
       const sx = Math.max(0, Math.min(w - 2, x - dx));
       const sy = Math.max(0, Math.min(h - 2, y - dy));
 
@@ -94,8 +105,6 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       const wx = sx - x0;
       const wy = sy - y0;
 
-      // 🔥 BILINEAR INTERPOLATION (Texture Preservation)
-      // Samples 4 neighboring pixels and blends for zero-artifact results
       for (let c = 0; c < 3; c++) {
         const c00 = src[(y0 * w + x0) * 4 + c];
         const c10 = src[(y0 * w + x1) * 4 + c];
@@ -116,8 +125,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   }
 
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT MASTER APPLIED");
+  console.log("✅ ALIGNMENT V9 STABILIZED APPLIED");
 }
 
-// Compatibility Alias
 export const applyAlignment = applyProfessionalAlignment;
