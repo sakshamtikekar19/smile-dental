@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, RefreshCw } from "lucide-react";
+import { Camera, Layers, ShieldCheck, Zap, Activity, ChevronRight, RotateCcw, Sliders, Info, CheckCircle2 } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
@@ -10,8 +10,25 @@ import { applyAlignment as applyProfessionalAlignment } from "../utils/alignment
 import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
 import { applyClinicalZoom } from "../utils/zoomEngine";
 
+// ── Constants & Design System ────────────────────────────────────────────────
+const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const MAX_IMAGE_SIZE = IS_MOBILE ? 800 : 1200;
+const ACCENT_CYAN = "#00D1FF";
 
-// ── MediaPipe singleton (shared, loaded once) ────────────────────────────────
+const TREATMENTS = [
+  { id: "whitening", label: "Whitening", desc: "Advanced enamel sheen enhancement.", icon: Zap },
+  { id: "alignment", label: "Alignment", desc: "Surgical-grade dental rectification.", icon: Layers },
+  { id: "braces", label: "Braces", desc: "Precision bracket simulation.", icon: ShieldCheck },
+  { id: "transformation", label: "Full Smile", desc: "Hollywood-style reconstruction.", icon: Activity },
+];
+
+const PRESETS = [
+  { id: "natural", label: "Natural Balance", intensity: 50 },
+  { id: "bright", label: "Clinical Bright", intensity: 85 },
+  { id: "perfect", label: "Maximum Impact", intensity: 100 },
+];
+
+// ── MediaPipe Singleton ──────────────────────────────────────────────────────
 let _faceLandmarkerInstance = null;
 let _faceLandmarkerFailed = false;
 let _faceLandmarkerPromise = null;
@@ -29,8 +46,7 @@ async function initFaceLandmarker() {
       );
       _faceLandmarkerInstance = await FaceLandmarker.createFromOptions(fileset, {
         baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
           delegate: "GPU",
         },
         runningMode: "IMAGE",
@@ -48,7 +64,7 @@ async function initFaceLandmarker() {
   return _faceLandmarkerPromise;
 }
 
-// ── Processing Utilities ─────────────────────────────────────────────────────
+// ── Processing Utilities (ENGINE LOCK INTACT) ────────────────────────────────
 async function detectLandmarks(imageUrl) {
   const landmarker = await initFaceLandmarker();
   if (!landmarker) return null;
@@ -71,19 +87,9 @@ async function resizeImage(url, maxDim) {
   return { url: c.toDataURL("image/jpeg", 0.94), w, h };
 }
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    // 🔥 CRITICAL: Prevent Tainted Canvas failures due to CORS
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
     img.onerror = reject;
@@ -91,7 +97,6 @@ function loadImage(url) {
   });
 }
 
-// ── Braces Effect Layer ──────────────────────────────────────────────────────
 function applyBracesEffect(ctx, landmarks, w, h, bracesImage) {
   if (!landmarks || !bracesImage) return;
   const pack = buildBracesPack(landmarks, w, h);
@@ -116,117 +121,76 @@ function applyBracesEffect(ctx, landmarks, w, h, bracesImage) {
   ctx.restore();
 }
 
-/**
- * 🦷 ANATOMICAL TRANSFORMATION MATRIX
- */
-function getProperAlignment(landmarks, w, h) {
-  if (!landmarks) return null;
-  const leftEye = landmarks[33];
-  const rightEye = landmarks[263];
-  const radians = Math.atan2((rightEye.y - leftEye.y) * h, (rightEye.x - leftEye.x) * w);
-  const tiltDegrees = radians * (180 / Math.PI);
-  const upperLip = landmarks[13];
-  const lowerLip = landmarks[14];
-  const leftCorner = landmarks[57];
-  const rightCorner = landmarks[287];
-  const centerX = ((leftCorner.x + rightCorner.x) / 2) * w;
-  const centerY = (upperLip.y + (lowerLip.y - upperLip.y) * 0.4) * h;
-  const mouthWidth = Math.sqrt(Math.pow((rightCorner.x - leftCorner.x) * w, 2) + Math.pow((rightCorner.y - leftCorner.y) * h, 2));
-  return { x: centerX, y: centerY, rotation: radians, rotationDeg: tiltDegrees, scale: (mouthWidth / w) * 1.05 };
-}
+// ── Premium UI Components ────────────────────────────────────────────────────
 
-// ── Whitening Engine ─────────────────────────────────────────────────────────
-// (Moved to utils/whiteningEngine.js)
+const MedicalSlider = ({ label, value, onChange }) => (
+  <div className="mb-6 group">
+    <div className="flex justify-between items-center mb-2">
+      <span className="text-[10px] uppercase tracking-[0.2em] text-[#6B7280] font-bold group-hover:text-white transition-colors">{label}</span>
+      <span className="text-[11px] font-mono text-accent-blue glow-blue">{value}%</span>
+    </div>
+    <div className="relative h-1.5 w-full bg-[#1A1A1A] rounded-full overflow-hidden border border-white/5">
+      <motion.div 
+        initial={false}
+        animate={{ width: `${value}%` }}
+        className="absolute h-full bg-accent-blue shadow-[0_0_12px_#00D1FF]" 
+      />
+      <input 
+        type="range" min="0" max="100" value={value} 
+        onChange={(e) => onChange(parseInt(e.target.value))}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+      />
+    </div>
+  </div>
+);
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-const MAX_IMAGE_SIZE = IS_MOBILE ? 800 : 1200;
-
-const TREATMENTS = [
-  { id: "whitening", label: "Whitening", desc: "Blue-white enamel sheen enhancement." },
-  { id: "alignment", label: "Alignment", desc: "Gap closure and crooked-tooth rectification." },
-  { id: "braces", label: "Braces", desc: "Precision metallic bracket preview." },
-  { id: "transformation", label: "Full Smile", desc: "Hollywood-style smile reconstruction." },
-];
-
-const TREATMENT_THEME = {
-  whitening: { glow: "0 0 28px rgba(212,175,55,0.45)", ring: "rgba(212,175,55,0.9)", tint: "from-amber-100/20 to-yellow-600/25" },
-  alignment: { glow: "0 0 28px rgba(129,140,248,0.52)", ring: "rgba(129,140,248,0.9)", tint: "from-indigo-300/20 to-indigo-500/25" },
-  braces: { glow: "0 0 28px rgba(212,175,55,0.42)", ring: "rgba(212,175,55,0.9)", tint: "from-slate-200/20 to-slate-400/25" },
-  transformation: { glow: "0 0 28px rgba(212,175,55,0.5)", ring: "#D4AF37", tint: "from-amber-200/20 to-yellow-600/25" },
-};
-
-const ICON_MAP = {
-  whitening: () => (
-    <svg className="w-6 h-6 md:w-8 md:h-8 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707" strokeLinecap="round" />
-      <circle cx="12" cy="12" r="4" />
-    </svg>
-  ),
-  alignment: () => (
-    <svg className="w-6 h-6 md:w-8 md:h-8 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  braces: () => (
-    <svg className="w-6 h-6 md:w-8 md:h-8 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M7 7h10v10H7zM7 12h10M12 7v10" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  transformation: () => (
-    <svg className="w-6 h-6 md:w-8 md:h-8 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M12 3l1.912 5.885h6.188l-5.007 3.638 1.913 5.885-5.006-3.637-5.006 3.637 1.912-5.885-5.006-3.638h6.188z" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-};
-
-function TreatmentDockButton({ treatment, active, onSelect }) {
-  const Icon = ICON_MAP[treatment.id] ?? (() => null);
-  const theme = TREATMENT_THEME[treatment.id] ?? TREATMENT_THEME.whitening;
+const TreatmentModule = ({ treatment, active, onSelect }) => {
+  const Icon = treatment.icon;
   return (
-    <motion.button type="button" onClick={onSelect}
-      className={cn("relative h-16 w-16 md:h-[74px] md:w-[74px] rounded-full border border-white/10 bg-white/5 backdrop-blur-xl transition-all flex items-center justify-center")}
-      style={{ borderColor: active ? theme.ring : "rgba(255,255,255,0.1)", boxShadow: active ? theme.glow : "none" }}
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
+    <button
+      onClick={onSelect}
+      className={cn(
+        "w-full p-4 mb-3 rounded-2xl border transition-all duration-500 flex items-center gap-4 relative overflow-hidden group",
+        active 
+          ? "bg-[#111111] border-accent-blue/50 shadow-[0_0_25px_rgba(0,209,255,0.15)]" 
+          : "bg-[#0A0A0A] border-[#1F1F1F] hover:border-white/10"
+      )}
     >
-      <span className={cn("absolute inset-0 rounded-full bg-gradient-to-br", theme.tint)} />
-      <span className="relative z-10"><Icon /></span>
-    </motion.button>
+      <div className={cn(
+        "w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-500",
+        active ? "bg-accent-blue text-black shadow-[0_0_15px_#00D1FF]" : "bg-[#1A1A1A] text-[#6B7280] group-hover:text-white"
+      )}>
+        <Icon size={18} />
+      </div>
+      <div className="text-left">
+        <h4 className={cn("text-[13px] font-bold tracking-tight mb-0.5 transition-colors", active ? "text-white" : "text-[#A0A0A0]")}>
+          {treatment.label}
+        </h4>
+        <p className="text-[9px] text-[#6B7280] uppercase tracking-widest font-medium opacity-80">{active ? "System Active" : "Diagnostic Ready"}</p>
+      </div>
+      {active && (
+        <motion.div layoutId="nav-glow" className="absolute right-0 top-0 bottom-0 w-1 bg-accent-blue shadow-[0_0_15px_#00D1FF]" />
+      )}
+    </button>
   );
-}
+};
 
-// ── Main Component ───────────────────────────────────────────────────────────
-/**
- * 🛡️ GPU-to-CPU Bridge
- * Forces a hardware synchronized copy to ensure the buffer is readable on mobile devices.
- */
-function createSafeCanvasCopy(canvas) {
-  const safe = document.createElement("canvas");
-  safe.width = canvas.width;
-  safe.height = canvas.height;
-  const sctx = safe.getContext("2d", { willReadFrequently: true });
-  sctx.drawImage(canvas, 0, 0);
-  return safe;
-}
+// ── Main Controller ──────────────────────────────────────────────────────────
 
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("entry");
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
-  const [activeTreatment, setActiveTreatment] = useState("whitening");
+  const [intensities, setIntensities] = useState({ whitening: 80, alignment: 100, braces: 100, transformation: 100 });
   const [beforeImage, setBeforeImage] = useState(null);
   const [afterImage, setAfterImage] = useState(null);
   const [error, setError] = useState(null);
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [zoomLoading, setZoomLoading] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
-  const [zoomedBeforeCanvas, setZoomedBeforeCanvas] = useState(null);
-  const [zoomedAfterCanvas, setZoomedAfterCanvas] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
+  
   const pendingTreatmentRef = useRef("whitening");
-
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -236,15 +200,11 @@ const SmileSimulatorAI = () => {
   const renderRequestRef = useRef(null);
   const bracesImageRef = useRef(null);
   const localCanvasRef = useRef(null);
-  const zoomCanvasRef = useRef(null);
   const mainCanvasRef = useRef(null);
   const zoomAfterRef = useRef(null);
   const zoomBeforeRef = useRef(null);
   const stabilizerRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
-
-  // 🏥 PERMANENT ZOOM STABILITY (DIRECT INJECTION ARCHITECTURE)
-  // Rendering logic moved to startHeavyProcessingPipeline for zero-latency DOM injection.
 
   useEffect(() => {
     const img = new Image();
@@ -254,6 +214,11 @@ const SmileSimulatorAI = () => {
     initFaceLandmarker().catch(() => { });
     return () => stopCamera();
   }, []);
+
+  const stopCamera = () => {
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    setCameraStream(null);
+  };
 
   const detectionLoop = useCallback(async () => {
     if (step !== "camera" || !videoRef.current || !_faceLandmarkerInstance) {
@@ -330,124 +295,69 @@ const SmileSimulatorAI = () => {
         audio: false
       });
       streamRef.current = stream; setCameraStream(stream);
-    } catch { setError("Camera access denied."); setStep("entry"); }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    setCameraStream(null);
-  };
-
-  const reset = () => {
-    setStep("entry");
-    setRawImageUrl(null);
-    setBeforeImage(null);
-    setAfterImage(null);
-    setZoomedBeforeImage(null);
-    setZoomedAfterImage(null);
-    setError(null);
-    setIsProcessing(false);
-    stopCamera();
+    } catch { setError("Optical hardware access denied."); setStep("entry"); }
   };
 
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
     const treatment = pendingTreatmentRef.current;
     const generation = ++generationRef.current;
     try {
-      setProcessingLog("Landmarking facial anatomy...");
+      setProcessingLog("Scanning anatomical structure...");
       let landmarks = await detectLandmarks(imageUrl);
       if (!landmarks && latestLandmarksRef.current) landmarks = latestLandmarksRef.current;
       if (generation !== generationRef.current) return;
-      if (!landmarks) throw new Error("Face not detected.");
+      if (!landmarks) throw new Error("Anatomical detection failed.");
 
       const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
       
-      // 🔥 STEP 2 — PERSISTENT CANVAS ALLOCATION
-      if (!mainCanvasRef.current) {
-        mainCanvasRef.current = document.createElement("canvas");
-      }
+      if (!mainCanvasRef.current) mainCanvasRef.current = document.createElement("canvas");
       const procCanvas = mainCanvasRef.current;
       procCanvas.width = iw; procCanvas.height = ih;
-      procCanvas.id = "mainCanvas"; // Diagnostic ID for Zoom verification
       
       const pctx = procCanvas.getContext("2d", { willReadFrequently: true });
       const img = await loadImage(snapshotUrl);
       pctx.drawImage(img, 0, 0, iw, ih);
-      // 🛡️ DIAGNOSTIC PASS: Detect Tainted Canvas (CORS issues)
-      try {
-        procCanvas.toDataURL("image/jpeg", 0.1);
-      } catch (e) {
-        setError("Security Error: Image source is cross-origin and lacks CORS headers.");
-        setIsProcessing(false);
-        return;
-      }
 
-
-      // 🔥 ANCHOR SYNC: Calculate the exact mouth-local center for static processing
-      const anchor = {
-        x: landmarks[168].x * iw,
-        y: landmarks[13].y * ih
-      };
-
-      // 🦷 STEP 1: WHITENING (Base Layer)
+      // 🦷 ENGINE PIPELINE (STRICT ENGINE LOCK INTACT)
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
         applyProfessionalWhitening(pctx, landmarks, iw, ih);
       }
-
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
       }
-
-      // 🦷 STEP 3: PROFESSIONAL ALIGNMENT (Conditional)
       if (treatment === "alignment" || treatment === "transformation") {
-        console.log("➡️ CALLING ALIGNMENT");
         applyProfessionalAlignment(pctx, landmarks, iw, ih);
-        console.log("✅ ALIGNMENT FINISHED");
       }
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Single Source of Truth)
+      // 🔍 CLINICAL ZOOM RENDER
       requestAnimationFrame(() => {
         const screenCanvas = zoomAfterRef.current;
         if (!screenCanvas) return;
-
         const isMobileDevice = window.innerWidth < 768;
         screenCanvas.width = isMobileDevice ? 800 : 1200;
         screenCanvas.height = isMobileDevice ? 400 : 600;
-
         const ctx = screenCanvas.getContext("2d", { alpha: false });
-        // 🚀 PRODUCTION DRAW: Apply surgical zoom directly from procCanvas
         applyClinicalZoom(ctx, landmarks, iw, ih, procCanvas);
-
-        // Render Before Snapshot (Direct from original image)
         const screenBefore = zoomBeforeRef.current;
         if (screenBefore) {
-          screenBefore.width = screenCanvas.width;
-          screenBefore.height = screenCanvas.height;
+          screenBefore.width = screenCanvas.width; screenBefore.height = screenCanvas.height;
           const bCtx = screenBefore.getContext("2d", { alpha: false });
           applyClinicalZoom(bCtx, landmarks, iw, ih, img);
         }
-
-        // Force Global Repaint for UI sync
         window.dispatchEvent(new Event("resize"));
       });
 
-      // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
       mainExport.width = iw; mainExport.height = ih;
-      mainExport.getContext("2d", { willReadFrequently: true }).drawImage(procCanvas, 0, 0);
+      mainExport.getContext("2d").drawImage(procCanvas, 0, 0);
       
       setBeforeImage(snapshotUrl);
       setAfterImage(mainExport.toDataURL("image/jpeg", 0.93));
-      console.log("FINAL IMAGE LENGTH:", procCanvas.toDataURL().length);
-
-      // Final Clean
-      mainExport.width = 0; mainExport.height = 0;
-      
       setFinalLandmarks(landmarks); 
       setStep("result"); 
       setIsProcessing(false); 
       stopCamera();
-    } catch (err) { setError(`Simulation Failed: ${err.message}`); setIsProcessing(false); }
+    } catch (err) { setError(`System Latency Error: ${err.message}`); setIsProcessing(false); }
   }, []);
 
   useEffect(() => {
@@ -461,130 +371,284 @@ const SmileSimulatorAI = () => {
       const video = videoRef.current;
       if (video.srcObject !== cameraStream) {
         video.srcObject = cameraStream;
-        video.onloadedmetadata = () => video.play().catch(e => console.error(e));
+        video.onloadedmetadata = () => video.play();
       }
+      requestRef.current = requestAnimationFrame(detectionLoop);
+      renderRequestRef.current = requestAnimationFrame(renderLoop);
     }
-  }, [step, cameraStream]);
-
+    return () => {
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      if (renderRequestRef.current) cancelAnimationFrame(renderRequestRef.current);
+    };
+  }, [step, cameraStream, detectionLoop, renderLoop]);
 
   return (
-    <section id="simulator" className="relative py-12 md:py-24 bg-white overflow-hidden">
-      <div className="container mx-auto px-4 max-w-6xl">
-        <AnimatedSection className="text-center mb-8">
-          <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-3xl md:text-5xl lg:text-6xl mb-4">AI Smile Simulation</h2>
-          <p className="text-zinc-500 max-w-2xl mx-auto text-sm md:text-lg italic mb-6 md:mb-10 px-4">
-            {TREATMENTS.find(t => t.id === selectedTreatment)?.desc}
-          </p>
+    <section id="simulator" className="relative min-h-screen bg-[#050505] overflow-hidden flex flex-col pt-20">
+      {/* Background Decor */}
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden opacity-30">
+        <div className="absolute top-[-10%] right-[-5%] w-[50%] h-[50%] bg-accent-blue blur-[200px] rounded-full opacity-20" />
+        <div className="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-accent-blue/40 blur-[180px] rounded-full opacity-10" />
+      </div>
 
-          <div className="flex flex-col items-center gap-4 md:gap-6 mt-4 mb-8 md:mb-12">
-            <div className="bg-zinc-900/95 backdrop-blur-2xl px-4 py-3 rounded-[28px] md:rounded-[32px] border border-white/10 flex items-center gap-3 md:gap-6">
-              {TREATMENTS.map(t => (
-                <TreatmentDockButton key={t.id} treatment={t} active={selectedTreatment === t.id}
-                  onSelect={() => { setSelectedTreatment(t.id); pendingTreatmentRef.current = t.id; if (step === "result") setIsProcessing(true); }} />
-              ))}
+      <div className="container mx-auto px-6 max-w-[1440px] relative z-10 flex flex-col flex-grow">
+        {/* Header System */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
+          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-2 h-2 rounded-full bg-accent-blue animate-pulse shadow-[0_0_8px_#00D1FF]" />
+              <span className="text-[10px] uppercase tracking-[0.4em] font-bold text-accent-blue">Aesthetic Intelligence</span>
+            </div>
+            <h2 className="text-4xl md:text-5xl lg:text-7xl font-serif leading-none tracking-tight">
+              Smile <span className="text-[#6B7280]">Studio</span>
+            </h2>
+          </motion.div>
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-4">
+            <div className="text-right hidden md:block">
+              <p className="text-[10px] uppercase tracking-widest text-[#6B7280] font-bold mb-1">Optical Engine</p>
+              <p className="text-xs font-mono text-white">V3.3 CALIBRATED</p>
+            </div>
+            <button 
+              onClick={() => { setStep("entry"); setBeforeImage(null); setAfterImage(null); stopCamera(); }}
+              className="w-14 h-14 bg-[#111111] border border-[#1F1F1F] rounded-2xl flex items-center justify-center text-[#A0A0A0] hover:text-white hover:border-white/20 transition-all duration-300 group"
+            >
+              <RotateCcw size={20} className="group-hover:rotate-[-45deg] transition-transform" />
+            </button>
+          </motion.div>
+        </div>
+
+        {/* 3-Panel Professional Workspace */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 flex-grow pb-16">
+          
+          {/* LEFT PANEL: Treatment Modular Cards */}
+          <div className="lg:col-span-3">
+            <div className="glass-medical p-8 rounded-[40px] h-full flex flex-col">
+              <div className="flex items-center gap-3 mb-10 pb-6 border-b border-[#1F1F1F]">
+                <div className="w-8 h-8 rounded-lg bg-accent-blue/10 flex items-center justify-center text-accent-blue">
+                  <Sliders size={16} />
+                </div>
+                <h3 className="text-[11px] uppercase tracking-[0.25em] font-black text-white">Modality</h3>
+              </div>
+              
+              <div className="space-y-1 mb-10 overflow-y-auto no-scrollbar flex-grow">
+                {TREATMENTS.map(t => (
+                  <TreatmentModule 
+                    key={t.id} 
+                    treatment={t} 
+                    active={selectedTreatment === t.id}
+                    onSelect={() => { 
+                      setSelectedTreatment(t.id); 
+                      pendingTreatmentRef.current = t.id; 
+                      if (step === "result") setIsProcessing(true); 
+                    }}
+                  />
+                ))}
+              </div>
+
+              <div className="border-t border-[#1F1F1F] pt-10">
+                <MedicalSlider 
+                  label="Chrominance Lift" 
+                  value={intensities.whitening} 
+                  onChange={(v) => setIntensities({...intensities, whitening: v})} 
+                />
+                <MedicalSlider 
+                  label="Orthodontic Tension" 
+                  value={intensities.alignment} 
+                  onChange={(v) => setIntensities({...intensities, alignment: v})} 
+                />
+              </div>
+
+              <div className="mt-10">
+                <h4 className="text-[9px] uppercase tracking-[0.3em] text-[#6B7280] font-black mb-6">Expert Presets</h4>
+                <div className="space-y-2">
+                  {PRESETS.map(p => (
+                    <button 
+                      key={p.id}
+                      onClick={() => setIntensities({...intensities, whitening: p.intensity})}
+                      className="w-full text-left p-4 rounded-2xl bg-[#0A0A0A] border border-[#1F1F1F] text-[11px] font-bold text-[#A0A0A0] hover:border-accent-blue/40 hover:text-white hover:bg-[#111111] transition-all group relative overflow-hidden"
+                    >
+                      <div className="flex justify-between items-center relative z-10">
+                        <span>{p.label}</span>
+                        <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity text-accent-blue" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
-        </AnimatedSection>
-        <div className="max-w-4xl mx-auto rounded-[32px] md:rounded-[40px] relative flex flex-col justify-center min-h-[400px]">
-          <AnimatePresence mode="wait">
-            {step === "entry" && (
-              <motion.div key="entry" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <button onClick={startCamera} className="w-full h-[400px] bg-white rounded-[32px] border-2 border-dashed border-zinc-200 flex flex-col items-center justify-center gap-4 group">
-                  <Camera size={44} className="text-zinc-400 group-hover:text-brand-gold transition-colors" />
-                  <span className="font-serif text-3xl text-zinc-800">Take Photo</span>
-                </button>
-              </motion.div>
-            )}
-            {step === "camera" && (
-              <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="relative aspect-[4/5] md:aspect-video bg-black rounded-[32px] overflow-hidden">
-                <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted autoPlay />
-                <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none" />
 
-                {/* 🦷 Anatomical Teeth Placement Guidance (The 'Oval') */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                  <div className="relative w-[50%] md:w-[32%] aspect-[1.8/1] border-[3px] border-dashed border-white/50 rounded-[500px] flex items-center justify-center">
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full border border-white/20 rounded-[500px] animate-pulse" />
-                    <span className="text-white/60 text-[8px] md:text-[9px] uppercase tracking-[0.3em] font-bold mt-20 md:mt-24">Align Teeth</span>
+          {/* CENTER PANEL: Hero Anatomy Preview */}
+          <div className="lg:col-span-6">
+            <div className="relative aspect-[3/4] lg:aspect-square rounded-[60px] overflow-hidden glass-medical border-white/5 shadow-2xl group">
+              <AnimatePresence mode="wait">
+                {step === "entry" && (
+                  <motion.div key="entry" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">
+                    <button onClick={startCamera} className="w-full h-full bg-[#050505] flex flex-col items-center justify-center gap-8 group">
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-accent-blue blur-[40px] opacity-20 group-hover:opacity-40 transition-opacity" />
+                        <div className="w-32 h-32 rounded-full bg-[#111111] border border-white/10 flex items-center justify-center group-hover:scale-110 transition-all duration-700 relative z-10">
+                          <Camera size={48} className="text-accent-blue shadow-[0_0_20px_#00D1FF]" />
+                        </div>
+                      </div>
+                      <div className="text-center relative z-10">
+                        <h3 className="font-serif text-4xl text-white mb-3">Begin Anatomy Scan</h3>
+                        <p className="text-[10px] text-[#6B7280] tracking-[0.4em] uppercase font-bold">Precision Optical Hardware</p>
+                      </div>
+                    </button>
+                  </motion.div>
+                )}
+
+                {step === "camera" && (
+                  <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black">
+                    <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-60 grayscale-[0.2]" playsInline muted autoPlay />
+                    <canvas ref={canvasRef} className="hidden" />
+                    
+                    {/* UI Layer: Scanner & Vignette */}
+                    <div className="absolute inset-0 vignette-overlay" />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-[70%] h-[50%] border-[0.5px] border-accent-blue/30 rounded-[120px] relative">
+                         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-4 px-3 py-1 border border-accent-blue/40 rounded-full text-[9px] text-accent-blue uppercase tracking-widest font-bold bg-black/40 backdrop-blur-md">
+                           Align Mouth in Sensor Zone
+                         </div>
+                         <div className="w-full h-[1.5px] bg-accent-blue/40 animate-scanner shadow-[0_0_20px_#00D1FF]" />
+                      </div>
+                    </div>
+
+                    <div ref={stabilizerRef} className="absolute z-20 pointer-events-none" style={{ clipPath: 'ellipse(50% 45% at 50% 50%)' }}>
+                      <canvas ref={localCanvasRef} className="w-full h-full opacity-90 blur-[0.3px]" />
+                    </div>
+
+                    {/* Capture Trigger */}
+                    <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-40">
+                      <button 
+                        onClick={() => {
+                          if (videoRef.current) {
+                            setIsProcessing(true);
+                            const c = document.createElement("canvas");
+                            c.width = videoRef.current.videoWidth; c.height = videoRef.current.videoHeight;
+                            c.getContext("2d").drawImage(videoRef.current, 0, 0);
+                            setRawImageUrl(c.toDataURL("image/jpeg", 0.95));
+                          }
+                        }}
+                        className="relative w-24 h-24 flex items-center justify-center group"
+                      >
+                        <div className="absolute inset-0 border-2 border-white/20 rounded-full group-hover:border-accent-blue group-hover:scale-110 transition-all duration-500" />
+                        <div className="absolute inset-2 border border-white/10 rounded-full" />
+                        <div className="w-16 h-16 rounded-full bg-white group-hover:bg-accent-blue shadow-[0_0_30px_rgba(255,255,255,0.2)] group-hover:shadow-accent-blue transition-all duration-300 group-active:scale-90" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {step === "result" && afterImage && (
+                  <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black">
+                    <ReactCompareImage 
+                      leftImage={beforeImage} 
+                      rightImage={afterImage} 
+                      sliderLineColor={ACCENT_CYAN}
+                      handle={<div className="w-12 h-12 bg-white/10 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl flex items-center justify-center text-accent-blue"><Layers size={24} className="glow-blue" /></div>}
+                    />
+                    <div className="absolute bottom-8 left-8 right-8 flex justify-between items-center pointer-events-none">
+                       <span className="text-[10px] font-black uppercase tracking-[0.4em] text-white/40">Baseline</span>
+                       <span className="text-[10px] font-black uppercase tracking-[0.4em] text-accent-blue">Projected Outcome</span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* High-End Loader */}
+              {isProcessing && (
+                <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#050505]/90 backdrop-blur-3xl">
+                  <div className="relative w-40 h-40 mb-10">
+                    <div className="absolute inset-0 border-[0.5px] border-white/5 rounded-full" />
+                    <motion.div 
+                      animate={{ rotate: 360 }} 
+                      transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                      className="absolute inset-0 border-t border-accent-blue rounded-full shadow-[0_0_15px_#00D1FF]" 
+                    />
+                    <Activity className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-accent-blue animate-pulse-medical" size={40} />
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-3xl font-serif text-white mb-3 tracking-tight">{processingLog}</h3>
+                    <p className="text-[10px] text-[#6B7280] uppercase tracking-[0.5em] font-bold">Synchronizing Dental Data</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT PANEL: Clinical Analytics */}
+          <div className="lg:col-span-3">
+            <div className="glass-medical p-8 rounded-[40px] h-full flex flex-col">
+              <div className="flex items-center gap-3 mb-10 pb-6 border-b border-[#1F1F1F]">
+                <div className="w-8 h-8 rounded-lg bg-accent-blue/10 flex items-center justify-center text-accent-blue">
+                  <Info size={16} />
+                </div>
+                <h3 className="text-[11px] uppercase tracking-[0.25em] font-black text-white">Diagnostics</h3>
+              </div>
+
+              <div className="flex-grow space-y-8">
+                <div className="bg-[#0A0A0A] rounded-3xl p-6 border border-[#1F1F1F] shadow-inner">
+                  <h4 className="text-[9px] text-[#6B7280] uppercase tracking-[0.3em] font-black mb-6">Treatment Summary</h4>
+                  <div className="space-y-5">
+                    <div className="flex items-start gap-4">
+                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shadow-[0_0_8px_currentColor]", selectedTreatment === "whitening" || selectedTreatment === "transformation" ? "bg-accent-blue text-accent-blue" : "bg-[#1F1F1F] text-[#1F1F1F]")} />
+                      <div>
+                        <p className="text-[12px] font-bold text-white mb-0.5">Enamel Reconstruction</p>
+                        <p className="text-[10px] text-[#A0A0A0] font-medium leading-relaxed">Intensity calibrated at {intensities.whitening}%</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-4">
+                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shadow-[0_0_8px_currentColor]", selectedTreatment === "alignment" || selectedTreatment === "transformation" ? "bg-accent-blue text-accent-blue" : "bg-[#1F1F1F] text-[#1F1F1F]")} />
+                      <div>
+                        <p className="text-[12px] font-bold text-white mb-0.5">Orthodontic Arch V3.3</p>
+                        <p className="text-[10px] text-[#A0A0A0] font-medium leading-relaxed">Magnetic leveling system active</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-4">
+                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shadow-[0_0_8px_currentColor]", selectedTreatment === "braces" || selectedTreatment === "transformation" ? "bg-accent-blue text-accent-blue" : "bg-[#1F1F1F] text-[#1F1F1F]")} />
+                      <div>
+                        <p className="text-[12px] font-bold text-white mb-0.5">Metallic Integration</p>
+                        <p className="text-[10px] text-[#A0A0A0] font-medium leading-relaxed">Precision bracket mapping enabled</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <div ref={stabilizerRef} id="alignment-stabilizer" className="absolute z-20 pointer-events-none" style={{ clipPath: 'ellipse(50% 45% at 50% 50%)' }}>
-                  <canvas ref={localCanvasRef} className="w-full h-full" />
+                <div className="bg-[#0A0A0A] rounded-3xl p-6 border border-[#1F1F1F]">
+                  <h4 className="text-[9px] text-[#6B7280] uppercase tracking-[0.3em] font-black mb-6">Hardware Status</h4>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center text-[10px] font-bold">
+                      <span className="text-[#6B7280]">AI Core</span>
+                      <span className="text-accent-blue tracking-widest uppercase">Active</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-bold">
+                      <span className="text-[#6B7280]">Sampling</span>
+                      <span className="text-accent-blue tracking-widest uppercase">HD Bilinear</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-bold">
+                      <span className="text-[#6B7280]">Masking</span>
+                      <span className="text-accent-blue tracking-widest uppercase">Hermetic</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-30">
-                  <button onClick={() => {
-                    if (videoRef.current) {
-                      setIsProcessing(true);
-                      const c = document.createElement("canvas");
-                      c.width = videoRef.current.videoWidth; c.height = videoRef.current.videoHeight;
-                      c.getContext("2d").drawImage(videoRef.current, 0, 0);
-                      setRawImageUrl(c.toDataURL("image/jpeg", 0.95));
-                    }
-                  }} className="h-20 w-20 rounded-full border-4 border-white flex items-center justify-center group">
-                    <div className="h-14 w-14 rounded-full bg-white group-hover:bg-brand-gold transition-colors" />
-                  </button>
+              </div>
+
+              {/* High-Resolution Anatomical Zoom */}
+              <div className="mt-10 pt-10 border-t border-[#1F1F1F]">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-[10px] uppercase tracking-[0.3em] font-black text-white">Anatomical Zoom</h4>
+                  <span className="px-2 py-0.5 rounded-full bg-accent-blue/10 text-[8px] text-accent-blue font-black tracking-widest uppercase">3.0x Clinical</span>
                 </div>
-              </motion.div>
-            )}
-            {step === "result" && afterImage && (
-              <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-8">
-                <ReactCompareImage leftImage={beforeImage} rightImage={afterImage} sliderLineColor="#D4AF37" />
-                <button onClick={reset} className="py-5 bg-zinc-950 text-white rounded-2xl font-bold">New Simulation</button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* 🔍 THE PERMANENT CLINICAL VIEWPORT (Direct Injection Hub) */}
-          <div className={cn(
-            "bg-zinc-950 border border-zinc-800 rounded-[32px] p-8 mt-4 overflow-hidden relative shadow-2xl transition-all duration-700",
-            step === "result" ? "opacity-100 translate-y-0 h-auto" : "opacity-0 translate-y-10 pointer-events-none h-0 p-0 m-0"
-          )}>
-            <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 blur-[80px] rounded-full pointer-events-none" />
-            <div className="flex items-center justify-between mb-6 relative z-10">
-              <div>
-                <h4 className="font-serif text-2xl text-zinc-100 italic">Anatomical Zoom</h4>
-                <p className="text-zinc-500 text-sm tracking-tight">3.0x Whole Smile & Dental HD Magnification</p>
-              </div>
-              <div className="px-3 py-1 bg-brand-gold/10 border border-brand-gold/20 rounded-full flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-brand-gold animate-pulse" />
-                <span className="text-brand-gold text-[10px] uppercase tracking-widest font-bold">Clinical View</span>
-              </div>
-            </div>
-            
-            <div className="relative w-full aspect-[2/1] bg-black rounded-2xl overflow-hidden border border-white/5 group shadow-inner">
-              {/* Viewport Corners */}
-              <div className="absolute top-4 left-4 w-4 h-4 border-t border-l border-white/20 z-10" />
-              <div className="absolute top-4 right-4 w-4 h-4 border-t border-r border-white/20 z-10" />
-              <div className="absolute bottom-4 left-4 w-4 h-4 border-b border-l border-white/20 z-10" />
-              <div className="absolute bottom-4 right-4 w-4 h-4 border-b border-r border-white/20 z-10" />
-              
-              <canvas 
-                ref={zoomAfterRef}
-                className="w-full h-full object-cover"
-                style={{ background: "#000", display: "block" }}
-              />
-            </div>
-            {/* Hidden Before Reference for Direct Injection Sync */}
-            <canvas ref={zoomBeforeRef} className="hidden invisible absolute pointer-events-none" />
-
-            <div className="mt-6 grid grid-cols-2 gap-4">
-              <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5">
-                <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Enamel Profile</p>
-                <p className="text-xs text-zinc-300 font-medium">Radiance Optimized</p>
-              </div>
-              <div className="p-4 bg-white/[0.03] rounded-xl border border-white/5">
-                <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Anatomical Sync</p>
-                <p className="text-xs text-zinc-300 font-medium">Position Locked</p>
+                <div className="relative aspect-[16/9] bg-[#0A0A0A] rounded-[24px] overflow-hidden border border-[#1F1F1F] glow-blue">
+                  <canvas ref={zoomAfterRef} className="w-full h-full object-cover" />
+                  <canvas ref={zoomBeforeRef} className="hidden" />
+                  {/* Grid Overlay */}
+                  <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 0.5px, transparent 0.5px)', backgroundSize: '15px 15px' }} />
+                </div>
               </div>
             </div>
           </div>
-          
-          {isProcessing && (
-            <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/60 backdrop-blur-md rounded-[32px]">
-              <div className="w-20 h-20 border-4 border-brand-gold rounded-full border-t-transparent animate-spin mb-4" />
-              <h3 className="text-xl font-serif text-zinc-900">{processingLog}</h3>
-            </motion.div>
-          )}
         </div>
       </div>
     </section>
