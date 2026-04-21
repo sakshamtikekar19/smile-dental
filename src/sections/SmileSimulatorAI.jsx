@@ -542,18 +542,14 @@ const SmileSimulatorAI = () => {
                   </motion.div>
                 )}
 
-                {step === "result" && afterImage && (
-                  <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black">
+                    <div className="absolute top-8 left-8 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-[9px] uppercase tracking-[0.2em] font-black text-white/40">Before</div>
+                    <div className="absolute top-8 right-8 bg-accent-blue/10 backdrop-blur-md px-3 py-1 rounded-full border border-accent-blue/20 text-[9px] uppercase tracking-[0.2em] font-black text-accent-blue">After</div>
                     <ReactCompareImage 
                       leftImage={beforeImage} 
                       rightImage={afterImage} 
                       sliderLineColor={ACCENT_CYAN}
                       handle={<div className="w-12 h-12 bg-white/10 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl flex items-center justify-center text-accent-blue"><Layers size={24} className="glow-blue" /></div>}
                     />
-                    <div className="absolute bottom-8 left-8 right-8 flex justify-between items-center pointer-events-none">
-                       <span className="text-[10px] font-black uppercase tracking-[0.4em] text-white/40">Baseline</span>
-                       <span className="text-[10px] font-black uppercase tracking-[0.4em] text-accent-blue">Projected Outcome</span>
-                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -577,6 +573,27 @@ const SmileSimulatorAI = () => {
                 </div>
               )}
             </div>
+
+            {/* NEW POSITION: High-Resolution Anatomical Zoom (Center Panel) */}
+            <AnimatePresence>
+              {step === "result" && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }} 
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-10 glass-medical p-8 rounded-[40px]"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-[10px] uppercase tracking-[0.3em] font-black text-white">Anatomical Zoom Analytics</h4>
+                    <span className="px-3 py-1 rounded-full bg-accent-blue/10 text-[9px] text-accent-blue font-black tracking-widest uppercase border border-accent-blue/20">3.0x Clinical</span>
+                  </div>
+                  <div className="relative aspect-[21/9] bg-[#0A0A0A] rounded-[24px] overflow-hidden border border-[#1F1F1F] glow-blue">
+                    <canvas ref={zoomAfterRef} className="w-full h-full object-cover" />
+                    <canvas ref={zoomBeforeRef} className="hidden" />
+                    <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 0.5px, transparent 0.5px)', backgroundSize: '15px 15px' }} />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* RIGHT PANEL: Clinical Analytics */}
@@ -615,38 +632,6 @@ const SmileSimulatorAI = () => {
                       </div>
                     </div>
                   </div>
-                </div>
-
-                <div className="bg-[#0A0A0A] rounded-3xl p-6 border border-[#1F1F1F]">
-                  <h4 className="text-[9px] text-[#6B7280] uppercase tracking-[0.3em] font-black mb-6">Hardware Status</h4>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center text-[10px] font-bold">
-                      <span className="text-[#6B7280]">AI Core</span>
-                      <span className="text-accent-blue tracking-widest uppercase">Active</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] font-bold">
-                      <span className="text-[#6B7280]">Sampling</span>
-                      <span className="text-accent-blue tracking-widest uppercase">HD Bilinear</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] font-bold">
-                      <span className="text-[#6B7280]">Masking</span>
-                      <span className="text-accent-blue tracking-widest uppercase">Hermetic</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* High-Resolution Anatomical Zoom */}
-              <div className="mt-10 pt-10 border-t border-[#1F1F1F]">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-[10px] uppercase tracking-[0.3em] font-black text-white">Anatomical Zoom</h4>
-                  <span className="px-2 py-0.5 rounded-full bg-accent-blue/10 text-[8px] text-accent-blue font-black tracking-widest uppercase">3.0x Clinical</span>
-                </div>
-                <div className="relative aspect-[16/9] bg-[#0A0A0A] rounded-[24px] overflow-hidden border border-[#1F1F1F] glow-blue">
-                  <canvas ref={zoomAfterRef} className="w-full h-full object-cover" />
-                  <canvas ref={zoomBeforeRef} className="hidden" />
-                  {/* Grid Overlay */}
-                  <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 0.5px, transparent 0.5px)', backgroundSize: '15px 15px' }} />
                 </div>
               </div>
             </div>
