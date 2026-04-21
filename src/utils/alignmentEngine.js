@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V11)
- * Stencil-Masked Orthodontics for Zero-Glitch Facial Preservation.
+ * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V12)
+ * Pure Ray-Casting for Absolute Zero-Glitch Facial Preservation.
  */
 
 const INNER_LIP_INDICES = [
@@ -8,46 +8,42 @@ const INNER_LIP_INDICES = [
   324, 318, 402, 317, 14, 87, 178, 88, 95          // Lower inner
 ];
 
+// 🧠 The Mathematical Fence! (Ray-Casting Algorithm)
+function isPixelInsidePolygon(px, py, polygon) {
+    let isInside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        let xi = polygon[i].x, yi = polygon[i].y;
+        let xj = polygon[j].x, yj = polygon[j].y;
+        let intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+        if (intersect) isInside = !isInside;
+    }
+    return isInside;
+}
+
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V11 GEOMETRIC START");
-
-  if (!ctx || !landmarks) return;
-
-  // 1. 🎭 STENCIL MASK GENERATION (Absolute Skin Protection)
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = w;
-  maskCanvas.height = h;
-  const mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
-
-  const mouthPath = new Path2D();
-  INNER_LIP_INDICES.forEach((idx, i) => {
-    const p = landmarks[idx];
-    if (!p) return;
-    const px = p.x * w;
-    const py = p.y * h;
-    if (i === 0) mouthPath.moveTo(px, py);
-    else mouthPath.lineTo(px, py);
-  });
-  mouthPath.closePath();
-
-  mctx.filter = "blur(8px)"; // Soft transition for dental-to-gum blending
-  mctx.fillStyle = "white";
-  mctx.fill(mouthPath);
+  console.log("✅ ALIGNMENT V12 (RAY-CASTING) START");
   
-  const maskData = mctx.getImageData(0, 0, w, h).data;
+  if (!landmarks || landmarks.length === 0) return;
 
-  // 🦷 ROI Calculation (Localized focus)
-  const mouthIndices = [61, 291, 78, 95, 88, 178, 87, 14, 317, 402, 318, 324];
+  // 1. 🎭 THE INVISIBLE FENCE: Exact coordinates of the inner lips
+  const mouthPolygon = [];
+  INNER_LIP_INDICES.forEach((idx) => {
+    mouthPolygon.push({
+      x: landmarks[idx].x * w,
+      y: landmarks[idx].y * h
+    });
+  });
+
+  // 🦷 ROI: Surgical bounding box for performance
+  const mouthIndices = [61, 291, 78, 13, 14, 308];
   let minX = w, minY = h, maxX = 0, maxY = 0;
   mouthIndices.forEach(i => {
-    const px = landmarks[i].x * w;
-    const py = landmarks[i].y * h;
+    const px = landmarks[i].x * w, py = landmarks[i].y * h;
     minX = Math.min(minX, px); minY = Math.min(minY, py);
     maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
   });
 
-  const padX = (maxX - minX) * 0.25;
-  const padY = (maxY - minY) * 0.40;
+  const padX = (maxX - minX) * 0.25, padY = (maxY - minY) * 0.40;
   minX = Math.max(0, minX - padX); maxX = Math.min(w, maxX + padX);
   minY = Math.max(0, minY - padY); maxY = Math.min(h, maxY + padY);
 
@@ -55,38 +51,31 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const src = new Uint8ClampedArray(imageData.data); 
   const dst = imageData.data;
 
-  const centerX = (minX + maxX) / 2;
-  const archMidY = (minY + maxY) / 2;
-  const roiW = maxX - minX;
-  const roiH = maxY - minY;
-
+  const centerX = (minX + maxX) / 2, archMidY = (minY + maxY) / 2;
+  const roiW = maxX - minX, roiH = maxY - minY;
   const resScale = (w < 1000) ? 1.4 : 1.0;
 
-  // 🧪 V11 GEOMETRIC LOOP
+  // 🧪 V12 LOOP: 100% Geometry-Masked Warp
   for (let y = minY | 0; y < maxY; y++) {
     for (let x = minX | 0; x < maxX; x++) {
+        
+      // 🛑 THE FENCE: If the pixel is outside the lips, DO NOT WARP IT!
+      // This instantly protects the mustache, chin, and outer lips from distortion.
+      if (!isPixelInsidePolygon(x, y, mouthPolygon)) {
+          continue; 
+      }
 
       const i = (y * w + x) * 4;
 
-      // 🛡️ STENCIL PROTECTION CHECK
-      const maskVal = maskData[i + 3] / 255;
-      if (maskVal < 0.02) continue; // Hard skip for out-of-mouth pixels (Total Safety)
-
       const nx = (x - centerX) / (roiW / 2);
-
-      // 🦷 TARGET ARCH (V11 Clinical Straightening)
       const curve = nx * nx;
       const targetY = archMidY + roiH * 0.07 * curve;
 
-      // 🔥 V11 HIGH-VISIBILITY FORCES (Only inside stencil)
+      // Forces: 0.12 Pull / 1.2 Lift 
       let dx = -nx * roiW * 0.12 * resScale; 
       let dy = (targetY - y) * 1.2 * resScale;
 
-      // Scale forces by stencil visibility (Invisible transition to lips)
-      dx *= maskVal;
-      dy *= maskVal;
-
-      // 🎯 SOURCE COORD (High-Fidelity Bilinear)
+      // Reverse map with Bilinear Interpolation
       const sx = Math.max(0, Math.min(w - 2, x - dx));
       const sy = Math.max(0, Math.min(h - 2, y - dy));
 
@@ -108,9 +97,8 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       dst[i + 3] = 255;
     }
   }
-
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V11 GEOMETRIC APPLIED");
+  console.log("✅ ALIGNMENT V12 (RAY-CASTING) APPLIED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
