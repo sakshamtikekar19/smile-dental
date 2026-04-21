@@ -189,6 +189,8 @@ const SmileSimulatorAI = () => {
   const [cameraStream, setCameraStream] = useState(null);
   const [rawImageUrl, setRawImageUrl] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
+  const [zoomMode, setZoomMode] = useState(false);
+
   
   const pendingTreatmentRef = useRef("whitening");
   const videoRef = useRef(null);
@@ -576,13 +578,34 @@ const SmileSimulatorAI = () => {
                 {step === "result" && afterImage && (
                   <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black">
                     <div className="absolute top-8 left-8 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-[9px] uppercase tracking-[0.2em] font-black text-white/40">Before</div>
-                    <div className="absolute top-8 right-8 bg-accent-blue/10 backdrop-blur-md px-3 py-1 rounded-full border border-accent-blue/20 text-[9px] uppercase tracking-[0.2em] font-black text-accent-blue">After</div>
-                    <ReactCompareImage 
-                      leftImage={beforeImage} 
-                      rightImage={afterImage} 
-                      sliderLineColor={ACCENT_CYAN}
-                      handle={<div className="w-12 h-12 bg-white/10 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl flex items-center justify-center text-accent-blue"><Layers size={24} className="glow-blue" /></div>}
-                    />
+                    <div className="absolute top-8 right-8 flex gap-2">
+                      <button 
+                        onClick={() => setZoomMode(!zoomMode)}
+                        className={cn("bg-accent-blue/10 backdrop-blur-md px-3 py-1 rounded-full border text-[9px] uppercase tracking-[0.2em] font-black transition-all", zoomMode ? "border-accent-blue text-accent-blue bg-accent-blue/20" : "border-white/10 text-white/60")}
+                      >
+                        {zoomMode ? "1.0x View" : "3.0x Zoom"}
+                      </button>
+                      <div className="bg-accent-blue/10 backdrop-blur-md px-3 py-1 rounded-full border border-accent-blue/20 text-[9px] uppercase tracking-[0.2em] font-black text-accent-blue">After</div>
+                    </div>
+
+                    <div className="w-full h-full overflow-hidden relative">
+                      <motion.div 
+                        animate={{ 
+                          scale: zoomMode ? 3 : 1,
+                          x: zoomMode ? (0.5 - (finalLandmarks?.[13]?.x || 0.5)) * 100 * 3 : 0,
+                          y: zoomMode ? (0.5 - (finalLandmarks?.[13]?.y || 0.5)) * 100 * 3 : 0,
+                        }}
+                        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                        className="w-full h-full"
+                      >
+                        <ReactCompareImage 
+                          leftImage={beforeImage} 
+                          rightImage={afterImage} 
+                          sliderLineColor={ACCENT_CYAN}
+                          handle={<div className="w-12 h-12 bg-white/10 backdrop-blur-xl border border-white/20 rounded-full shadow-2xl flex items-center justify-center text-accent-blue"><Layers size={24} className="glow-blue" /></div>}
+                        />
+                      </motion.div>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -607,22 +630,33 @@ const SmileSimulatorAI = () => {
               )}
             </div>
 
-            {/* NEW POSITION: High-Resolution Anatomical Zoom (Center Panel) */}
+            {/* ISOLATED ZOOM LAYER: Dedicated Container */}
             <AnimatePresence>
               {step === "result" && (
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }} 
                   animate={{ opacity: 1, y: 0 }}
-                  className="mt-10 glass-medical p-8 rounded-[40px]"
+                  className="mt-10 glass-medical p-8 rounded-[40px] overflow-hidden"
                 >
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-[10px] uppercase tracking-[0.3em] font-black text-white">Anatomical Zoom Analytics</h4>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-accent-blue/10 flex items-center justify-center text-accent-blue">
+                        <Activity size={12} />
+                      </div>
+                      <h4 className="text-[10px] uppercase tracking-[0.3em] font-black text-white">Anatomical Zoom Layer</h4>
+                    </div>
                     <span className="px-3 py-1 rounded-full bg-accent-blue/10 text-[9px] text-accent-blue font-black tracking-widest uppercase border border-accent-blue/20">3.0x Clinical</span>
                   </div>
-                  <div className="relative aspect-[21/9] bg-[#0A0A0A] rounded-[24px] overflow-hidden border border-[#1F1F1F] glow-blue">
-                    <canvas ref={zoomAfterRef} className="w-full h-full object-cover" />
-                    <canvas ref={zoomBeforeRef} className="hidden" />
-                    <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#ffffff 0.5px, transparent 0.5px)', backgroundSize: '15px 15px' }} />
+                  <div className="relative aspect-[21/9] bg-[#09090b] rounded-[24px] overflow-hidden border border-white/5 shadow-inner">
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <canvas ref={zoomAfterRef} className="w-full h-full object-cover transition-opacity duration-700" />
+                      <canvas ref={zoomBeforeRef} className="hidden" />
+                    </div>
+                    {/* Scanner Grid Line */}
+                    <div className="absolute inset-0 pointer-events-none">
+                      <div className="w-full h-px bg-accent-blue/20 absolute top-1/2 animate-scanner-slow" />
+                      <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#ffffff 0.5px, transparent 0.5px)', backgroundSize: '15px 15px' }} />
+                    </div>
                   </div>
                 </motion.div>
               )}

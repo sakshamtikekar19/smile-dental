@@ -4,25 +4,18 @@ export function applyClinicalZoom(ctx, landmarks, iw, ih, sourceImage) {
   const targetW = ctx.canvas.width;
   const targetH = ctx.canvas.height;
 
-  // 1. Find the Exact Focal Point (The Mouth)
-  let focusX, focusY;
-
-  if (landmarks.length >= 400) {
-    // We have the full FaceMesh! Target Landmark 13 (Center of upper lip)
-    const pt = landmarks[13];
-    // Handle both normalized (0-1) and absolute pixel coordinates
-    focusX = pt.x <= 1 ? pt.x * iw : pt.x;
-    focusY = pt.y <= 1 ? pt.y * ih : pt.y;
-  } else {
-    // Failsafe: Average center of whatever points are provided
-    let sumX = 0, sumY = 0;
-    landmarks.forEach(pt => {
-      sumX += pt.x <= 1 ? pt.x * iw : pt.x;
-      sumY += pt.y <= 1 ? pt.y * ih : pt.y;
-    });
-    focusX = sumX / landmarks.length;
-    focusY = sumY / landmarks.length;
-  }
+  // 1. Find the Exact Focal Point (Oral Bounding Box Center)
+  const mouthIndices = [0, 13, 14, 17, 37, 39, 40, 61, 78, 80, 81, 82, 84, 87, 88, 91, 95, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 314, 317, 318, 321, 324, 375, 402, 405, 409, 415];
+  
+  let sumX = 0, sumY = 0;
+  mouthIndices.forEach(idx => {
+    const pt = landmarks[idx] || landmarks[0];
+    sumX += pt.x <= 1 ? pt.x * iw : pt.x;
+    sumY += pt.y <= 1 ? pt.y * ih : pt.y;
+  });
+  
+  const focusX = sumX / mouthIndices.length;
+  const focusY = sumY / mouthIndices.length;
 
   // 2. The 3.0x Magnification Math
   const zoomFactor = 3.0;

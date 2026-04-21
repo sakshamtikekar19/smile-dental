@@ -81,3 +81,6 @@ h1, h2, h3, h4, h5, h6 {
   animation: pulse-medical 2.5s ease-in-out infinite;
 }
 
+.animate-scanner-slow {
+  animation: scanner-line 6s ease-in-out infinite;
+}
