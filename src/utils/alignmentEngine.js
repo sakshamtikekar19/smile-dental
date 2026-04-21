@@ -1,7 +1,7 @@
 /**
- * ALIGNMENT ENGINE: THE CONTINUOUS FIELD (V30 - Hard Fix)
- * Removes pixel-level color guessing to eliminate jagged glitches entirely.
- * Uses a purely mathematical gradient safe-zone to protect lips/gums/mustache.
+ * ALIGNMENT ENGINE: THE HERMETIC SEAL (V31)
+ * Solves boundary contamination (smearing/melting artifacts) by enforcing
+ * a strict safety margin during bilinear interpolation.
  */
 
 const INNER_LIP_INDICES = [
@@ -9,6 +9,7 @@ const INNER_LIP_INDICES = [
   324, 318, 402, 317, 14, 87, 178, 88, 95          // Lower inner
 ];
 
+// High-speed mathematical fence
 function isPointInPoly(poly, pt) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -22,7 +23,7 @@ function isPointInPoly(poly, pt) {
 }
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V30 (CONTINUOUS FIELD) START");
+  console.log("✅ ALIGNMENT V31 (HERMETIC SEAL) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -33,13 +34,11 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const actualW = imageData.width;
   const actualH = imageData.height;
 
-  // 1. Create Base Mouth Polygon (The Absolute Boundary)
   const mouthPoly = INNER_LIP_INDICES.map(idx => ({
     x: landmarks[idx].x * actualW,
     y: landmarks[idx].y * actualH
   }));
 
-  // 2. ROI Calculation
   let minX = actualW, minY = actualH, maxX = 0, maxY = 0;
   mouthPoly.forEach(pt => {
     minX = Math.min(minX, pt.x); minY = Math.min(minY, pt.y);
@@ -51,12 +50,11 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V30 LOOP: Fluid, Glitch-Free Distortion
+  // 🧪 V31 LOOP
   for (let y = Math.floor(minY); y < Math.ceil(maxY); y++) {
     for (let x = Math.floor(minX); x < Math.ceil(maxX); x++) {
       
-      // 🛑 GATE 1: Geometric Outside Fence
-      // If a pixel is physically outside the lip polygon (mustache/skin), DO NOT TOUCH IT.
+      // 🛑 GATE 1: Absolute Outer Limit
       if (!isPointInPoly(mouthPoly, {x, y})) continue;
 
       const i = (y * actualW + x) * 4;
@@ -64,35 +62,31 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       const nx = (x - centerX) / (roiW / 2);
       const ny = (y - centerY) / (roiH / 2);
 
-      // 🔥 FIX 1: The Continuous Buffer (Zero Tearing)
-      // Instead of guessing colors, we use distance. The closer a pixel gets to the 
-      // edge of the bounding box (the lips/gums), the less it is allowed to move.
-      const distSq = nx * nx + ny * ny;
+      // 🔥 FIX 1: Cubic Falloff Profile
+      // This creates a very flat, smooth movement in the center of the teeth,
+      // but drops sharply to 0.0 before hitting the lips.
+      const distSq = (nx * nx) + (ny * ny);
+      if (distSq > 0.85) continue; // Hard inner safety margin
       
-      // If we are at the outer edges of the mouth, force movement to 0.0
-      let smoothFade = 1.0 - (distSq * 1.2); 
-      if (smoothFade < 0) smoothFade = 0;
-      
-      // Ease-in curve so the transition is silky smooth
-      smoothFade = smoothFade * smoothFade * (3 - 2 * smoothFade);
+      let weight = 1.0 - distSq;
+      weight = weight * weight * weight; // Cubic multiplier for silky transitions
 
-      // 4. MOVEMENT CALCULATIONS
+      // Subtle, natural arch adjustment
       const curve = nx * nx;
-      const targetY = centerY - (roiH * 0.06) * curve; 
-      const dyRaw = targetY - y;
+      let dx = nx * roiW * 0.015 * weight; // Very subtle horizontal gap closure
+      let dy = -curve * roiH * 0.025 * weight; // Subtle vertical lift for a natural smile arc
 
-      // Multiply the force by our smoothFade so it stops moving near the lips
-      let dx = -nx * roiW * 0.02 * smoothFade;
-      let dy = dyRaw * 0.5 * smoothFade;
+      const sx = x + dx;
+      const sy = y + dy;
 
-      const sx = x - dx;
-      const sy = y - dy;
+      // 🔥 FIX 2: The Hermetic Seal
+      // We check if the *source* coordinate is safely inside the mouth. 
+      // If the math tries to pull a pixel from the danger zone, we abort entirely.
+      if (!isPointInPoly(mouthPoly, {x: sx, y: sy})) {
+         continue; // Leaves the original pixel exactly as it was (no smearing)
+      }
 
-      // 🛑 GATE 2: The Source-Theft Killer
-      // If the math accidentally tries to pull a pixel from the lip inward, abort!
-      if (!isPointInPoly(mouthPoly, {x: sx, y: sy})) continue;
-
-      // 5. HD BILINEAR SAMPLING (Keeps enamel looking high-definition)
+      // Safe Bilinear Sampling
       const x0 = Math.max(0, Math.min(actualW - 2, Math.floor(sx)));
       const y0 = Math.max(0, Math.min(actualH - 2, Math.floor(sy)));
       const x1 = x0 + 1;
@@ -112,7 +106,6 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
                      src[p11 + c] * wx * wy;
       }
       
-      // Preserve alpha
       dst[i + 3] = 255;
     }
   }
