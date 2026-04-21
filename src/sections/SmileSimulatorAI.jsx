@@ -506,8 +506,8 @@ const SmileSimulatorAI = () => {
                     {/* UI Layer: Scanner & Vignette */}
                     <div className="absolute inset-0 vignette-overlay" />
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-[70%] h-[50%] border-[0.5px] border-accent-blue/30 rounded-[120px] relative">
-                         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-4 px-3 py-1 border border-accent-blue/40 rounded-full text-[9px] text-accent-blue uppercase tracking-widest font-bold bg-black/40 backdrop-blur-md">
+                      <div className="w-[45%] h-[28%] border-[0.5px] border-accent-blue/40 rounded-[100px] relative -translate-y-10">
+                         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-4 px-3 py-1 border border-accent-blue/40 rounded-full text-[8px] text-accent-blue uppercase tracking-widest font-bold bg-black/60 backdrop-blur-md">
                            Align Mouth in Sensor Zone
                          </div>
                          <div className="w-full h-[1.5px] bg-accent-blue/40 animate-scanner shadow-[0_0_20px_#00D1FF]" />
@@ -519,7 +519,7 @@ const SmileSimulatorAI = () => {
                     </div>
 
                     {/* Capture Trigger */}
-                    <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-40">
+                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-40">
                       <button 
                         onClick={() => {
                           if (videoRef.current) {
