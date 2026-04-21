@@ -1,6 +1,7 @@
 /**
- * ALIGNMENT ENGINE: THE CALIBRATED SEAL (V32)
- * Boosted physics for noticeable alignment. Hermetic seal prevents lip melting.
+ * ALIGNMENT ENGINE: ORTHODONTIC ARCHWIRE (V33)
+ * Introduces "Magnetic Leveling" to flatten the occlusal plane (tooth edges)
+ * against an ideal mathematical smile curve, mimicking real braces.
  */
 
 const INNER_LIP_INDICES = [
@@ -49,11 +50,11 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
 
   if (roiW === 0 || roiH === 0) return;
 
-  // 🧪 V32 LOOP
+  // 🧪 V33 LOOP: The Magnetic Archwire
   for (let y = Math.floor(minY); y < Math.ceil(maxY); y++) {
     for (let x = Math.floor(minX); x < Math.ceil(maxX); x++) {
       
-      // 🛑 GATE 1: Absolute Outer Limit (Protects mustache and outer face)
+      // 🛑 GATE 1: Protect the outside face
       if (!isPointInPoly(mouthPoly, {x, y})) continue;
 
       const i = (y * actualW + x) * 4;
@@ -61,26 +62,33 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       const nx = (x - centerX) / (roiW / 2);
       const ny = (y - centerY) / (roiH / 2);
 
-      // 🔥 FIX 1: Expanded Active Zone (Boosted to 0.95)
-      // Allows the alignment to reach the side teeth while still dropping to 0 
-      // before hitting the lip boundary.
       const distSq = (nx * nx) + (ny * ny);
       if (distSq > 0.95) continue; 
       
       let weight = 1.0 - distSq;
-      weight = weight * weight * weight; // Cubic multiplier for silky transitions
+      weight = weight * weight * weight; 
 
-      // Noticeable, natural arch adjustment
-      const curve = nx * nx;
-      let dx = nx * roiW * 0.035 * weight; // Gentle horizontal closure
-      let dy = -curve * roiH * 0.055 * weight; // Boosted vertical lift for the smile arc
+      // 🔥 FIX 1: THE INVISALIGN CURVE
+      // We mathematically calculate the perfect U-shape for the smile.
+      // It sits slightly above the center and curves upwards at the corners.
+      const idealArchY = (centerY - roiH * 0.05) - (nx * nx * roiH * 0.12);
 
+      // 🔥 FIX 2: MAGNETIC LEVELING PHYSICS
+      // Instead of just pushing "up", we measure how far the current pixel is 
+      // from the ideal arch. We then compress the pixel towards that perfect line.
+      // This smooths out bumpy, jagged tooth edges.
+      let dy = (y - idealArchY) * 0.22 * weight; 
+      
+      // Gentle horizontal closure to fix spacing
+      let dx = nx * roiW * 0.025 * weight; 
+
+      // Calculate the source pixel
       const sx = x + dx;
       const sy = y + dy;
 
-      // 🔥 GATE 2: The Hermetic Seal (Kills the Smearing/Melting)
+      // 🛑 GATE 2: The Hermetic Seal (Zero Lip Smearing)
       if (!isPointInPoly(mouthPoly, {x: sx, y: sy})) {
-         continue; // Abort blend, leave pixel untouched
+         continue; 
       }
 
       // Safe HD Bilinear Sampling
