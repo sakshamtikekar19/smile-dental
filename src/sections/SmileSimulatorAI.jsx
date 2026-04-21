@@ -404,64 +404,32 @@ const SmileSimulatorAI = () => {
       applyProfessionalAlignment(pctx, landmarks, iw, ih);
       console.log("✅ ALIGNMENT FINISHED");
 
-      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Nuclear Diagnostics & Override)
+      // 🔍 STEP 6: INSTANT ZOOM GENERATION (Single Source of Truth)
+      requestAnimationFrame(() => {
+        const screenCanvas = zoomAfterRef.current;
+        if (!screenCanvas) return;
 
-      // 1. Prepare Staging Canvas
-      const stageCanvas = document.createElement("canvas");
-      stageCanvas.width = iw; stageCanvas.height = ih;
-      const stageCtx = stageCanvas.getContext("2d", { alpha: false });
+        const isMobileDevice = window.innerWidth < 768;
+        screenCanvas.width = isMobileDevice ? 800 : 1200;
+        screenCanvas.height = isMobileDevice ? 400 : 600;
 
-      if (videoRef.current && videoRef.current.readyState >= 2) {
-        stageCtx.drawImage(videoRef.current, 0, 0, iw, ih);
-      } else {
-        stageCtx.fillStyle = "#09090b";
-        stageCtx.fillRect(0, 0, iw, ih);
-      }
-      stageCtx.drawImage(procCanvas, 0, 0);
+        const ctx = screenCanvas.getContext("2d", { alpha: false });
+        // 🚀 PRODUCTION DRAW: Apply surgical zoom directly from procCanvas
+        applyClinicalZoom(ctx, landmarks, iw, ih, procCanvas);
 
-      // 2. Capture Snapshot
-      stageCanvas.toBlob((blob) => {
-        if (!blob) return; 
-        
-        const blobUrl = URL.createObjectURL(blob);
-        const finalSnap = new Image();
-        finalSnap.src = blobUrl;
+        // Render Before Snapshot (Direct from original image)
+        const screenBefore = zoomBeforeRef.current;
+        if (screenBefore) {
+          screenBefore.width = screenCanvas.width;
+          screenBefore.height = screenCanvas.height;
+          const bCtx = screenBefore.getContext("2d", { alpha: false });
+          applyClinicalZoom(bCtx, landmarks, iw, ih, img);
+        }
 
-        finalSnap.onload = () => {
-          requestAnimationFrame(() => {
-            const screenCanvas = zoomAfterRef.current;
-            if (!screenCanvas) {
-              return;
-            }
+        // Force Global Repaint for UI sync
+        window.dispatchEvent(new Event("resize"));
+      });
 
-            // Lock Dimensions to prevent React re-render wipes
-            const isMobileDevice = window.innerWidth < 768;
-            screenCanvas.width = isMobileDevice ? 800 : 1200;
-            screenCanvas.height = isMobileDevice ? 400 : 600;
-
-            const ctx = screenCanvas.getContext("2d", { alpha: false });
-            
-            // 🚀 PRODUCTION DRAW: Apply surgical zoom math
-            applyClinicalZoom(ctx, landmarks, iw, ih, finalSnap);
-
-            // Render Before Snapshot (Direct)
-            const screenBefore = zoomBeforeRef.current;
-            if (screenBefore) {
-              screenBefore.width = screenCanvas.width;
-              screenBefore.height = screenCanvas.height;
-              const bCtx = screenBefore.getContext("2d", { alpha: false });
-              applyClinicalZoom(bCtx, landmarks, iw, ih, img);
-            }
-
-            // Cleanup
-            URL.revokeObjectURL(blobUrl);
-            stageCanvas.width = 0; 
-            
-            // Force Global Repaint
-            window.dispatchEvent(new Event("resize"));
-          });
-        };
-      }, "image/jpeg", 0.95);
       // 🔍 FINAL EXPORT (Guaranteed Simulation Copy)
       const mainExport = document.createElement("canvas");
       mainExport.width = iw; mainExport.height = ih;
