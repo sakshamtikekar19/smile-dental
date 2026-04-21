@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V16 - Pure Math & Source Denial)
- * Zero Canvas API reliance for 100% Mobile Compatibility.
+ * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V17 - Mobile Optimizer)
+ * Sub-pixel attrition fixed. Array width synchronized.
  */
 
 const INNER_LIP_INDICES = [
@@ -21,7 +21,7 @@ function isPixelInsidePolygon(px, py, polygon) {
 }
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V16 (PURE MATH) START");
+  console.log("✅ ALIGNMENT V17 (MOBILE OPTIMIZER) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -34,7 +34,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     });
   });
 
-  // 🦷 ROI: Surgical bounding box
+  // 🦷 ROI: Surgical bounding box (Tighter for mobile focus)
   const mouthIndices = [61, 291, 78, 13, 14, 308];
   let minX = w, minY = h, maxX = 0, maxY = 0;
   mouthIndices.forEach(i => {
@@ -43,49 +43,50 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
   });
 
-  const padX = (maxX - minX) * 0.20, padY = (maxY - minY) * 0.30;
+  const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.25;
   minX = Math.max(0, minX - padX); maxX = Math.min(w, maxX + padX);
   minY = Math.max(0, minY - padY); maxY = Math.min(h, maxY + padY);
 
   const imageData = ctx.getImageData(0, 0, w, h);
   const src = new Uint8ClampedArray(imageData.data); 
   const dst = imageData.data;
+  
+  // 🔥 FIX 1: Mobile Canvas Array Synchronization (Retina/High-DPI Fix)
+  const actualWidth = imageData.width;
 
   const centerX = (minX + maxX) / 2;
   const archMidY = (minY + maxY) / 2;
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V16 LOOP: Pure Math Warping
+  // 🧪 V17 LOOP: Mobile-Safe Pure Math Warping
   for (let y = minY | 0; y < maxY; y++) {
     for (let x = minX | 0; x < maxX; x++) {
       
-      // 🛑 GATE 1: If target pixel is outside the mouth, skip it.
+      // 🛑 GATE 1: If target pixel is outside the inner lips, skip.
       if (!isPixelInsidePolygon(x, y, mouthPolygon)) continue;
 
-      const i = (y * w + x) * 4;
+      const i = (y * actualWidth + x) * 4;
 
-      // Calculate relative position (-1.0 to 1.0)
       const nx = (x - centerX) / (roiW / 2);
       const ny = (y - archMidY) / (roiH / 2);
 
-      // 🔥 FIX 1: PURE MATHEMATICAL FEATHERING (Solves Mobile Crash)
+      // 🔥 FIX 2: Softer Edge Fade (Linear for Mobile Visibility)
       let edgeFade = 1.0 - Math.sqrt(nx * nx + ny * ny);
       if (edgeFade < 0) edgeFade = 0;
-      edgeFade = edgeFade * edgeFade; // Exponential smooth curve
 
-      // 🔥 FIX 2: GENTLE PHYSICS (Solves Catfish Teeth)
       const curve = nx * nx;
-      const targetY = archMidY + roiH * 0.035 * curve;
+      const targetY = archMidY + roiH * 0.05 * curve;
 
-      let dx = -nx * roiW * 0.02 * edgeFade; 
-      let dy = (targetY - y) * 0.40 * edgeFade; 
+      // 🔥 FIX 3: Boosted Warp Physics (Subtle but Visible)
+      let dx = -nx * roiW * 0.045 * edgeFade; 
+      let dy = (targetY - y) * 0.65 * edgeFade; 
 
       const sx = x - dx;
       const sy = y - dy;
 
-      // 🔥 FIX 3: THE GLITCH KILLER (Source Denial)
-      // If the math tries to pull a pixel from the lip/skin, ABORT the warp for this pixel!
+      // 🔥 FIX 4: THE GLITCH KILLER (Source Denial)
+      // Aborts if it tries to steal a pixel from the lip/skin.
       if (!isPixelInsidePolygon(sx, sy, mouthPolygon)) continue;
 
       // Reverse map with Bilinear Interpolation
@@ -94,10 +95,10 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       const wx = sx - x0, wy = sy - y0;
 
       for (let c = 0; c < 3; c++) {
-        const c00 = src[(y0 * w + x0) * 4 + c];
-        const c10 = src[(y0 * w + x1) * 4 + c];
-        const c01 = src[(y1 * w + x0) * 4 + c];
-        const c11 = src[(y1 * w + x1) * 4 + c];
+        const c00 = src[(y0 * actualWidth + x0) * 4 + c];
+        const c10 = src[(y0 * actualWidth + x1) * 4 + c];
+        const c01 = src[(y1 * actualWidth + x0) * 4 + c];
+        const c11 = src[(y1 * actualWidth + x1) * 4 + c];
 
         dst[i + c] = c00 * (1 - wx) * (1 - wy) +
                      c10 * wx * (1 - wy) +
@@ -108,7 +109,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V16 (PURE MATH) APPLIED");
+  console.log("✅ ALIGNMENT V17 (MOBILE OPTIMIZER) APPLIED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
