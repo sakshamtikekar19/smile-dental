@@ -73,6 +73,10 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       dx *= fade;
       dy *= fade;
 
+      if (x === Math.floor(centerX) && y === Math.floor(archMidY)) {
+        console.log("✅ ALIGNMENT ACTIVE:", dx, dy);
+      }
+
       // 🎯 REVERSE SAMPLING (High-Fidelity Bilinear)
       const sx = Math.max(0, Math.min(actualW - 2, x - dx));
       const sy = Math.max(0, Math.min(actualH - 2, y - dy));
