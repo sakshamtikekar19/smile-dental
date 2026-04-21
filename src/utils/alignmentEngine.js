@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V13)
- * Inner-Feathered Masking for Seamless Blending & Zero Face Glitch.
+ * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V14 - Anti-Catfish)
+ * Deep Inner-Feathering and Relaxed Warp Physics.
  */
 
 const INNER_LIP_INDICES = [
@@ -11,12 +11,11 @@ const INNER_LIP_INDICES = [
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   if (!landmarks || landmarks.length === 0) return;
 
-  // 1. 🎭 THE INNER-FEATHERED MASK
+  // 1. 🎭 THE DEEP INNER-FEATHERED MASK
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = w; maskCanvas.height = h;
   const mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
 
-  // Start with a totally black (0% warp) canvas to protect the face
   mctx.fillStyle = "black";
   mctx.fillRect(0, 0, w, h);
 
@@ -30,25 +29,22 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   mouthPath.closePath();
 
   mctx.save();
-  // 🔥 CRITICAL: Clip the canvas. Nothing drawn after this can EVER leave the mouth.
   mctx.clip(mouthPath); 
-
-  // Fill the inside with white (100% warp)
+  
   mctx.fillStyle = "white";
   mctx.fill(mouthPath);
 
-  // Feather the inner edge. We draw a blurred black line on the boundary.
-  // Because the canvas is clipped, the blur only spreads INWARD, fading the warp to 0 smoothly.
-  mctx.filter = "blur(6px)";
+  // 🔥 FIX 1: THE "BIG LIP" PROTECTOR (Massive 35px inward fade)
+  mctx.filter = "blur(12px)";
   mctx.strokeStyle = "black";
-  mctx.lineWidth = 12; 
+  mctx.lineWidth = 35; 
   mctx.stroke(mouthPath);
   
   mctx.restore();
 
   const maskData = mctx.getImageData(0, 0, w, h).data;
 
-  // 🦷 ROI: Surgical bounding box for performance
+  // 🦷 ROI: Surgical bounding box
   const mouthIndices = [61, 291, 78, 13, 14, 308];
   let minX = w, minY = h, maxX = 0, maxY = 0;
   mouthIndices.forEach(i => {
@@ -69,25 +65,23 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX, roiH = maxY - minY;
   const resScale = (w < 1000) ? 1.4 : 1.0;
 
-  // 🧪 V13 LOOP: Smooth, Tapered Warping
+  // 🧪 V14 LOOP: Relaxed, Natural Warping
   for (let y = minY | 0; y < maxY; y++) {
     for (let x = minX | 0; x < maxX; x++) {
       
       const i = (y * w + x) * 4;
-      
-      // Grab the warp strength from our feathered mask (0.0 to 1.0)
       const maskVal = maskData[i] / 255; 
-      
-      // If mask is effectively zero (outside mouth or deep in the feathered edge), skip processing
       if (maskVal < 0.02) continue; 
 
       const nx = (x - centerX) / (roiW / 2);
+      
+      // 🔥 FIX 2: THE "CATFISH" ARCH PRESERVER (Subtle curve)
       const curve = nx * nx;
-      const targetY = archMidY + roiH * 0.07 * curve;
+      const targetY = archMidY + roiH * 0.04 * curve;
 
-      // 🎯 MULTIPLY BY MASK: The warp automatically reduces to 0 smoothly at the lip line!
-      let dx = -nx * roiW * 0.12 * resScale * maskVal; 
-      let dy = (targetY - y) * 1.2 * resScale * maskVal;
+      // 🔥 FIX 3: RELAXED WARP PHYSICS (Subtle Clinical Correction)
+      let dx = -nx * roiW * 0.04 * resScale * maskVal; 
+      let dy = (targetY - y) * 0.5 * resScale * maskVal;
 
       // Reverse map with Bilinear Interpolation
       const sx = Math.max(0, Math.min(w - 2, x - dx));
@@ -112,7 +106,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V13 (INNER-FEATHERED) APPLIED");
+  console.log("✅ ALIGNMENT V14 (ANTI-CATFISH) APPLIED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
