@@ -1,7 +1,6 @@
 /**
- * ALIGNMENT ENGINE: THE HERMETIC SEAL (V31)
- * Solves boundary contamination (smearing/melting artifacts) by enforcing
- * a strict safety margin during bilinear interpolation.
+ * ALIGNMENT ENGINE: THE CALIBRATED SEAL (V32)
+ * Boosted physics for noticeable alignment. Hermetic seal prevents lip melting.
  */
 
 const INNER_LIP_INDICES = [
@@ -23,8 +22,6 @@ function isPointInPoly(poly, pt) {
 }
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V31 (HERMETIC SEAL) START");
-  
   if (!landmarks || landmarks.length === 0) return;
 
   const imageData = ctx.getImageData(0, 0, w, h);
@@ -50,11 +47,13 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V31 LOOP
+  if (roiW === 0 || roiH === 0) return;
+
+  // 🧪 V32 LOOP
   for (let y = Math.floor(minY); y < Math.ceil(maxY); y++) {
     for (let x = Math.floor(minX); x < Math.ceil(maxX); x++) {
       
-      // 🛑 GATE 1: Absolute Outer Limit
+      // 🛑 GATE 1: Absolute Outer Limit (Protects mustache and outer face)
       if (!isPointInPoly(mouthPoly, {x, y})) continue;
 
       const i = (y * actualW + x) * 4;
@@ -62,31 +61,29 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       const nx = (x - centerX) / (roiW / 2);
       const ny = (y - centerY) / (roiH / 2);
 
-      // 🔥 FIX 1: Cubic Falloff Profile
-      // This creates a very flat, smooth movement in the center of the teeth,
-      // but drops sharply to 0.0 before hitting the lips.
+      // 🔥 FIX 1: Expanded Active Zone (Boosted to 0.95)
+      // Allows the alignment to reach the side teeth while still dropping to 0 
+      // before hitting the lip boundary.
       const distSq = (nx * nx) + (ny * ny);
-      if (distSq > 0.85) continue; // Hard inner safety margin
+      if (distSq > 0.95) continue; 
       
       let weight = 1.0 - distSq;
       weight = weight * weight * weight; // Cubic multiplier for silky transitions
 
-      // Subtle, natural arch adjustment
+      // Noticeable, natural arch adjustment
       const curve = nx * nx;
-      let dx = nx * roiW * 0.015 * weight; // Very subtle horizontal gap closure
-      let dy = -curve * roiH * 0.025 * weight; // Subtle vertical lift for a natural smile arc
+      let dx = nx * roiW * 0.035 * weight; // Gentle horizontal closure
+      let dy = -curve * roiH * 0.055 * weight; // Boosted vertical lift for the smile arc
 
       const sx = x + dx;
       const sy = y + dy;
 
-      // 🔥 FIX 2: The Hermetic Seal
-      // We check if the *source* coordinate is safely inside the mouth. 
-      // If the math tries to pull a pixel from the danger zone, we abort entirely.
+      // 🔥 GATE 2: The Hermetic Seal (Kills the Smearing/Melting)
       if (!isPointInPoly(mouthPoly, {x: sx, y: sy})) {
-         continue; // Leaves the original pixel exactly as it was (no smearing)
+         continue; // Abort blend, leave pixel untouched
       }
 
-      // Safe Bilinear Sampling
+      // Safe HD Bilinear Sampling
       const x0 = Math.max(0, Math.min(actualW - 2, Math.floor(sx)));
       const y0 = Math.max(0, Math.min(actualH - 2, Math.floor(sy)));
       const x1 = x0 + 1;

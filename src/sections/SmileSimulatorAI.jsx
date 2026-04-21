@@ -314,8 +314,8 @@ const SmileSimulatorAI = () => {
 
         const t = selectedTreatment;
         const opts = { anchor: { x: s.x, y: s.y }, rotation: s.ang };
-        if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, opts);
         if (t === "whitening" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, opts);
+        if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, opts);
       }
     }
     if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
