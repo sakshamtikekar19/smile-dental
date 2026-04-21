@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V12)
- * Pure Ray-Casting for Absolute Zero-Glitch Facial Preservation.
+ * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V13)
+ * Inner-Feathered Masking for Seamless Blending & Zero Face Glitch.
  */
 
 const INNER_LIP_INDICES = [
@@ -8,31 +8,45 @@ const INNER_LIP_INDICES = [
   324, 318, 402, 317, 14, 87, 178, 88, 95          // Lower inner
 ];
 
-// 🧠 The Mathematical Fence! (Ray-Casting Algorithm)
-function isPixelInsidePolygon(px, py, polygon) {
-    let isInside = false;
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-        let xi = polygon[i].x, yi = polygon[i].y;
-        let xj = polygon[j].x, yj = polygon[j].y;
-        let intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
-        if (intersect) isInside = !isInside;
-    }
-    return isInside;
-}
-
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V12 (RAY-CASTING) START");
-  
   if (!landmarks || landmarks.length === 0) return;
 
-  // 1. 🎭 THE INVISIBLE FENCE: Exact coordinates of the inner lips
-  const mouthPolygon = [];
-  INNER_LIP_INDICES.forEach((idx) => {
-    mouthPolygon.push({
-      x: landmarks[idx].x * w,
-      y: landmarks[idx].y * h
-    });
+  // 1. 🎭 THE INNER-FEATHERED MASK
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = w; maskCanvas.height = h;
+  const mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+
+  // Start with a totally black (0% warp) canvas to protect the face
+  mctx.fillStyle = "black";
+  mctx.fillRect(0, 0, w, h);
+
+  const mouthPath = new Path2D();
+  INNER_LIP_INDICES.forEach((idx, i) => {
+    const px = landmarks[idx].x * w;
+    const py = landmarks[idx].y * h;
+    if (i === 0) mouthPath.moveTo(px, py);
+    else mouthPath.lineTo(px, py);
   });
+  mouthPath.closePath();
+
+  mctx.save();
+  // 🔥 CRITICAL: Clip the canvas. Nothing drawn after this can EVER leave the mouth.
+  mctx.clip(mouthPath); 
+
+  // Fill the inside with white (100% warp)
+  mctx.fillStyle = "white";
+  mctx.fill(mouthPath);
+
+  // Feather the inner edge. We draw a blurred black line on the boundary.
+  // Because the canvas is clipped, the blur only spreads INWARD, fading the warp to 0 smoothly.
+  mctx.filter = "blur(6px)";
+  mctx.strokeStyle = "black";
+  mctx.lineWidth = 12; 
+  mctx.stroke(mouthPath);
+  
+  mctx.restore();
+
+  const maskData = mctx.getImageData(0, 0, w, h).data;
 
   // 🦷 ROI: Surgical bounding box for performance
   const mouthIndices = [61, 291, 78, 13, 14, 308];
@@ -55,25 +69,25 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX, roiH = maxY - minY;
   const resScale = (w < 1000) ? 1.4 : 1.0;
 
-  // 🧪 V12 LOOP: 100% Geometry-Masked Warp
+  // 🧪 V13 LOOP: Smooth, Tapered Warping
   for (let y = minY | 0; y < maxY; y++) {
     for (let x = minX | 0; x < maxX; x++) {
-        
-      // 🛑 THE FENCE: If the pixel is outside the lips, DO NOT WARP IT!
-      // This instantly protects the mustache, chin, and outer lips from distortion.
-      if (!isPixelInsidePolygon(x, y, mouthPolygon)) {
-          continue; 
-      }
-
+      
       const i = (y * w + x) * 4;
+      
+      // Grab the warp strength from our feathered mask (0.0 to 1.0)
+      const maskVal = maskData[i] / 255; 
+      
+      // If mask is effectively zero (outside mouth or deep in the feathered edge), skip processing
+      if (maskVal < 0.02) continue; 
 
       const nx = (x - centerX) / (roiW / 2);
       const curve = nx * nx;
       const targetY = archMidY + roiH * 0.07 * curve;
 
-      // Forces: 0.12 Pull / 1.2 Lift 
-      let dx = -nx * roiW * 0.12 * resScale; 
-      let dy = (targetY - y) * 1.2 * resScale;
+      // 🎯 MULTIPLY BY MASK: The warp automatically reduces to 0 smoothly at the lip line!
+      let dx = -nx * roiW * 0.12 * resScale * maskVal; 
+      let dy = (targetY - y) * 1.2 * resScale * maskVal;
 
       // Reverse map with Bilinear Interpolation
       const sx = Math.max(0, Math.min(w - 2, x - dx));
@@ -98,7 +112,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V12 (RAY-CASTING) APPLIED");
+  console.log("✅ ALIGNMENT V13 (INNER-FEATHERED) APPLIED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
