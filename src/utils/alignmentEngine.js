@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: BIOCHEMICAL PRECISION (V18)
- * Integrates Color-Gating to mathematically prevent lip and gum dragging.
+ * ALIGNMENT ENGINE: THE SOLID-STATE MATRIX (V19)
+ * Solves Laptop Pink Bleed (Nearest Neighbor) & Mobile Tearing (Integer Matrix).
  */
 
 const INNER_LIP_INDICES = [
@@ -21,102 +21,98 @@ function isPixelInsidePolygon(px, py, polygon) {
 }
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V18 (BIOCHEMICAL PRECISION) START");
+  console.log("✅ ALIGNMENT V19 (SOLID-STATE MATRIX) START");
   
   if (!landmarks || landmarks.length === 0) return;
-
-  // 1. 🎭 THE INVISIBLE FENCE: Exact coordinates of the inner lips
-  const mouthPolygon = [];
-  INNER_LIP_INDICES.forEach((idx) => {
-    mouthPolygon.push({
-      x: landmarks[idx].x * w,
-      y: landmarks[idx].y * h
-    });
-  });
-
-  // 🦷 ROI: Surgical bounding box
-  const mouthIndices = [61, 291, 78, 13, 14, 308];
-  let minX = w, minY = h, maxX = 0, maxY = 0;
-  mouthIndices.forEach(i => {
-    const px = landmarks[i].x * w, py = landmarks[i].y * h;
-    minX = Math.min(minX, px); minY = Math.min(minY, py);
-    maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
-  });
-
-  const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.25;
-  minX = Math.max(0, minX - padX); maxX = Math.min(w, maxX + padX);
-  minY = Math.max(0, minY - padY); maxY = Math.min(h, maxY + padY);
 
   const imageData = ctx.getImageData(0, 0, w, h);
   const src = new Uint8ClampedArray(imageData.data); 
   const dst = imageData.data;
   
-  const actualWidth = imageData.width;
+  // 🔥 Force absolute array synchronization for multi-device stability
+  const actualW = imageData.width;
+  const actualH = imageData.height;
+
+  const mouthPolygon = [];
+  INNER_LIP_INDICES.forEach((idx) => {
+    mouthPolygon.push({
+      x: landmarks[idx].x * actualW,
+      y: landmarks[idx].y * actualH
+    });
+  });
+
+  const mouthIndices = [61, 291, 78, 13, 14, 308];
+  let minX = actualW, minY = actualH, maxX = 0, maxY = 0;
+  mouthIndices.forEach(i => {
+    const px = landmarks[i].x * actualW, py = landmarks[i].y * actualH;
+    minX = Math.min(minX, px); minY = Math.min(minY, py);
+    maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+  });
+
+  // Tighter padding for focused orthodontic pass
+  const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.20;
+  minX = Math.max(0, Math.floor(minX - padX)); 
+  maxX = Math.min(actualW, Math.ceil(maxX + padX));
+  minY = Math.max(0, Math.floor(minY - padY)); 
+  maxY = Math.min(actualH, Math.ceil(maxY + padY));
 
   const centerX = (minX + maxX) / 2;
   const archMidY = (minY + maxY) / 2;
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V18 LOOP: Bio-Gated Warping
-  for (let y = minY | 0; y < maxY; y++) {
-    for (let x = minX | 0; x < maxX; x++) {
+  // 🧪 V19 LOOP: Solid-State Nearest Neighbor (No-Bleed Architecture)
+  for (let y = minY; y < maxY; y++) {
+    for (let x = minX; x < maxX; x++) {
       
       // 🛑 GATE 0: Geometric Fence
       if (!isPixelInsidePolygon(x, y, mouthPolygon)) continue;
 
-      const i = (y * actualWidth + x) * 4;
+      const i = (y * actualW + x) * 4;
 
-      // 🔥 GATE 1: DESTINATION FLESH PROTECTOR
-      // If the pixel currently sitting here is lip/gum tissue, leave it alone!
-      const dr = src[i], dg = src[i+1], db = src[i+2];
-      if (dr > dg * 1.15 && dr > db * 1.15) continue;
+      // 🔥 GATE 1: Destination Flesh Protector (R > G/B 1.12x)
+      if (src[i] > src[i+1]*1.12 && src[i] > src[i+2]*1.12) continue;
 
       const nx = (x - centerX) / (roiW / 2);
       const ny = (y - archMidY) / (roiH / 2);
+      
+      // Radial Mask Calculation
+      const dist = Math.sqrt(nx * nx + ny * ny);
+      if (dist > 1.0) continue; 
 
-      let edgeFade = 1.0 - Math.sqrt(nx * nx + ny * ny);
-      if (edgeFade < 0) edgeFade = 0;
+      // 🔥 FIX 1: Cosine Falloff (Smooth, clinical physics)
+      const falloff = Math.cos(dist * Math.PI / 2);
 
-      const curve = nx * nx;
-      const targetY = archMidY + roiH * 0.05 * curve;
+      // Physics Vectors
+      let dx = nx * roiW * 0.04 * falloff; 
+      let dy = Math.abs(nx) * roiH * 0.05 * falloff; 
 
-      let dx = -nx * roiW * 0.045 * edgeFade; 
-      let dy = (targetY - y) * 0.65 * edgeFade; 
+      // 🔥 FIX 2: NEAREST NEIGHBOR ROUNDING (Kills Mobile Tearing & Pink Bleed)
+      // Strict Integer Mapping: No color blending allowed.
+      let sx = Math.round(x + dx);
+      let sy = Math.round(y + dy);
 
-      const sx = x - dx;
-      const sy = y - dy;
+      // Safe Array Bounding
+      sx = Math.max(0, Math.min(actualW - 1, sx));
+      sy = Math.max(0, Math.min(actualH - 1, sy));
 
       // 🛑 GATE 2: Geometric Source Denial
       if (!isPixelInsidePolygon(sx, sy, mouthPolygon)) continue;
 
-      // 🔥 GATE 3: SOURCE FLESH PROTECTOR (The "Double Lip" Killer)
-      // If the math tries to steal a pixel that belongs to the mucosal lip/gum, abort!
-      const sIdx = (Math.floor(sy) * actualWidth + Math.floor(sx)) * 4;
-      const sr = src[sIdx], sg = src[sIdx+1], sb = src[sIdx+2];
-      if (sr > sg * 1.15 && sr > sb * 1.15) continue;
+      const si = (sy * actualW + sx) * 4;
 
-      // Reverse map with Bilinear Interpolation
-      const x0 = Math.floor(sx), y0 = Math.floor(sy);
-      const x1 = x0 + 1, y1 = y0 + 1;
-      const wx = sx - x0, wy = sy - y0;
+      // 🔥 GATE 3: Source Flesh Protector
+      if (src[si] > src[si+1]*1.12 && src[si] > src[si+2]*1.12) continue;
 
-      for (let c = 0; c < 3; c++) {
-        const c00 = src[(y0 * actualWidth + x0) * 4 + c];
-        const c10 = src[(y0 * actualWidth + x1) * 4 + c];
-        const c01 = src[(y1 * actualWidth + x0) * 4 + c];
-        const c11 = src[(y1 * actualWidth + x1) * 4 + c];
-
-        dst[i + c] = c00 * (1 - wx) * (1 - wy) +
-                     c10 * wx * (1 - wy) +
-                     c01 * (1 - wx) * wy +
-                     c11 * wx * wy;
-      }
-      dst[i + 3] = 255;
+      // 🔥 SOLID PIXEL COPY: 100% Solid-State Transmission
+      dst[i] = src[si];
+      dst[i+1] = src[si+1];
+      dst[i+2] = src[si+2];
+      dst[i+3] = 255;
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V18 (BIOCHEMICAL PRECISION) APPLIED");
+  console.log("✅ ALIGNMENT V19 (SOLID-STATE) APPLIED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
