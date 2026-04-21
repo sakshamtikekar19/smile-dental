@@ -506,11 +506,13 @@ const SmileSimulatorAI = () => {
                     {/* UI Layer: Scanner & Vignette */}
                     <div className="absolute inset-0 vignette-overlay" />
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-[45%] h-[28%] border-[0.5px] border-accent-blue/40 rounded-[100px] relative -translate-y-10">
-                         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-4 px-3 py-1 border border-accent-blue/40 rounded-full text-[8px] text-accent-blue uppercase tracking-widest font-bold bg-black/60 backdrop-blur-md">
-                           Align Mouth in Sensor Zone
+                      <div className="w-[45%] h-[15%] border border-dashed border-white/40 rounded-[100px] relative -translate-y-20">
+                         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full mt-4 w-full text-center">
+                           <span className="text-[9px] text-white/60 uppercase tracking-[0.3em] font-bold">
+                             Align Teeth Here
+                           </span>
                          </div>
-                         <div className="w-full h-[1.5px] bg-accent-blue/40 animate-scanner shadow-[0_0_20px_#00D1FF]" />
+                         <div className="w-full h-[1px] bg-white/20 absolute top-1/2 -translate-y-1/2 animate-scanner opacity-40" />
                       </div>
                     </div>
 
