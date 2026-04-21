@@ -314,7 +314,7 @@ const SmileSimulatorAI = () => {
 
         const t = selectedTreatment;
         const opts = { anchor: { x: s.x, y: s.y }, rotation: s.ang };
-        if (t === "whitening" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, opts);
+        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, opts);
         if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, opts);
       }
     }
@@ -389,8 +389,8 @@ const SmileSimulatorAI = () => {
         y: landmarks[13].y * ih
       };
 
-      // 🦷 STEP 1: WHITENING (Conditional)
-      if (treatment === "whitening" || treatment === "transformation") {
+      // 🦷 STEP 1: WHITENING (Base Layer)
+      if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
         applyProfessionalWhitening(pctx, landmarks, iw, ih);
       }
 
