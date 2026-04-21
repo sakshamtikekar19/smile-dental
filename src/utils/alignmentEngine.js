@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: PRODUCTION GRADE (V25 - Final Hard Fix)
- * Weighted Tooth Blending + Boosted Clinical Physics.
+ * ALIGNMENT ENGINE: PRODUCTION GRADE (V26 - Absolute Alignment)
+ * Stronger Arch + Center Priority + Strict Tooth Dominance.
  */
 
 const INNER_LIP_INDICES = [
@@ -9,7 +9,7 @@ const INNER_LIP_INDICES = [
 ];
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V25 (FINAL HARD FIX) START");
+  console.log("✅ ALIGNMENT V26 (ABSOLUTE) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -43,56 +43,62 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V25 LOOP: Final Stabilized Orthodontics
+  // 🧪 V26 LOOP: Absolute Orthodontics
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
 
       const i = (y * actualW + x) * 4;
 
-      // 🎯 STRICT TOOTH DETECTION
+      // NORMALIZED POSITION
+      const nx = (x - centerX) / (roiW / 2);
+
+      // 🦷 TRUE ARCH (UPWARD, NOT DOWNWARD)
+      const curve = nx * nx;
+      const targetY = archMidY - roiH * 0.14 * curve; // stronger arch
+
+      const dyRaw = targetY - y;
+
+      // 🎯 CENTER PRIORITY
+      const centerWeight = 1 - Math.abs(nx);
+      const power = Math.pow(Math.max(0, centerWeight), 1.3);
+
+      // ✅ FINAL MOVEMENT (FIXED BALANCE)
+      let dy = dyRaw * 1.4 * power;   // STRONG vertical (main movement)
+      let dx = -nx * roiW * 0.008 * power; // VERY LOW horizontal
+
+      // 🛡️ TOOTH-ONLY DOMINANCE (CRITICAL FIX)
       const r = src[i];
       const g = src[i + 1];
       const b = src[i + 2];
 
       const isTooth =
-        r > 120 &&
-        g > 110 &&
-        b > 100 &&
-        (Math.max(r, g, b) - Math.min(r, g, b)) < 60;
+        r > 130 &&
+        g > 120 &&
+        b > 110 &&
+        (Math.max(r, g, b) - Math.min(r, g, b)) < 50;
 
-      // 🔥 FIX 1: NEVER SKIP PIXELS (Correct Blending)
-      // Teeth move fully (1.0), lips/skin move barely (0.15) to prevent holes/artifacts
-      const toothStrength = isTooth ? 1.0 : 0.15;
+      // MUCH LOWER skin influence
+      const blend = isTooth ? 1.0 : 0.03;
 
-      const nx = (x - centerX) / (roiW / 2);
+      dx *= blend;
+      dy *= blend;
 
-      // 🔥 FIX 2: TRUE ARCH & BOOSTED PHYSICS
-      const curve = nx * nx;
-      const targetY = archMidY - (roiH * 0.10) * curve;
-      const dyRaw = targetY - y;
-
-      const centerWeight = 1.0 - Math.abs(nx); 
-      const power = Math.pow(Math.max(0, centerWeight), 1.2); 
-
-      let dy = dyRaw * 1.2 * power;
-      let dx = -nx * roiW * 0.025 * power;
-
-      // MINIMUM FORCE GUARANTEE (Fixes Zero-Movement bug)
-      if (Math.abs(dy) < 0.5) dy *= 2;
-      if (Math.abs(dx) < 0.3) dx *= 2;
-
-      // 🔥 FIX 3: SAFE FADE (18px linear protect)
+      // 🛡️ EDGE FADE (LIP PROTECTION)
       const edgeFade = Math.min(
-        (x - minX) / 18,
-        (maxX - x) / 18,
-        (y - minY) / 18,
-        (maxY - y) / 18,
+        (x - minX) / 20,
+        (maxX - x) / 20,
+        (y - minY) / 20,
+        (maxY - y) / 20,
         1
       );
 
-      // Apply all multipliers
-      dx *= (toothStrength * edgeFade);
-      dy *= (toothStrength * edgeFade);
+      dx *= edgeFade;
+      dy *= edgeFade;
+
+      // FINAL SAFETY (OPTIONAL BUT SMART)
+      // Add clamp to avoid extreme warping:
+      dx = Math.max(-4, Math.min(4, dx));
+      dy = Math.max(-6, Math.min(6, dy));
 
       // 🔥 FIX 4: CORRECT DIAGNOSTIC LOG
       if (Math.abs(nx) < 0.05 && y === Math.floor(archMidY)) {
