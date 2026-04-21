@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: PRODUCTION GRADE (V24 - Strict Tooth Mask)
- * Biochemical Tooth Isolation + Force Visibility Patch.
+ * ALIGNMENT ENGINE: PRODUCTION GRADE (V25 - Final Hard Fix)
+ * Weighted Tooth Blending + Boosted Clinical Physics.
  */
 
 const INNER_LIP_INDICES = [
@@ -9,7 +9,7 @@ const INNER_LIP_INDICES = [
 ];
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V24 (STRICT TOOTH MASK) START");
+  console.log("✅ ALIGNMENT V25 (FINAL HARD FIX) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -30,9 +30,9 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
   });
 
-  // 🔥 ROI Padding (Tighter focus for surgery)
-  const padX = (maxX - minX) * 0.08; 
-  const padY = (maxY - minY) * 0.10; 
+  // ROI Padding
+  const padX = (maxX - minX) * 0.10; 
+  const padY = (maxY - minY) * 0.15; 
   minX = Math.max(0, Math.floor(minX - padX)); 
   maxX = Math.min(actualW, Math.ceil(maxX + padX));
   minY = Math.max(0, Math.floor(minY - padY)); 
@@ -43,60 +43,60 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V24 LOOP (STRICT TOOTH MASK)
+  // 🧪 V25 LOOP: Final Stabilized Orthodontics
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
 
       const i = (y * actualW + x) * 4;
 
-      // 🔥 🎯 STRICT TOOTH DETECTION (ANTI-LIP / ANTI-MOUSTACHE)
+      // 🎯 STRICT TOOTH DETECTION
       const r = src[i];
       const g = src[i + 1];
       const b = src[i + 2];
 
-      // Teeth = bright + low saturation (NOT skin / NOT hair)
       const isTooth =
         r > 120 &&
         g > 110 &&
         b > 100 &&
         (Math.max(r, g, b) - Math.min(r, g, b)) < 60;
 
-      // 🚫 BLOCK EVERYTHING ELSE (Surgical Face Safety)
-      if (!isTooth) continue;
+      // 🔥 FIX 1: NEVER SKIP PIXELS (Correct Blending)
+      // Teeth move fully (1.0), lips/skin move barely (0.15) to prevent holes/artifacts
+      const toothStrength = isTooth ? 1.0 : 0.15;
 
-      // NORMALIZED POSITION
       const nx = (x - centerX) / (roiW / 2);
 
-      // ✅ TRUE PARABOLIC ARCH (CLINICAL)
+      // 🔥 FIX 2: TRUE ARCH & BOOSTED PHYSICS
       const curve = nx * nx;
       const targetY = archMidY - (roiH * 0.10) * curve;
-
-      // DISTANCE FROM IDEAL ARCH
       const dyRaw = targetY - y;
 
-      // ✅ CENTER-FOCUSED POWER
       const centerWeight = 1.0 - Math.abs(nx); 
-      const power = Math.pow(Math.max(0, centerWeight), 1.5); 
+      const power = Math.pow(Math.max(0, centerWeight), 1.2); 
 
-      // ✅ FINAL CONTROLLED MOVEMENT
-      let dy = dyRaw * 0.6 * power;   
-      let dx = -nx * roiW * 0.015 * power; 
+      let dy = dyRaw * 1.2 * power;
+      let dx = -nx * roiW * 0.025 * power;
 
-      // ✅ SOFT LIP PROTECTION (Power-Fade Gate)
-      const fade = Math.max(0, 1 - Math.pow(Math.abs(nx), 2.2));
-      dx *= fade;
-      dy *= fade;
+      // MINIMUM FORCE GUARANTEE (Fixes Zero-Movement bug)
+      if (Math.abs(dy) < 0.5) dy *= 2;
+      if (Math.abs(dx) < 0.3) dx *= 2;
 
-      // 🔥 🚀 FORCE VISIBILITY (prevents zero movement bug)
-      // Boosts sub-pixel movement to ensure visibility across all devices
-      if (Math.abs(dx) < 0.3 && Math.abs(dy) < 0.3) {
-        dx *= 2.5;
-        dy *= 2.5;
-      }
+      // 🔥 FIX 3: SAFE FADE (18px linear protect)
+      const edgeFade = Math.min(
+        (x - minX) / 18,
+        (maxX - x) / 18,
+        (y - minY) / 18,
+        (maxY - y) / 18,
+        1
+      );
 
-      // 🔍 QUICK DEBUG (Center Point)
-      if (x === Math.floor(centerX) && y === Math.floor(archMidY)) {
-        console.log("DEBUG:", { nx, roiW, roiH, dx, dy });
+      // Apply all multipliers
+      dx *= (toothStrength * edgeFade);
+      dy *= (toothStrength * edgeFade);
+
+      // 🔥 FIX 4: CORRECT DIAGNOSTIC LOG
+      if (Math.abs(nx) < 0.05 && y === Math.floor(archMidY)) {
+        console.log("✅ CENTER FORCE:", dx, dy);
       }
 
       // 🎯 REVERSE SAMPLING (High-Fidelity Bilinear)
