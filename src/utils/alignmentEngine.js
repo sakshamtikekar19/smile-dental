@@ -1,6 +1,7 @@
 /**
- * ALIGNMENT ENGINE: PRODUCTION GRADE (V29 - Strict Enamel Isolation)
- * Anatomical Buffering + Tighter Enamel Logic.
+ * ALIGNMENT ENGINE: THE CONTINUOUS FIELD (V30 - Hard Fix)
+ * Removes pixel-level color guessing to eliminate jagged glitches entirely.
+ * Uses a purely mathematical gradient safe-zone to protect lips/gums/mustache.
  */
 
 const INNER_LIP_INDICES = [
@@ -21,7 +22,7 @@ function isPointInPoly(poly, pt) {
 }
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V29 (STRICT ISOLATION) START");
+  console.log("✅ ALIGNMENT V30 (CONTINUOUS FIELD) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -32,7 +33,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const actualW = imageData.width;
   const actualH = imageData.height;
 
-  // 1. Create Base Mouth Polygon
+  // 1. Create Base Mouth Polygon (The Absolute Boundary)
   const mouthPoly = INNER_LIP_INDICES.map(idx => ({
     x: landmarks[idx].x * actualW,
     y: landmarks[idx].y * actualH
@@ -50,65 +51,54 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 3. 🔥 CREATE INTERNAL SAFE ZONE (SHRINK POLYGON BY 15%)
-  // This creates a physical gap between the lips and the movement area.
-  const safePoly = mouthPoly.map(pt => ({
-    x: pt.x + (centerX - pt.x) * 0.15,
-    y: pt.y + (centerY - pt.y) * 0.15
-  }));
-
-  // 🧪 V29 LOOP: Precision Orthodontics
-  for (let y = Math.floor(minY - 10); y < Math.ceil(maxY + 10); y++) {
-    for (let x = Math.floor(minX - 10); x < Math.ceil(maxX + 10); x++) {
-      if (x < 0 || x >= actualW || y < 0 || y >= actualH) continue;
+  // 🧪 V30 LOOP: Fluid, Glitch-Free Distortion
+  for (let y = Math.floor(minY); y < Math.ceil(maxY); y++) {
+    for (let x = Math.floor(minX); x < Math.ceil(maxX); x++) {
+      
+      // 🛑 GATE 1: Geometric Outside Fence
+      // If a pixel is physically outside the lip polygon (mustache/skin), DO NOT TOUCH IT.
+      if (!isPointInPoly(mouthPoly, {x, y})) continue;
 
       const i = (y * actualW + x) * 4;
 
-      // 🔥 FIX 1 — HARD ANATOMICAL BUFFER
-      // If pixel is outside the SHRINKED polygon, it is 100% locked.
-      if (!isPointInPoly(safePoly, {x, y})) {
-        dst[i] = src[i];
-        dst[i+1] = src[i+1];
-        dst[i+2] = src[i+2];
-        dst[i+3] = 255;
-        continue;
-      }
+      const nx = (x - centerX) / (roiW / 2);
+      const ny = (y - centerY) / (roiH / 2);
 
-      // 🔥 FIX 2 — STRICT ENAMEL DETECTION (Higher thresholds)
-      const r = src[i], g = src[i + 1], b = src[i + 2];
-      const isTooth = 
-        r > 155 && 
-        g > 145 && 
-        b > 130 && 
-        (Math.max(r, g, b) - Math.min(r, g, b)) < 35; // Lower saturation = more enamel-like
-
-      if (!isTooth) {
-        dst[i] = src[i];
-        dst[i+1] = src[i+1];
-        dst[i+2] = src[i+2];
-        dst[i+3] = 255;
-        continue;
-      }
+      // 🔥 FIX 1: The Continuous Buffer (Zero Tearing)
+      // Instead of guessing colors, we use distance. The closer a pixel gets to the 
+      // edge of the bounding box (the lips/gums), the less it is allowed to move.
+      const distSq = nx * nx + ny * ny;
+      
+      // If we are at the outer edges of the mouth, force movement to 0.0
+      let smoothFade = 1.0 - (distSq * 1.2); 
+      if (smoothFade < 0) smoothFade = 0;
+      
+      // Ease-in curve so the transition is silky smooth
+      smoothFade = smoothFade * smoothFade * (3 - 2 * smoothFade);
 
       // 4. MOVEMENT CALCULATIONS
-      const nx = (x - centerX) / (roiW / 2);
       const curve = nx * nx;
-      const targetY = centerY - (roiH * 0.08) * curve; // Subtler arch
+      const targetY = centerY - (roiH * 0.06) * curve; 
       const dyRaw = targetY - y;
 
-      const centerWeight = 1 - Math.abs(nx);
-      const power = Math.pow(Math.max(0, centerWeight), 1.4);
+      // Multiply the force by our smoothFade so it stops moving near the lips
+      let dx = -nx * roiW * 0.02 * smoothFade;
+      let dy = dyRaw * 0.5 * smoothFade;
 
-      let dy = dyRaw * 0.7 * power; // Conservative force
-      let dx = -nx * roiW * 0.003 * power;
+      const sx = x - dx;
+      const sy = y - dy;
 
-      // 5. SAFE SAMPLING
-      const sx = Math.max(3, Math.min(actualW - 4, x - dx));
-      const sy = Math.max(3, Math.min(actualH - 4, y - dy));
+      // 🛑 GATE 2: The Source-Theft Killer
+      // If the math accidentally tries to pull a pixel from the lip inward, abort!
+      if (!isPointInPoly(mouthPoly, {x: sx, y: sy})) continue;
 
-      const x0 = Math.floor(sx), y0 = Math.floor(sy);
-      const x1 = x0 + 1, y1 = y0 + 1;
-      const wx = sx - x0, wy = sy - y0;
+      // 5. HD BILINEAR SAMPLING (Keeps enamel looking high-definition)
+      const x0 = Math.max(0, Math.min(actualW - 2, Math.floor(sx)));
+      const y0 = Math.max(0, Math.min(actualH - 2, Math.floor(sy)));
+      const x1 = x0 + 1;
+      const y1 = y0 + 1;
+      const wx = sx - x0;
+      const wy = sy - y0;
 
       const p00 = (y0 * actualW + x0) * 4;
       const p10 = (y0 * actualW + x1) * 4;
@@ -122,11 +112,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
                      src[p11 + c] * wx * wy;
       }
       
-      // Precision micro-blend
-      dst[i] = dst[i] * 0.96 + src[i] * 0.04;
-      dst[i+1] = dst[i+1] * 0.96 + src[i+1] * 0.04;
-      dst[i+2] = dst[i+2] * 0.96 + src[i+2] * 0.04;
-      
+      // Preserve alpha
       dst[i + 3] = 255;
     }
   }
