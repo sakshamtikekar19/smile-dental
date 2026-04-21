@@ -27,10 +27,10 @@ const BrandLogo = ({ className = "", collapsed = false }) => {
       
       {!collapsed && (
         <div className="flex flex-col">
-          <span className="font-serif text-xl font-bold tracking-tight text-zinc-900 leading-none">
-            SMILE<span className="text-brand-gold font-normal italic">STUDIO</span>
+          <span className="font-serif text-xl font-bold tracking-tight text-white leading-none">
+            SMILE<span className="text-accent-blue font-normal italic">STUDIO</span>
           </span>
-          <span className="text-[9px] uppercase tracking-[0.3em] font-bold text-zinc-400 mt-1 leading-none">
+          <span className="text-[9px] uppercase tracking-[0.3em] font-bold text-white mt-1 leading-none">
             Aesthetic Excellence
           </span>
         </div>

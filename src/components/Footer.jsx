@@ -4,19 +4,19 @@ import BrandLogo from "./BrandLogo";
 
 const Footer = () => {
   return (
-    <footer id="about" className="bg-zinc-950 text-white py-24 scroll-mt-28">
+    <footer id="about" className="bg-[#050505] text-white py-32 scroll-mt-28 border-t border-white/5">
       <div className="container mx-auto px-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-16 mb-20">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-20 mb-24">
           <div className="lg:col-span-1">
-            <div className="mb-10">
-              <BrandLogo className="brightness-200 grayscale contrast-200" />
+            <div className="mb-12">
+              <BrandLogo />
             </div>
-            <p className="text-zinc-500 leading-relaxed mb-8 max-w-xs text-sm">
+            <p className="text-[#6B7280] leading-relaxed mb-10 max-w-xs text-[13px] font-medium">
               We define the union of advanced medical technology and artistic precision in modern cosmetic dentistry.
             </p>
-            <div className="flex gap-4">
+            <div className="flex gap-5">
               {["IG", "FB", "TW", "LI"].map((s) => (
-                <a key={s} href="#" className="w-10 h-10 rounded-full border border-zinc-700 flex items-center justify-center text-xs font-bold hover:bg-white hover:text-black transition-all">
+                <a key={s} href="#" className="w-12 h-12 rounded-2xl border border-[#1F1F1F] flex items-center justify-center text-[10px] font-black tracking-widest hover:bg-accent-blue hover:text-black hover:border-accent-blue transition-all duration-500">
                   {s}
                 </a>
               ))}
@@ -24,46 +24,46 @@ const Footer = () => {
           </div>
 
           <div>
-            <h4 className="font-serif text-xl mb-8">Services</h4>
-            <ul className="space-y-4 text-zinc-400">
-              <li><a href="#services" className="hover:text-white transition-colors">Teeth Whitening</a></li>
-              <li><a href="#services" className="hover:text-white transition-colors">Invisalign</a></li>
-              <li><a href="#services" className="hover:text-white transition-colors">Veneers</a></li>
-              <li><a href="#services" className="hover:text-white transition-colors">Dental Implants</a></li>
+            <h4 className="font-serif text-2xl mb-10 text-white">Services</h4>
+            <ul className="space-y-5 text-[#6B7280] text-[13px] font-bold uppercase tracking-widest">
+              <li><a href="#services" className="hover:text-accent-blue transition-colors">Teeth Whitening</a></li>
+              <li><a href="#services" className="hover:text-accent-blue transition-colors">Invisalign</a></li>
+              <li><a href="#services" className="hover:text-accent-blue transition-colors">Veneers</a></li>
+              <li><a href="#services" className="hover:text-accent-blue transition-colors">Dental Implants</a></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="font-serif text-xl mb-8">Quick Links</h4>
-            <ul className="space-y-4 text-zinc-400">
-              <li><a href="#about" className="hover:text-white transition-colors">About Us</a></li>
-              <li><a href="#simulation" className="hover:text-white transition-colors">Smile Simulator</a></li>
-              <li><a href="#gallery" className="hover:text-white transition-colors">Our Gallery</a></li>
-              <li><a href="#contact" className="hover:text-white transition-colors">Contact</a></li>
+            <h4 className="font-serif text-2xl mb-10 text-white">Quick Links</h4>
+            <ul className="space-y-5 text-[#6B7280] text-[13px] font-bold uppercase tracking-widest">
+              <li><a href="#about" className="hover:text-accent-blue transition-colors">About Us</a></li>
+              <li><a href="#simulation" className="hover:text-accent-blue transition-colors">Smile Simulator</a></li>
+              <li><a href="#gallery" className="hover:text-accent-blue transition-colors">Our Gallery</a></li>
+              <li><a href="#contact" className="hover:text-accent-blue transition-colors">Contact</a></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="font-serif text-xl mb-8">Newsletter</h4>
-            <p className="text-zinc-400 mb-6">Join our community for the latest in dental care and exclusive offers.</p>
-            <div className="relative">
+            <h4 className="font-serif text-2xl mb-10 text-white">Newsletter</h4>
+            <p className="text-[#6B7280] mb-8 text-[13px] leading-relaxed font-medium">Join our community for the latest in dental care and exclusive offers.</p>
+            <div className="relative group">
               <input 
                 type="email" 
-                placeholder="Your email address" 
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-full py-4 px-6 text-sm focus:outline-none focus:border-white transition-colors"
+                placeholder="Diagnostic Updates" 
+                className="w-full bg-[#0A0A0A] border border-[#1F1F1F] rounded-2xl py-5 px-8 text-sm text-white focus:outline-none focus:border-accent-blue/50 transition-all placeholder:text-[#333333] placeholder:uppercase placeholder:text-[10px] placeholder:tracking-[0.2em]"
               />
-              <button className="absolute right-2 top-2 bottom-2 bg-white text-black px-6 rounded-full text-xs font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors">
+              <button className="absolute right-2 top-2 bottom-2 bg-accent-blue text-black px-8 rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(0,209,255,0.2)]">
                 Join
               </button>
             </div>
           </div>
         </div>
 
-        <div className="pt-12 border-t border-zinc-800 flex flex-col md:flex-row justify-between items-center gap-6 text-zinc-500 text-xs uppercase tracking-widest font-bold">
-          <p>© 2026 Smile Studio. All rights reserved.</p>
-          <div className="flex gap-8">
-            <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-            <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+        <div className="pt-16 border-t border-[#1F1F1F] flex flex-col md:flex-row justify-between items-center gap-8 text-[#333333] text-[9px] uppercase tracking-[0.4em] font-black">
+          <p>© 2026 Smile Studio. Engineering Aesthetics.</p>
+          <div className="flex gap-12">
+            <a href="#" className="hover:text-accent-blue transition-colors">Privacy Policy</a>
+            <a href="#" className="hover:text-accent-blue transition-colors">Terms of Service</a>
           </div>
         </div>
       </div>

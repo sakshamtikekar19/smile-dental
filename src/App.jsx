@@ -8,7 +8,7 @@ import Footer from "./components/Footer";
 function App() {
   console.log("DIAGNOSTIC: App component rendering full layout...");
   return (
-    <main className="bg-white min-h-screen">
+    <main className="bg-[#050505] min-h-screen">
       <Navbar />
       <Hero />
       <Services />
