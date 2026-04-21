@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V14 - Anti-Catfish)
- * Deep Inner-Feathering and Relaxed Warp Physics.
+ * ALIGNMENT ENGINE: GEOMETRIC PRECISION (V15 - Dynamic Scale)
+ * Mask sizes dynamically adjust to camera distance to prevent zero-warp.
  */
 
 const INNER_LIP_INDICES = [
@@ -11,7 +11,19 @@ const INNER_LIP_INDICES = [
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   if (!landmarks || landmarks.length === 0) return;
 
-  // 1. 🎭 THE DEEP INNER-FEATHERED MASK
+  // 1. MEASURE THE MOUTH FIRST (To know how far away the user is)
+  const mouthIndices = [61, 291, 78, 13, 14, 308];
+  let minX = w, minY = h, maxX = 0, maxY = 0;
+  mouthIndices.forEach(i => {
+    const px = landmarks[i].x * w, py = landmarks[i].y * h;
+    minX = Math.min(minX, px); minY = Math.min(minY, py);
+    maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+  });
+
+  const roiW = maxX - minX;
+  const roiH = maxY - minY;
+
+  // 2. 🎭 THE DYNAMIC INNER-FEATHERED MASK
   const maskCanvas = document.createElement("canvas");
   maskCanvas.width = w; maskCanvas.height = h;
   const mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
@@ -34,26 +46,23 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   mctx.fillStyle = "white";
   mctx.fill(mouthPath);
 
-  // 🔥 FIX 1: THE "BIG LIP" PROTECTOR (Massive 35px inward fade)
-  mctx.filter = "blur(12px)";
+  // 🔥 FIX 1: DYNAMIC SCALING
+  // Instead of a hard 35px, the mask thickness is exactly 30% of the mouth height.
+  // If you move away from the camera, the mask shrinks to fit!
+  const dynamicStroke = Math.max(6, roiH * 0.30); 
+  const dynamicBlur = Math.max(4, roiH * 0.15);
+
+  mctx.filter = `blur(${dynamicBlur}px)`;
   mctx.strokeStyle = "black";
-  mctx.lineWidth = 35; 
+  mctx.lineWidth = dynamicStroke; 
   mctx.stroke(mouthPath);
   
   mctx.restore();
 
   const maskData = mctx.getImageData(0, 0, w, h).data;
 
-  // 🦷 ROI: Surgical bounding box
-  const mouthIndices = [61, 291, 78, 13, 14, 308];
-  let minX = w, minY = h, maxX = 0, maxY = 0;
-  mouthIndices.forEach(i => {
-    const px = landmarks[i].x * w, py = landmarks[i].y * h;
-    minX = Math.min(minX, px); minY = Math.min(minY, py);
-    maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
-  });
-
-  const padX = (maxX - minX) * 0.25, padY = (maxY - minY) * 0.40;
+  // 3. ROI SURGICAL BOUNDING BOX
+  const padX = roiW * 0.25, padY = roiH * 0.40;
   minX = Math.max(0, minX - padX); maxX = Math.min(w, maxX + padX);
   minY = Math.max(0, minY - padY); maxY = Math.min(h, maxY + padY);
 
@@ -62,26 +71,25 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const dst = imageData.data;
 
   const centerX = (minX + maxX) / 2, archMidY = (minY + maxY) / 2;
-  const roiW = maxX - minX, roiH = maxY - minY;
   const resScale = (w < 1000) ? 1.4 : 1.0;
 
-  // 🧪 V14 LOOP: Relaxed, Natural Warping
+  // 🧪 V15 LOOP: Dynamic Warping
   for (let y = minY | 0; y < maxY; y++) {
     for (let x = minX | 0; x < maxX; x++) {
       
       const i = (y * w + x) * 4;
       const maskVal = maskData[i] / 255; 
-      if (maskVal < 0.02) continue; 
+      
+      if (maskVal < 0.05) continue; // Safe skip
 
       const nx = (x - centerX) / (roiW / 2);
-      
-      // 🔥 FIX 2: THE "CATFISH" ARCH PRESERVER (Subtle curve)
       const curve = nx * nx;
       const targetY = archMidY + roiH * 0.04 * curve;
 
-      // 🔥 FIX 3: RELAXED WARP PHYSICS (Subtle Clinical Correction)
-      let dx = -nx * roiW * 0.04 * resScale * maskVal; 
-      let dy = (targetY - y) * 0.5 * resScale * maskVal;
+      // 🔥 FIX 2: Restored Warp Forces
+      // Bumped dx slightly so the alignment is visible but doesn't cause catfish lips.
+      let dx = -nx * roiW * 0.06 * resScale * maskVal; 
+      let dy = (targetY - y) * 0.7 * resScale * maskVal;
 
       // Reverse map with Bilinear Interpolation
       const sx = Math.max(0, Math.min(w - 2, x - dx));
@@ -102,11 +110,12 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
                      c01 * (1 - wx) * wy +
                      c11 * wx * wy;
       }
+      // Preserve alpha
       dst[i + 3] = 255;
     }
   }
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V14 (ANTI-CATFISH) APPLIED");
+  console.log("✅ ALIGNMENT V15 (DYNAMIC SCALE) APPLIED");
 }
 
 export const applyAlignment = applyProfessionalAlignment;
