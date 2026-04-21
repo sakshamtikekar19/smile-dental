@@ -1,6 +1,6 @@
 /**
- * ALIGNMENT ENGINE: PRODUCTION GRADE (V23)
- * Center-Focused Power + Power-Fade Lip Protection.
+ * ALIGNMENT ENGINE: PRODUCTION GRADE (V24 - Strict Tooth Mask)
+ * Biochemical Tooth Isolation + Force Visibility Patch.
  */
 
 const INNER_LIP_INDICES = [
@@ -9,7 +9,7 @@ const INNER_LIP_INDICES = [
 ];
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V23 (PRODUCTION GRADE) START");
+  console.log("✅ ALIGNMENT V24 (STRICT TOOTH MASK) START");
   
   if (!landmarks || landmarks.length === 0) return;
 
@@ -30,8 +30,9 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
   });
 
-  // ROI Padding
-  const padX = (maxX - minX) * 0.15, padY = (maxY - minY) * 0.25;
+  // 🔥 ROI Padding (Tighter focus for surgery)
+  const padX = (maxX - minX) * 0.08; 
+  const padY = (maxY - minY) * 0.10; 
   minX = Math.max(0, Math.floor(minX - padX)); 
   maxX = Math.min(actualW, Math.ceil(maxX + padX));
   minY = Math.max(0, Math.floor(minY - padY)); 
@@ -42,11 +43,26 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🔥 V23 LOOP (PRODUCTION GRADE)
+  // 🧪 V24 LOOP (STRICT TOOTH MASK)
   for (let y = minY; y < maxY; y++) {
     for (let x = minX; x < maxX; x++) {
 
       const i = (y * actualW + x) * 4;
+
+      // 🔥 🎯 STRICT TOOTH DETECTION (ANTI-LIP / ANTI-MOUSTACHE)
+      const r = src[i];
+      const g = src[i + 1];
+      const b = src[i + 2];
+
+      // Teeth = bright + low saturation (NOT skin / NOT hair)
+      const isTooth =
+        r > 120 &&
+        g > 110 &&
+        b > 100 &&
+        (Math.max(r, g, b) - Math.min(r, g, b)) < 60;
+
+      // 🚫 BLOCK EVERYTHING ELSE (Surgical Face Safety)
+      if (!isTooth) continue;
 
       // NORMALIZED POSITION
       const nx = (x - centerX) / (roiW / 2);
@@ -58,23 +74,29 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       // DISTANCE FROM IDEAL ARCH
       const dyRaw = targetY - y;
 
-      // ✅ CENTER-FOCUSED POWER (IMPORTANT FIX)
-      // Transformation is strongest at center-encisors, tapers at edges
+      // ✅ CENTER-FOCUSED POWER
       const centerWeight = 1.0 - Math.abs(nx); 
       const power = Math.pow(Math.max(0, centerWeight), 1.5); 
 
-      // ✅ FINAL CONTROLLED MOVEMENT (High-End Subtle correction)
+      // ✅ FINAL CONTROLLED MOVEMENT
       let dy = dyRaw * 0.6 * power;   
       let dx = -nx * roiW * 0.015 * power; 
 
       // ✅ SOFT LIP PROTECTION (Power-Fade Gate)
       const fade = Math.max(0, 1 - Math.pow(Math.abs(nx), 2.2));
-
       dx *= fade;
       dy *= fade;
 
+      // 🔥 🚀 FORCE VISIBILITY (prevents zero movement bug)
+      // Boosts sub-pixel movement to ensure visibility across all devices
+      if (Math.abs(dx) < 0.3 && Math.abs(dy) < 0.3) {
+        dx *= 2.5;
+        dy *= 2.5;
+      }
+
+      // 🔍 QUICK DEBUG (Center Point)
       if (x === Math.floor(centerX) && y === Math.floor(archMidY)) {
-        console.log("✅ ALIGNMENT ACTIVE:", dx, dy);
+        console.log("DEBUG:", { nx, roiW, roiH, dx, dy });
       }
 
       // 🎯 REVERSE SAMPLING (High-Fidelity Bilinear)
