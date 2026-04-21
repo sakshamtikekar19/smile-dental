@@ -1,10 +1,10 @@
 /**
- * ALIGNMENT ENGINE: PROFESSIONAL STABILIZED (V9)
- * Clinical-Grade Orthodontics with Non-Linear Damping and Skin Protection.
+ * ALIGNMENT ENGINE: VISIBLE CLINICAL-SCALE (V10)
+ * Optimized for Mobile Resolutions with Resolution-Aware Scaling.
  */
 
 export function applyProfessionalAlignment(ctx, landmarks, w, h) {
-  console.log("✅ ALIGNMENT V9 STABILIZED START");
+  console.log("✅ ALIGNMENT V10 VISIBLE START");
 
   if (!ctx || !landmarks) return;
 
@@ -12,7 +12,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const src = new Uint8ClampedArray(imageData.data); 
   const dst = imageData.data;
 
-  // 🦷 MOUTH ROI (Localized focus for stability)
+  // 🦷 MOUTH ROI (Localized focus)
   const mouthIndices = [61, 291, 78, 95, 88, 178, 87, 14, 317, 402, 318, 324];
 
   let minX = w, minY = h, maxX = 0, maxY = 0;
@@ -26,7 +26,6 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
     maxY = Math.max(maxY, y);
   });
 
-  // Balanced Padding (Ensures zero-clipping of lateral teeth)
   const padX = (maxX - minX) * 0.2;
   const padY = (maxY - minY) * 0.3;
 
@@ -41,7 +40,10 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   const roiW = maxX - minX;
   const roiH = maxY - minY;
 
-  // 🧪 V9 STABILIZED LOOP
+  // 🚀 RESOLUTION-AWARE SCALING (Boost for Mobile)
+  const resScale = (w < 1000) ? 1.35 : 1.0;
+
+  // 🧪 V10 VISIBLE LOOP
   for (let y = minY | 0; y < maxY; y++) {
     for (let x = minX | 0; x < maxX; x++) {
 
@@ -53,47 +55,47 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
 
       const nx = (x - centerX) / (roiW / 2);
 
-      // 🦷 TARGET ARCH (V9 - Flatter Clinical Curve)
+      // 🦷 TARGET ARCH (V10 - Visible Clinical Curve)
       const curve = nx * nx;
-      const targetY = archMidY + roiH * 0.05 * curve;
+      const targetY = archMidY + roiH * 0.07 * curve;
 
-      // 🧠 V9 DAMPENED FORCES (Prevents lip-smear glitches)
-      let dx = -nx * roiW * 0.04;    // Subtle horizontal pull
-      let dy = (targetY - y) * 0.5;  // Stabilized vertical lift
+      // 🧠 V10 VISIBLE FORCES (Scaled for impact)
+      let dx = -nx * roiW * 0.06 * resScale;
+      let dy = (targetY - y) * 0.9 * resScale;
 
-      // 🛡️ SKIN PROTECTION GATE (Color-Based Masking)
-      const isLip = r > g * 1.35 && r > b * 1.35; // Strong red tint detection
-      const isSkin = r > 105 && g > 65 && b > 45 && (r - g) > 15; // Basic flesh detection
+      // 🛡️ SKIN PROTECTION GATE (Fixes face glitching)
+      const isLip = r > g * 1.35 && r > b * 1.35; 
+      const isSkin = r > 105 && g > 65 && b > 45 && (r - g) > 15;
       
       let forceMult = 1.0;
       if (isLip || isSkin) {
-        forceMult = 0.2; // Aggressively drop force on soft tissue
+        forceMult = 0.2; // Keep lips/skin static
       } else {
-        // Boost for enamel pixels (Brightness/Croma Check)
+        // ✨ ENAMEL BOOST (High-visibility for teeth)
         const lum = (r + g + b) / 3;
-        if (lum > 90 && r > g && r > 110) {
-          forceMult = 1.3; 
+        if (lum > 85 && r > g && r > 105) {
+          forceMult = 1.5; 
         }
       }
 
       dx *= forceMult;
       dy *= forceMult;
 
-      // ✨ ULTRA-SMOOTH EDGE FADE (35px squared window)
+      // ✨ OPTIMIZED EDGE FADE (15px for small screens)
       let edgeFade = Math.min(
-        (x - minX) / 35,
-        (maxX - x) / 35,
-        (y - minY) / 35,
-        (maxY - y) / 35,
+        (x - minX) / 15,
+        (maxX - x) / 15,
+        (y - minY) / 15,
+        (maxY - y) / 15,
         1
       );
       edgeFade = Math.max(0, edgeFade);
-      edgeFade *= edgeFade; // Non-linear falloff for seamless blending
+      edgeFade *= edgeFade; 
 
       dx *= edgeFade;
       dy *= edgeFade;
 
-      // 🎯 SOURCE COORD (High-Fidelity Bilinear Mapping)
+      // 🎯 SOURCE COORD (High-Fidelity Bilinear)
       const sx = Math.max(0, Math.min(w - 2, x - dx));
       const sy = Math.max(0, Math.min(h - 2, y - dy));
 
@@ -125,7 +127,7 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
   }
 
   ctx.putImageData(imageData, 0, 0);
-  console.log("✅ ALIGNMENT V9 STABILIZED APPLIED");
+  console.log(`✅ ALIGNMENT V10 VISIBLE APPLIED (Scale: ${resScale})`);
 }
 
 export const applyAlignment = applyProfessionalAlignment;
