@@ -381,6 +381,37 @@ const SmileSimulatorAI = () => {
       if (renderRequestRef.current) cancelAnimationFrame(renderRequestRef.current);
     };
   }, [step, cameraStream, detectionLoop, renderLoop]);
+ 
++  // 🔍 RE-TRIGGER ZOOM ON MOUNT (Needed since container is now conditional)
++  useEffect(() => {
++    if (step === "result" && afterImage && finalLandmarks && zoomAfterRef.current) {
++      const renderZoomResult = async () => {
++        const screenCanvas = zoomAfterRef.current;
++        const screenBefore = zoomBeforeRef.current;
++        if (!screenCanvas || !screenBefore) return;
++
++        const imgAfter = await loadImage(afterImage);
++        const imgBefore = await loadImage(beforeImage);
++        const iw = imgAfter.width;
++        const ih = imgAfter.height;
++
++        const isMobileDevice = window.innerWidth < 768;
++        screenCanvas.width = isMobileDevice ? 800 : 1200;
++        screenCanvas.height = isMobileDevice ? 400 : 600;
++        screenBefore.width = screenCanvas.width;
++        screenBefore.height = screenCanvas.height;
++
++        const ctx = screenCanvas.getContext("2d", { alpha: false });
++        const bCtx = screenBefore.getContext("2d", { alpha: false });
++
++        applyClinicalZoom(ctx, finalLandmarks, iw, ih, imgAfter);
++        applyClinicalZoom(bCtx, finalLandmarks, iw, ih, imgBefore);
++        window.dispatchEvent(new Event("resize"));
++      };
++      renderZoomResult();
++    }
++  }, [step, afterImage, finalLandmarks, beforeImage]);
++
 
   return (
     <section id="simulator" className="relative min-h-screen bg-[#050505] overflow-hidden flex flex-col pt-20">
