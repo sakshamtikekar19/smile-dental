@@ -11,7 +11,7 @@ import { applyClinicalZoom } from "../utils/zoomEngine";
 
 // ── Constants & Design System ────────────────────────────────────────────────
 const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-const MAX_IMAGE_SIZE = IS_MOBILE ? 800 : 1200;
+const MAX_IMAGE_SIZE = IS_MOBILE ? 1600 : 2400;
 const ACCENT_CYAN = "#00D1FF";
 
 const TREATMENTS = [
@@ -370,7 +370,7 @@ const SmileSimulatorAI = () => {
       mainExport.getContext("2d").drawImage(procCanvas, 0, 0);
       
       setBeforeImage(snapshotUrl);
-      setAfterImage(mainExport.toDataURL("image/jpeg", 0.93));
+      setAfterImage(mainExport.toDataURL("image/jpeg", 0.98));
       setFinalLandmarks(landmarks); 
       setStep("result"); 
       setIsProcessing(false); 
@@ -589,7 +589,7 @@ const SmileSimulatorAI = () => {
                             const c = document.createElement("canvas");
                             c.width = videoRef.current.videoWidth; c.height = videoRef.current.videoHeight;
                             c.getContext("2d").drawImage(videoRef.current, 0, 0);
-                            setRawImageUrl(c.toDataURL("image/jpeg", 0.95));
+                            setRawImageUrl(c.toDataURL("image/jpeg", 1.0));
                           }
                         }}
                         className="relative w-24 h-24 flex items-center justify-center group"
