@@ -720,6 +720,53 @@ const SmileSimulatorAI = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* NEW: Clinical Telemetry Section */}
+                <div className="bg-[#0A0A0A] rounded-3xl p-6 border border-[#1F1F1F] relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-40 transition-opacity">
+                    <Activity size={40} className="text-accent-blue" />
+                  </div>
+                  <h4 className="text-[9px] text-[#6B7280] uppercase tracking-[0.3em] font-black mb-6">Clinical Telemetry</h4>
+                  <div className="space-y-6">
+                    <div className="relative">
+                      <div className="flex justify-between text-[10px] mb-2">
+                        <span className="text-[#6B7280] font-bold uppercase tracking-widest">Enamel Reflectivity</span>
+                        <span className="text-white font-mono">94.2%</span>
+                      </div>
+                      <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }} 
+                          animate={{ width: "94.2%" }} 
+                          transition={{ duration: 1.5, delay: 0.2 }}
+                          className="h-full bg-accent-blue shadow-[0_0_8px_#00D1FF]" 
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="relative">
+                      <div className="flex justify-between text-[10px] mb-2">
+                        <span className="text-[#6B7280] font-bold uppercase tracking-widest">Arch Symmetry</span>
+                        <span className="text-white font-mono">88.7%</span>
+                      </div>
+                      <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                        <motion.div 
+                          initial={{ width: 0 }} 
+                          animate={{ width: "88.7%" }} 
+                          transition={{ duration: 1.5, delay: 0.4 }}
+                          className="h-full bg-accent-blue/60" 
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-[#1F1F1F] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 size={12} className="text-accent-blue" />
+                        <span className="text-[10px] text-white font-bold uppercase tracking-tighter">HD Optical Lock</span>
+                      </div>
+                      <span className="text-[9px] px-2 py-0.5 rounded-md bg-accent-blue/10 text-accent-blue font-black border border-accent-blue/20">SECURE</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
