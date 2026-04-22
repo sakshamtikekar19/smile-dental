@@ -248,6 +248,16 @@ const SmileSimulatorAI = () => {
     if (latestLandmarksRef.current && stabilizerRef.current) {
       const marks = latestLandmarksRef.current;
       const vw = bgCanvas.width, vh = bgCanvas.height;
+      
+      const t = selectedTreatment;
+      const wInt = (intensities.whitening || 80) / 100;
+      const aInt = (intensities.alignment || 100) / 100;
+
+      // 🦷 APPLY EFFECTS TO FULL FRAME (Optimized ROI inside engines)
+      if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(bgCtx, marks, vw, vh, wInt);
+      if (t === "alignment" || t === "transformation") applyProfessionalAlignment(bgCtx, marks, vw, vh, aInt);
+      if (t === "braces" || t === "transformation") applyBracesEffect(bgCtx, marks, vw, vh, bracesImageRef.current);
+
       const anchorX = marks[168].x * vw;
       const anchorY = marks[13].y * vh;
       const p1 = marks[33], p2 = marks[263];
@@ -276,20 +286,13 @@ const SmileSimulatorAI = () => {
         sctx.save();
         sctx.translate(sCanvas.width / 2, sCanvas.height * 0.1);
         sctx.rotate(-s.ang * Math.PI / 180);
-        sctx.drawImage(video, -s.x, -s.y, vw, vh);
+        // Draw the already-processed frame into the stabilizer
+        sctx.drawImage(bgCanvas, -s.x, -s.y, vw, vh);
         sctx.restore();
-
-        const t = selectedTreatment;
-        const opts = { anchor: { x: s.x, y: s.y }, rotation: s.ang };
-        const wInt = intensities.whitening / 100;
-        const aInt = intensities.alignment / 100;
-
-        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, wInt, opts);
-        if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, aInt, opts);
       }
     }
     if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
-  }, [step, selectedTreatment]);
+  }, [step, selectedTreatment, intensities]);
 
   const startCamera = async () => {
     stopCamera();
@@ -304,7 +307,7 @@ const SmileSimulatorAI = () => {
   };
 
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
-    const treatment = pendingTreatmentRef.current;
+    const treatment = selectedTreatment;
     const generation = ++generationRef.current;
     try {
       setProcessingLog("Scanning anatomical structure...");
@@ -324,8 +327,8 @@ const SmileSimulatorAI = () => {
       pctx.drawImage(img, 0, 0, iw, ih);
 
       // 🦷 ENGINE PIPELINE (STRICT ENGINE LOCK INTACT)
-      const wInt = intensities.whitening / 100;
-      const aInt = intensities.alignment / 100;
+      const wInt = (intensities.whitening || 80) / 100;
+      const aInt = (intensities.alignment || 100) / 100;
 
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
         applyProfessionalWhitening(pctx, landmarks, iw, ih, wInt);
@@ -366,7 +369,7 @@ const SmileSimulatorAI = () => {
       setIsProcessing(false); 
       stopCamera();
     } catch (err) { setError(`System Latency Error: ${err.message}`); setIsProcessing(false); }
-  }, []);
+  }, [selectedTreatment, intensities]);
 
   useEffect(() => {
     if (!rawImageUrl || !isProcessing) return;
