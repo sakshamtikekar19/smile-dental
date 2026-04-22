@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 
 /**
- * 3D ORTHODONTIC ENGINE (V7 - Photorealistic Hardware & Micro-Scaling)
- * Restores Twin Bracket geometry, Environmental Reflections, and true biological scaling.
+ * 3D ORTHODONTIC ENGINE (V8 - Bulletproof Silver & Alignment)
+ * Removes fragile environment maps in favor of baked-in silver materials.
+ * Adjusts the Y-axis drop to push brackets off the gums and onto the enamel.
  */
 export class Braces3DEngine {
     constructor(width, height) {
@@ -18,31 +19,28 @@ export class Braces3DEngine {
         this.renderer.setSize(width, height);
         this.renderer.setClearColor(0x000000, 0); 
 
-        // 🔥 V7 FIX 1: RESTORE REFLECTIONS
-        // Metal needs a room to reflect, otherwise it looks like flat grey plastic.
-        const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
-        pmremGenerator.compileEquirectangularShader();
-        const envScene = new THREE.Scene();
-        envScene.background = new THREE.Color(0xffffff); // Pure white studio reflection
-        this.scene.environment = pmremGenerator.fromScene(envScene).texture;
-
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); 
+        // 🔥 V8 FIX 1: BULLETPROOF LIGHTING
+        // Massive ambient light ensures the brackets are bright silver no matter what.
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.8); 
         this.scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-        dirLight.position.set(10, 50, 50); 
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        dirLight.position.set(0, 20, 50); 
         this.scene.add(dirLight);
 
-        // 🔥 V7 FIX 2: TRUE METALLIC MATERIALS
-        // Base color is dark, but metalness is 1.0 so it reflects the white environment map
+        // 🔥 V8 FIX 2: BAKED-IN SILVER MATERIAL
+        // Lower metalness (0.3) prevents the "black void" reflection bug.
+        // Bright base color (0xdddddd) forces it to look like surgical steel.
         this.bracketMat = new THREE.MeshStandardMaterial({
-            color: 0x888888,      
-            metalness: 1.0,       
-            roughness: 0.15, // High gloss   
+            color: 0xdddddd,      
+            metalness: 0.3,       
+            roughness: 0.2,   
         });
         
+        // Wire should be slightly darker than the brackets, but not black.
         this.wireMat = new THREE.MeshStandardMaterial({ 
-            color: 0x555555, 
-            metalness: 1.0, 
+            color: 0xaaaaaa, 
+            metalness: 0.4, 
             roughness: 0.3 
         });
 
@@ -61,19 +59,18 @@ export class Braces3DEngine {
     createRealisticTwinBracket(material) {
         const group = new THREE.Group();
 
-        // 🔥 V7 FIX 3: RESTORE CLINICAL SHAPE (Normalized to 1.0 scale)
         // The base pad
         const padGeo = new THREE.BoxGeometry(1.0, 0.8, 0.2);
         const pad = new THREE.Mesh(padGeo, material);
         group.add(pad);
 
-        // The 4 tie wings (creates the distinct "H" shape of a bracket)
+        // The 4 tie wings
         const wingGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
         const wingPositions = [
-            [-0.35, 0.25, 0.25], // Top Left
-            [0.35, 0.25, 0.25],  // Top Right
-            [-0.35, -0.25, 0.25], // Bottom Left
-            [0.35, -0.25, 0.25]  // Bottom Right
+            [-0.35, 0.25, 0.25], 
+            [0.35, 0.25, 0.25],  
+            [-0.35, -0.25, 0.25], 
+            [0.35, -0.25, 0.25]  
         ];
 
         wingPositions.forEach(pos => {
@@ -103,11 +100,16 @@ export class Braces3DEngine {
         const rightCorner = landmarks[291];
         const mouthWidthPx = (rightCorner.x - leftCorner.x) * width;
         
-        // 🔥 V7 FIX 4: MICRO-SCALING
-        // Cut the size in half. Brackets are now only 3.5% of the mouth width.
-        const bracketScale = mouthWidthPx * 0.035; 
-        const wireRadius = mouthWidthPx * 0.0025;
-        const dropOffset = mouthWidthPx * 0.09;
+        // Slightly bumped bracket scale from 0.035 to 0.04 for better legibility
+        const bracketScale = mouthWidthPx * 0.04; 
+        
+        // 🔥 V8 FIX 3: THICKER WIRE
+        // Increased from 0.0025 to 0.004 so it reads as a metal wire, not a thread.
+        const wireRadius = mouthWidthPx * 0.004;
+        
+        // 🔥 V8 FIX 4: PUSHING DOWN OFF THE GUMS
+        // Increased drop from 9% of mouth width to 12%.
+        const dropOffset = mouthWidthPx * 0.12;
 
         const upperIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
         const upperPoints = [];
@@ -123,7 +125,6 @@ export class Braces3DEngine {
 
         const upperCurve = new THREE.CatmullRomCurve3(upperPoints);
 
-        // Slightly tightened the T-values so they sit perfectly on the front 6 teeth
         const anatomicalTValues = [0.28, 0.38, 0.47, 0.53, 0.62, 0.72];
         
         anatomicalTValues.forEach((t, i) => {
@@ -146,7 +147,7 @@ export class Braces3DEngine {
         const upperWireGeo = new THREE.TubeGeometry(upperCurve, 64, wireRadius, 8, false);
         this.upperWireMesh = new THREE.Mesh(upperWireGeo, this.wireMat);
         
-        // Push the wire just slightly forward so it rests between the 4 tie wings
+        // Push the wire just slightly forward
         this.upperWireMesh.position.z = bracketScale * 0.1; 
         this.scene.add(this.upperWireMesh);
 
