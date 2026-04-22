@@ -558,8 +558,8 @@ const SmileSimulatorAI = () => {
                     <canvas ref={canvasRef} className="hidden" />
                     
                     {/* UI Layer: Scanner Area */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-[45%] h-[15%] border border-dashed border-white/40 rounded-[100px] relative -translate-y-20">
+                    <div className="absolute inset-0 flex items-end justify-center pointer-events-none pb-[240px]">
+                      <div className="w-[60%] md:w-[45%] h-[12%] md:h-[15%] border border-dashed border-white/40 rounded-[100px] relative">
                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full mt-4 w-full text-center">
                            <span className="text-[9px] text-white/60 uppercase tracking-[0.3em] font-bold">
                              Align Teeth Here
