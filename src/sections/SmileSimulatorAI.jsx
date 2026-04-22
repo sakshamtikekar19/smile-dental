@@ -293,7 +293,7 @@ const SmileSimulatorAI = () => {
     setError(null); setStep("camera");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1200 }, height: { ideal: 800 } },
+        video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false
       });
       streamRef.current = stream; setCameraStream(stream);
@@ -533,11 +533,10 @@ const SmileSimulatorAI = () => {
 
                 {step === "camera" && (
                   <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black">
-                    <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-60 grayscale-[0.2]" playsInline muted autoPlay />
+                    <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-100" playsInline muted autoPlay />
                     <canvas ref={canvasRef} className="hidden" />
                     
-                    {/* UI Layer: Scanner & Vignette */}
-                    <div className="absolute inset-0 vignette-overlay" />
+                    {/* UI Layer: Scanner Area */}
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                       <div className="w-[45%] h-[15%] border border-dashed border-white/40 rounded-[100px] relative -translate-y-20">
                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full mt-4 w-full text-center">
@@ -550,7 +549,7 @@ const SmileSimulatorAI = () => {
                     </div>
 
                     <div ref={stabilizerRef} className="absolute z-20 pointer-events-none" style={{ clipPath: 'ellipse(50% 45% at 50% 50%)' }}>
-                      <canvas ref={localCanvasRef} className="w-full h-full opacity-90 blur-[0.3px]" />
+                      <canvas ref={localCanvasRef} className="w-full h-full opacity-100" />
                     </div>
 
                     {/* Capture Trigger */}
