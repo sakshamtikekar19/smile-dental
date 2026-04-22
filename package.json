@@ -21,7 +21,8 @@
     "react-compare-image": "^3.5.14",
     "react-dom": "^19.2.4",
     "replicate": "^1.4.0",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

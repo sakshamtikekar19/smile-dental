@@ -4,7 +4,7 @@ import { Camera, Layers, ShieldCheck, Zap, Activity, ChevronRight, RotateCcw, Sl
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
-// Braces logic removed for fresh start
+import { Braces3DEngine } from "../utils/bracesEngine3D";
 import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
 import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
 import { applyClinicalZoom } from "../utils/zoomEngine";
@@ -96,9 +96,31 @@ function loadImage(url) {
   });
 }
 
-function applyBracesEffect(ctx, landmarks, w, h, bracesImage) {
-  // Fresh start: Logic intentionally removed.
-  return;
+const INNER_LIP_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+
+function applyBracesEffect(ctx, landmarks, w, h, engine3D) {
+  if (!landmarks || !engine3D) return;
+
+  // 1. Update 3D scene and get the rendered canvas
+  const canvas3D = engine3D.updateAndRender(landmarks, w, h);
+
+  // 2. THE SURGICAL CLIP
+  // We trace the inside of the mouth. The 3D braces are ONLY allowed to paint inside this hole.
+  ctx.save();
+  ctx.beginPath();
+  INNER_LIP_INDICES.forEach((idx, i) => {
+    const x = landmarks[idx].x * w;
+    const y = landmarks[idx].y * h;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.clip(); // Activate the mask
+
+  // 3. Draw the 3D render over the teeth
+  ctx.drawImage(canvas3D, 0, 0, w, h);
+  
+  ctx.restore(); // Remove the mask
 }
 
 // ── Premium UI Components ────────────────────────────────────────────────────
@@ -186,6 +208,7 @@ const SmileSimulatorAI = () => {
   const zoomAfterRef = useRef(null);
   const zoomBeforeRef = useRef(null);
   const stabilizerRef = useRef(null);
+  const engine3DRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
 
   useEffect(() => {
@@ -236,7 +259,10 @@ const SmileSimulatorAI = () => {
       // 🦷 APPLY EFFECTS TO FULL FRAME (Optimized ROI inside engines)
       if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(bgCtx, marks, vw, vh, wInt);
       if (t === "alignment" || t === "transformation") applyProfessionalAlignment(bgCtx, marks, vw, vh, aInt);
-      if (t === "braces" || t === "transformation") applyBracesEffect(bgCtx, marks, vw, vh, bracesImageRef.current);
+      if (t === "braces" || t === "transformation") {
+        if (!engine3DRef.current) engine3DRef.current = new Braces3DEngine(vw, vh);
+        applyBracesEffect(bgCtx, marks, vw, vh, engine3DRef.current);
+      }
 
       const anchorX = marks[168].x * vw;
       const anchorY = marks[13].y * vh;
@@ -314,7 +340,8 @@ const SmileSimulatorAI = () => {
         applyProfessionalWhitening(pctx, landmarks, iw, ih, wInt);
       }
       if (treatment === "braces" || treatment === "transformation") {
-        applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
+        if (!engine3DRef.current) engine3DRef.current = new Braces3DEngine(iw, ih);
+        applyBracesEffect(pctx, landmarks, iw, ih, engine3DRef.current);
       }
       if (treatment === "alignment" || treatment === "transformation") {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, aInt);
