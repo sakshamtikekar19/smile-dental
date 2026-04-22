@@ -18,34 +18,33 @@ export class Braces3DEngine {
         this.renderer.setSize(width, height);
         this.renderer.setClearColor(0x000000, 0); 
 
-        // --- 💡 THE REFLECTION FIX: ENVIRONMENT MAPPING ---
-        // Metallic materials look black unless they have a room to reflect.
-        // This generates a simple, bright studio environment map for the metal to reflect.
+        // 1. LIGHTING CALIBRATION
         const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
         pmremGenerator.compileEquirectangularShader();
         const envScene = new THREE.Scene();
-        envScene.background = new THREE.Color(0xffffff); // Bright white reflection
+        envScene.background = new THREE.Color(0xdddddd); // Slightly dimmed environment
         this.scene.environment = pmremGenerator.fromScene(envScene).texture;
 
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x666666, 1.5);
+        // Dialed down the intensity so it doesn't glow like a lightbulb
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8); 
         this.scene.add(hemiLight);
         
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
-        dirLight.position.set(20, 50, 50); // Angled for sharp glints
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        dirLight.position.set(20, 50, 50); 
         this.scene.add(dirLight);
 
-        // --- 🛠️ HIGH-FIDELITY MATERIALS ---
+        // 2. MATERIAL CALIBRATION
+        // Real surgical steel is actually quite dark; it only looks bright where light hits it.
         this.bracketMat = new THREE.MeshStandardMaterial({
-            color: 0xeeeeee,      // Brighter surgical steel
-            metalness: 1.0,       // 100% metal (requires environment map)
-            roughness: 0.25,      // Slightly brushed so it isn't a perfect mirror
+            color: 0x7a7a7a,      // Darker base steel
+            metalness: 1.0,       // 100% reflective
+            roughness: 0.35,      // Slightly more frosted so it isn't a blinding mirror
         });
         
-        // Wire should be slightly darker and thinner
         this.wireMat = new THREE.MeshStandardMaterial({ 
-            color: 0xcccccc, 
+            color: 0x555555,      // Wire should be visibly darker than the brackets
             metalness: 1.0, 
-            roughness: 0.3 
+            roughness: 0.4 
         });
 
         this.upperBrackets = [];
@@ -56,7 +55,6 @@ export class Braces3DEngine {
         this.numBrackets = 10; 
         
         for (let i = 0; i < this.numBrackets; i++) {
-            // Use our new procedural bracket builder instead of a single box
             const upperMesh = this.createClinicalBracket(this.bracketMat);
             const lowerMesh = this.createClinicalBracket(this.bracketMat);
             this.scene.add(upperMesh);
@@ -73,20 +71,21 @@ export class Braces3DEngine {
     createClinicalBracket(material) {
         const group = new THREE.Group();
 
-        // 1. The Base Pad (Glues to the tooth)
-        const padGeo = new THREE.BoxGeometry(6.5, 5, 1);
+        // 3. GEOMETRY CALIBRATION (Curing the "Zipper" effect)
+        // Shrunk the width of the pad from 6.5 down to 3.5. 
+        // This guarantees empty space between brackets so the wire is visible.
+        const padGeo = new THREE.BoxGeometry(3.5, 4, 0.5);
         const pad = new THREE.Mesh(padGeo, material);
         group.add(pad);
 
-        // 2. The Four Tie Wings
-        const wingGeo = new THREE.BoxGeometry(2, 1.8, 2);
+        // Tiny tie wings
+        const wingGeo = new THREE.BoxGeometry(1.2, 1.2, 1);
         
-        // Positioned to leave a horizontal "slot" in the middle for the wire
         const wingPositions = [
-            [-1.8, 1.5, 1.5],  // Top Left
-            [1.8, 1.5, 1.5],   // Top Right
-            [-1.8, -1.5, 1.5], // Bottom Left
-            [1.8, -1.5, 1.5]   // Bottom Right
+            [-1.0, 1.2, 0.8],  
+            [1.0, 1.2, 0.8],   
+            [-1.0, -1.2, 0.8], 
+            [1.0, -1.2, 0.8]   
         ];
 
         wingPositions.forEach(pos => {
@@ -95,8 +94,8 @@ export class Braces3DEngine {
             group.add(wing);
         });
 
-        // Scale the entire group down slightly to fit the mouth naturally
-        group.scale.set(0.85, 0.85, 0.85);
+        // Scale down the entire assembly slightly
+        group.scale.set(0.9, 0.9, 0.9);
 
         return group;
     }
@@ -167,15 +166,15 @@ export class Braces3DEngine {
             this.lowerWireMesh.geometry.dispose();
         }
 
-        // Reduced wire radius from 0.6 to 0.25 to sit neatly inside the bracket slot
-        const upperWireGeo = new THREE.TubeGeometry(upperCurve, 64, 0.25, 8, false);
+        // Reduced wire radius from 0.6 to 0.15 to sit neatly inside the bracket slot
+        const upperWireGeo = new THREE.TubeGeometry(upperCurve, 64, 0.15, 8, false);
         this.upperWireMesh = new THREE.Mesh(upperWireGeo, this.wireMat);
         
         // Push the wire forward slightly so it sits IN the slot, not behind the bracket
         this.upperWireMesh.position.z = 1.0; 
         this.scene.add(this.upperWireMesh);
 
-        const lowerWireGeo = new THREE.TubeGeometry(lowerCurve, 64, 0.25, 8, false);
+        const lowerWireGeo = new THREE.TubeGeometry(lowerCurve, 64, 0.15, 8, false);
         this.lowerWireMesh = new THREE.Mesh(lowerWireGeo, this.wireMat);
         this.lowerWireMesh.position.z = 1.0;
         this.scene.add(this.lowerWireMesh);
