@@ -4,8 +4,7 @@ import { Camera, Layers, ShieldCheck, Zap, Activity, ChevronRight, RotateCcw, Sl
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
-import { eraseAboveUpperLip } from "../utils/bracesClipFixed";
-import { buildBracesPack } from "../utils/bracesGeometryFixed";
+// Braces logic removed for fresh start
 import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
 import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
 import { applyClinicalZoom } from "../utils/zoomEngine";
@@ -98,27 +97,8 @@ function loadImage(url) {
 }
 
 function applyBracesEffect(ctx, landmarks, w, h, bracesImage) {
-  if (!landmarks || !bracesImage) return;
-  const pack = buildBracesPack(landmarks, w, h);
-  const lipMidY = landmarks[13].y * h;
-  ctx.save();
-  eraseAboveUpperLip(ctx, landmarks, w, h);
-  const drawBrackets = (anchors) => {
-    anchors.forEach(a => {
-      const yDistFromMid = Math.abs(a.y - lipMidY) / (h * 0.1);
-      const verticalPerspective = Math.max(0.8, Math.min(1.1, 1 - yDistFromMid * 0.15));
-      const side = pack.baseW * (a.wMult || 1) * verticalPerspective;
-      ctx.save();
-      ctx.translate(a.x, a.y);
-      ctx.rotate(a.ang || 0);
-      ctx.shadowBlur = 5; ctx.shadowColor = "rgba(0,0,0,0.42)";
-      ctx.drawImage(bracesImage, -side / 2, -side / 2, side, side);
-      ctx.restore();
-    });
-  };
-  drawBrackets(pack.upperAnchors || []);
-  drawBrackets(pack.lowerAnchors || []);
-  ctx.restore();
+  // Fresh start: Logic intentionally removed.
+  return;
 }
 
 // ── Premium UI Components ────────────────────────────────────────────────────
