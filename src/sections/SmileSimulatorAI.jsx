@@ -281,8 +281,11 @@ const SmileSimulatorAI = () => {
 
         const t = selectedTreatment;
         const opts = { anchor: { x: s.x, y: s.y }, rotation: s.ang };
-        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, opts);
-        if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, opts);
+        const wInt = intensities.whitening / 100;
+        const aInt = intensities.alignment / 100;
+
+        if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(sctx, marks, vw, vh, wInt, opts);
+        if (t === "alignment" || t === "transformation") applyProfessionalAlignment(sctx, marks, vw, vh, aInt, opts);
       }
     }
     if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
@@ -321,14 +324,17 @@ const SmileSimulatorAI = () => {
       pctx.drawImage(img, 0, 0, iw, ih);
 
       // 🦷 ENGINE PIPELINE (STRICT ENGINE LOCK INTACT)
+      const wInt = intensities.whitening / 100;
+      const aInt = intensities.alignment / 100;
+
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
-        applyProfessionalWhitening(pctx, landmarks, iw, ih);
+        applyProfessionalWhitening(pctx, landmarks, iw, ih, wInt);
       }
       if (treatment === "braces" || treatment === "transformation") {
         applyBracesEffect(pctx, landmarks, iw, ih, bracesImageRef.current);
       }
       if (treatment === "alignment" || treatment === "transformation") {
-        applyProfessionalAlignment(pctx, landmarks, iw, ih);
+        applyProfessionalAlignment(pctx, landmarks, iw, ih, aInt);
       }
 
       // 🔍 CLINICAL ZOOM RENDER
@@ -471,7 +477,10 @@ const SmileSimulatorAI = () => {
                     onSelect={() => { 
                       setSelectedTreatment(t.id); 
                       pendingTreatmentRef.current = t.id; 
-                      if (step === "result") setIsProcessing(true); 
+                      if (step === "result") {
+                        setIsProcessing(true);
+                        setZoomMode(false);
+                      }
                     }}
                   />
                 ))}
@@ -481,12 +490,18 @@ const SmileSimulatorAI = () => {
                 <MedicalSlider 
                   label="Chrominance Lift" 
                   value={intensities.whitening} 
-                  onChange={(v) => setIntensities({...intensities, whitening: v})} 
+                  onChange={(v) => {
+                    setIntensities(prev => ({...prev, whitening: v}));
+                    if (step === "result") setIsProcessing(true);
+                  }} 
                 />
                 <MedicalSlider 
                   label="Orthodontic Tension" 
                   value={intensities.alignment} 
-                  onChange={(v) => setIntensities({...intensities, alignment: v})} 
+                  onChange={(v) => {
+                    setIntensities(prev => ({...prev, alignment: v}));
+                    if (step === "result") setIsProcessing(true);
+                  }} 
                 />
               </div>
 
@@ -496,7 +511,10 @@ const SmileSimulatorAI = () => {
                   {PRESETS.map(p => (
                     <button 
                       key={p.id}
-                      onClick={() => setIntensities({...intensities, whitening: p.intensity})}
+                      onClick={() => {
+                        setIntensities({ whitening: p.intensity, alignment: p.intensity, braces: 100, transformation: 100 });
+                        if (step === "result") setIsProcessing(true);
+                      }}
                       className="w-full text-left p-4 rounded-2xl bg-[#0A0A0A] border border-[#1F1F1F] text-[11px] font-bold text-[#A0A0A0] hover:border-accent-blue/40 hover:text-white hover:bg-[#111111] transition-all group relative overflow-hidden"
                     >
                       <div className="flex justify-between items-center relative z-10">

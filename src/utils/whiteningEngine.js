@@ -119,7 +119,7 @@ export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0
         nb = Math.min(nb, 225);
 
         // ✅ STEP 3: BALANCED BLENDING
-        const blend = 0.65 * alpha;
+        const blend = 0.65 * alpha * intensity;
 
         d[i]     = r * (1 - blend) + nr * blend;
         d[i + 1] = g * (1 - blend) + ng * blend;

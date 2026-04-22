@@ -22,7 +22,7 @@ function isPointInPoly(poly, pt) {
   return inside;
 }
 
-export function applyProfessionalAlignment(ctx, landmarks, w, h) {
+export function applyProfessionalAlignment(ctx, landmarks, w, h, intensity = 1.0) {
   if (!landmarks || landmarks.length === 0) return;
 
   const imageData = ctx.getImageData(0, 0, w, h);
@@ -77,10 +77,10 @@ export function applyProfessionalAlignment(ctx, landmarks, w, h) {
       // Instead of just pushing "up", we measure how far the current pixel is 
       // from the ideal arch. We then compress the pixel towards that perfect line.
       // This smooths out bumpy, jagged tooth edges.
-      let dy = (y - idealArchY) * 0.22 * weight; 
+      let dy = (y - idealArchY) * 0.22 * weight * intensity; 
       
       // Gentle horizontal closure to fix spacing
-      let dx = nx * roiW * 0.025 * weight; 
+      let dx = nx * roiW * 0.025 * weight * intensity; 
 
       // Calculate the source pixel
       const sx = x + dx;
