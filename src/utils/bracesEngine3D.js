@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 /**
- * 3D ORTHODONTIC ENGINE (V10 - The Anatomical Anchor Fix)
- * - Truncates the wire so it never extends past the teeth.
- * - Replaces unstable tangent math with stable "Look At" rotations.
- * - Calibrates the Y-axis drop for perfect enamel centering.
+ * 3D ORTHODONTIC ENGINE (V11 - The True Arch Fix)
+ * - Fixes the mathematical "Curve Flattening" inversion bug on the lower arch.
+ * - Widens the T-Values so brackets sit on the teeth, not bunched in the center.
+ * - Warms up the material colors to prevent WebGL blue-tinting.
  */
 export class Braces3DEngine {
     constructor(width, height) {
@@ -26,12 +26,17 @@ export class Braces3DEngine {
         dirLight.position.set(0, 20, 50); 
         this.scene.add(dirLight);
 
+        // 🔥 FIX 1: WARMER MATERIALS (Kills the Blue Tint)
         this.bracketMat = new THREE.MeshStandardMaterial({
-            color: 0xdddddd, metalness: 0.3, roughness: 0.2,   
+            color: 0xe8e8e8, // Slightly warmer/brighter silver
+            metalness: 0.4, 
+            roughness: 0.2,   
         });
         
         this.wireMat = new THREE.MeshStandardMaterial({ 
-            color: 0xaaaaaa, metalness: 0.4, roughness: 0.3 
+            color: 0x999999, // True neutral grey
+            metalness: 0.5, 
+            roughness: 0.3 
         });
 
         this.upperBrackets = [];
@@ -92,14 +97,14 @@ export class Braces3DEngine {
         const mouthWidthPx = (rightCorner.x - leftCorner.x) * width;
         
         const bracketScale = mouthWidthPx * 0.035; 
-        const wireRadius = mouthWidthPx * 0.003;
+        const wireRadius = mouthWidthPx * 0.0035; // Slightly thicker
         
-        // 🔥 FIX 1: CALIBRATED DROP
-        // Reduced the drop from 12% to 5% so it stays in the center of the teeth.
-        const upperDropOffset = mouthWidthPx * 0.05;
-        const lowerDropOffset = mouthWidthPx * 0.04;
+        // Pushed the upper drop down slightly more so it hits the center of the top teeth
+        const upperDropOffset = mouthWidthPx * 0.08; 
+        
+        // Small push up from the bottom lip
+        const lowerDropOffset = mouthWidthPx * 0.03;
 
-        // Extract Base Lip Curves
         const upperIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
         const upperPoints = [];
         upperIndices.forEach((idx, i) => {
@@ -107,7 +112,9 @@ export class Braces3DEngine {
             const tx = (lm.x * width) - (width / 2);
             let ty = (height / 2) - (lm.y * height);
             const distFromCenter = Math.abs((i / (upperIndices.length - 1)) - 0.5) * 2; 
-            ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.4))); 
+            
+            // Center drops full offset. Corners drop 20% of offset. (Creates a steep U arch)
+            ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.8))); 
             upperPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
         });
 
@@ -118,21 +125,26 @@ export class Braces3DEngine {
             const tx = (lm.x * width) - (width / 2);
             let ty = (height / 2) - (lm.y * height);
             const distFromCenter = Math.abs((i / (lowerIndices.length - 1)) - 0.5) * 2; 
-            ty += (lowerDropOffset - (distFromCenter * (lowerDropOffset * 0.4))); 
+            
+            // 🔥 FIX 2: UNIFORM OFFSET
+            // We push the entire lower curve up uniformly. This completely prevents the 
+            // "Curve Flattening" bug and preserves the natural U-shape of your lower lip.
+            ty += lowerDropOffset; 
+            
             lowerPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
         });
 
         const upperCurve = new THREE.CatmullRomCurve3(upperPoints);
         const lowerCurve = new THREE.CatmullRomCurve3(lowerPoints);
 
-        const upperTValues = [0.30, 0.38, 0.46, 0.54, 0.62, 0.70];
-        const lowerTValues = [0.34, 0.40, 0.46, 0.54, 0.60, 0.66]; 
+        // 🔥 FIX 3: WIDER T-VALUES
+        // Spreads the brackets out properly over the 6 front teeth so they stop bunching.
+        const upperTValues = [0.26, 0.36, 0.46, 0.54, 0.64, 0.74];
+        const lowerTValues = [0.30, 0.38, 0.46, 0.54, 0.62, 0.70]; 
 
-        // Arrays to hold exact bracket positions so we can truncate the wire
         const upperBracketPositions = [];
         const lowerBracketPositions = [];
 
-        // 🔥 FIX 2: STABLE ROTATION
         upperTValues.forEach((t, i) => {
             const bracket = this.upperBrackets[i];
             bracket.scale.set(bracketScale, bracketScale, bracketScale);
@@ -141,7 +153,6 @@ export class Braces3DEngine {
             bracket.position.copy(pos);
             upperBracketPositions.push(pos.clone());
             
-            // Force it to point out of the screen, then angle slightly based on position
             bracket.rotation.set(0, 0, 0);
             bracket.lookAt(pos.x, pos.y, pos.z + 100); 
             const nx = (t - 0.5) * 2; 
@@ -169,14 +180,13 @@ export class Braces3DEngine {
             this.lowerWireMesh.geometry.dispose();
         }
 
-        // 🔥 FIX 3: TRUNCATED WIRES
-        // Create a new curve using ONLY the 6 bracket positions!
+        // Truncated curves so the wire never pokes out past the last bracket
         const upperWireCurve = new THREE.CatmullRomCurve3(upperBracketPositions);
         const lowerWireCurve = new THREE.CatmullRomCurve3(lowerBracketPositions);
 
         const upperWireGeo = new THREE.TubeGeometry(upperWireCurve, 32, wireRadius, 8, false);
         this.upperWireMesh = new THREE.Mesh(upperWireGeo, this.wireMat);
-        this.upperWireMesh.position.z = bracketScale * 0.15; // Push exactly into the wire slot
+        this.upperWireMesh.position.z = bracketScale * 0.15; 
         this.scene.add(this.upperWireMesh);
 
         const lowerWireGeo = new THREE.TubeGeometry(lowerWireCurve, 32, wireRadius, 8, false);
