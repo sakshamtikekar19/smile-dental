@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 /**
- * 3D ORTHODONTIC ENGINE (V11 - The True Arch Fix)
- * - Fixes the mathematical "Curve Flattening" inversion bug on the lower arch.
- * - Widens the T-Values so brackets sit on the teeth, not bunched in the center.
- * - Warms up the material colors to prevent WebGL blue-tinting.
+ * 3D ORTHODONTIC ENGINE (V13 - Procedural Arch & Custom Colors)
+ * - Dynamically calculates bracket placement for ANY number of teeth.
+ * - Features high-quality Black Studs and Bright Silver Wire.
+ * - Includes a rebuild function to change tooth count on the fly.
  */
 export class Braces3DEngine {
     constructor(width, height) {
@@ -20,23 +20,23 @@ export class Braces3DEngine {
         this.renderer.setSize(width, height);
         this.renderer.setClearColor(0x000000, 0); 
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.8); 
+        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0); 
         this.scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
         dirLight.position.set(0, 20, 50); 
         this.scene.add(dirLight);
 
-        // 🔥 FIX 1: WARMER MATERIALS (Kills the Blue Tint)
+        // 🔥 CUSTOM COLORS: Black Studs & Silver Wire
         this.bracketMat = new THREE.MeshStandardMaterial({
-            color: 0xe8e8e8, // Slightly warmer/brighter silver
-            metalness: 0.4, 
+            color: 0x1a1a1a, // Sleek Charcoal/Black
+            metalness: 0.7, 
             roughness: 0.2,   
         });
         
         this.wireMat = new THREE.MeshStandardMaterial({ 
-            color: 0x999999, // True neutral grey
-            metalness: 0.5, 
-            roughness: 0.3 
+            color: 0xdcdcdc, // Bright Premium Silver
+            metalness: 0.9, 
+            roughness: 0.2 
         });
 
         this.upperBrackets = [];
@@ -44,15 +44,37 @@ export class Braces3DEngine {
         this.upperWireMesh = null;
         this.lowerWireMesh = null;
         
-        this.numBrackets = 6; 
+        // Default to a wide 10-tooth smile
+        this.upperToothCount = 10; 
+        this.lowerToothCount = 10;
         
-        for (let i = 0; i < this.numBrackets; i++) {
-            const upperMesh = this.createRealisticTwinBracket(this.bracketMat);
-            const lowerMesh = this.createRealisticTwinBracket(this.bracketMat);
-            this.scene.add(upperMesh);
-            this.scene.add(lowerMesh);
-            this.upperBrackets.push(upperMesh);
-            this.lowerBrackets.push(lowerMesh);
+        this.buildHardware(this.upperToothCount, this.lowerToothCount);
+    }
+
+    /**
+     * Rebuilds the hardware. Hook this up to a UI slider so users 
+     * can select how many teeth they want brackets on!
+     */
+    buildHardware(upperCount, lowerCount) {
+        this.upperToothCount = upperCount;
+        this.lowerToothCount = lowerCount;
+
+        // Clean up old meshes to prevent memory leaks
+        this.upperBrackets.forEach(b => { this.scene.remove(b); b.geometry.dispose(); });
+        this.lowerBrackets.forEach(b => { this.scene.remove(b); b.geometry.dispose(); });
+        this.upperBrackets = [];
+        this.lowerBrackets = [];
+
+        // Build new brackets
+        for (let i = 0; i < this.upperToothCount; i++) {
+            const mesh = this.createRealisticTwinBracket(this.bracketMat);
+            this.scene.add(mesh);
+            this.upperBrackets.push(mesh);
+        }
+        for (let i = 0; i < this.lowerToothCount; i++) {
+            const mesh = this.createRealisticTwinBracket(this.bracketMat);
+            this.scene.add(mesh);
+            this.lowerBrackets.push(mesh);
         }
     }
 
@@ -78,6 +100,28 @@ export class Braces3DEngine {
         return group;
     }
 
+    /**
+     * 🔥 PROCEDURAL T-VALUE GENERATOR
+     * Mathematically spaces any number of brackets perfectly along the curve,
+     * ensuring the exact center (T=0.5) is always the gap between the front teeth.
+     */
+    generateAnatomicalTValues(numTeeth, isLower) {
+        const tValues = [];
+        
+        // The visible arch usually spans from T=0.15 to T=0.85. 
+        // We shrink the span slightly for the lower jaw since the teeth are smaller.
+        const minT = isLower ? 0.18 : 0.15;
+        const maxT = isLower ? 0.82 : 0.85;
+        const range = maxT - minT;
+
+        for (let i = 0; i < numTeeth; i++) {
+            // Evenly distribute the brackets across the calculated range
+            const t = minT + (i / (numTeeth - 1)) * range;
+            tValues.push(t);
+        }
+        return tValues;
+    }
+
     updateAndRender(landmarks, width, height) {
         if (!landmarks || landmarks.length === 0) return this.renderer.domElement;
 
@@ -97,12 +141,9 @@ export class Braces3DEngine {
         const mouthWidthPx = (rightCorner.x - leftCorner.x) * width;
         
         const bracketScale = mouthWidthPx * 0.035; 
-        const wireRadius = mouthWidthPx * 0.0035; // Slightly thicker
+        const wireRadius = mouthWidthPx * 0.0035; 
         
-        // Pushed the upper drop down slightly more so it hits the center of the top teeth
         const upperDropOffset = mouthWidthPx * 0.08; 
-        
-        // Small push up from the bottom lip
         const lowerDropOffset = mouthWidthPx * 0.03;
 
         const upperIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
@@ -113,7 +154,6 @@ export class Braces3DEngine {
             let ty = (height / 2) - (lm.y * height);
             const distFromCenter = Math.abs((i / (upperIndices.length - 1)) - 0.5) * 2; 
             
-            // Center drops full offset. Corners drop 20% of offset. (Creates a steep U arch)
             ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.8))); 
             upperPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
         });
@@ -126,21 +166,16 @@ export class Braces3DEngine {
             let ty = (height / 2) - (lm.y * height);
             const distFromCenter = Math.abs((i / (lowerIndices.length - 1)) - 0.5) * 2; 
             
-            // 🔥 FIX 2: UNIFORM OFFSET
-            // We push the entire lower curve up uniformly. This completely prevents the 
-            // "Curve Flattening" bug and preserves the natural U-shape of your lower lip.
             ty += lowerDropOffset; 
-            
             lowerPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
         });
 
         const upperCurve = new THREE.CatmullRomCurve3(upperPoints);
         const lowerCurve = new THREE.CatmullRomCurve3(lowerPoints);
 
-        // 🔥 FIX 3: WIDER T-VALUES
-        // Spreads the brackets out properly over the 6 front teeth so they stop bunching.
-        const upperTValues = [0.26, 0.36, 0.46, 0.54, 0.64, 0.74];
-        const lowerTValues = [0.30, 0.38, 0.46, 0.54, 0.62, 0.70]; 
+        // Fetch dynamic T-Values based on how many teeth we currently have
+        const upperTValues = this.generateAnatomicalTValues(this.upperToothCount, false);
+        const lowerTValues = this.generateAnatomicalTValues(this.lowerToothCount, true);
 
         const upperBracketPositions = [];
         const lowerBracketPositions = [];
@@ -180,7 +215,6 @@ export class Braces3DEngine {
             this.lowerWireMesh.geometry.dispose();
         }
 
-        // Truncated curves so the wire never pokes out past the last bracket
         const upperWireCurve = new THREE.CatmullRomCurve3(upperBracketPositions);
         const lowerWireCurve = new THREE.CatmullRomCurve3(lowerBracketPositions);
 
