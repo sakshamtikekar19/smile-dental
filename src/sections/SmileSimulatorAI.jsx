@@ -98,8 +98,13 @@ function loadImage(url) {
 
 const INNER_LIP_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
 
-function applyBracesEffect(ctx, landmarks, w, h, engine3D) {
+function applyBracesEffect(ctx, landmarks, w, h, engine3D, toothCount) {
   if (!landmarks || !engine3D) return;
+
+  // Dynamically rebuild hardware if the tooth count changes
+  if (engine3D.upperToothCount !== toothCount) {
+    engine3D.buildHardware(toothCount, toothCount);
+  }
 
   // 1. Update 3D scene and get the rendered canvas
   const canvas3D = engine3D.updateAndRender(landmarks, w, h);
@@ -182,7 +187,7 @@ const TreatmentModule = ({ treatment, active, onSelect }) => {
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("entry");
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
-  const [intensities, setIntensities] = useState({ whitening: 80, alignment: 100, braces: 100, transformation: 100 });
+  const [intensities, setIntensities] = useState({ whitening: 80, alignment: 100, braces: 100, bracesCount: 10, transformation: 100 });
   const [beforeImage, setBeforeImage] = useState(null);
   const [afterImage, setAfterImage] = useState(null);
   const [error, setError] = useState(null);
@@ -261,7 +266,8 @@ const SmileSimulatorAI = () => {
       if (t === "alignment" || t === "transformation") applyProfessionalAlignment(bgCtx, marks, vw, vh, aInt);
       if (t === "braces" || t === "transformation") {
         if (!engine3DRef.current) engine3DRef.current = new Braces3DEngine(vw, vh);
-        applyBracesEffect(bgCtx, marks, vw, vh, engine3DRef.current);
+        const count = intensities.bracesCount || 10;
+        applyBracesEffect(bgCtx, marks, vw, vh, engine3DRef.current, count);
       }
 
       const anchorX = marks[168].x * vw;
@@ -341,7 +347,8 @@ const SmileSimulatorAI = () => {
       }
       if (treatment === "braces" || treatment === "transformation") {
         if (!engine3DRef.current) engine3DRef.current = new Braces3DEngine(iw, ih);
-        applyBracesEffect(pctx, landmarks, iw, ih, engine3DRef.current);
+        const count = intensities.bracesCount || 10;
+        applyBracesEffect(pctx, landmarks, iw, ih, engine3DRef.current, count);
       }
       if (treatment === "alignment" || treatment === "transformation") {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, aInt);
@@ -510,6 +517,15 @@ const SmileSimulatorAI = () => {
                   value={intensities.alignment} 
                   onChange={(v) => {
                     setIntensities(prev => ({...prev, alignment: v}));
+                    if (step === "result") setIsProcessing(true);
+                  }} 
+                />
+                <MedicalSlider 
+                  label="Bracket Density" 
+                  value={intensities.bracesCount * 8} // Scaled for UI percentage feel
+                  onChange={(v) => {
+                    const count = Math.round(4 + (v / 100) * 8);
+                    setIntensities(prev => ({...prev, bracesCount: count}));
                     if (step === "result") setIsProcessing(true);
                   }} 
                 />
