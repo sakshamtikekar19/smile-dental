@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 /**
- * 3D ORTHODONTIC ENGINE (V13 - Procedural Arch & Custom Colors)
- * - Dynamically calculates bracket placement for ANY number of teeth.
- * - Features high-quality Black Studs and Bright Silver Wire.
- * - Includes a rebuild function to change tooth count on the fly.
+ * 3D ORTHODONTIC ENGINE (V14 - Biological Proportions & Density Sync)
+ * - Replaces "even spacing" with actual human dental anatomy ratios.
+ * - Flattens the extreme corners of the wire to stop it curving into the gums.
+ * - Adds a setDensity() method to hook into the UI slider.
  */
 export class Braces3DEngine {
     constructor(width, height) {
@@ -26,17 +26,12 @@ export class Braces3DEngine {
         dirLight.position.set(0, 20, 50); 
         this.scene.add(dirLight);
 
-        // 🔥 CUSTOM COLORS: Black Studs & Silver Wire
+        // Black Studs & Silver Wire
         this.bracketMat = new THREE.MeshStandardMaterial({
-            color: 0x1a1a1a, // Sleek Charcoal/Black
-            metalness: 0.7, 
-            roughness: 0.2,   
+            color: 0x1a1a1a, metalness: 0.6, roughness: 0.3,   
         });
-        
         this.wireMat = new THREE.MeshStandardMaterial({ 
-            color: 0xdcdcdc, // Bright Premium Silver
-            metalness: 0.9, 
-            roughness: 0.2 
+            color: 0xdcdcdc, metalness: 0.9, roughness: 0.2 
         });
 
         this.upperBrackets = [];
@@ -44,43 +39,47 @@ export class Braces3DEngine {
         this.upperWireMesh = null;
         this.lowerWireMesh = null;
         
-        // Default to a wide 10-tooth smile
-        this.upperToothCount = 10; 
-        this.lowerToothCount = 10;
-        
-        this.buildHardware(this.upperToothCount, this.lowerToothCount);
+        // Default to 10 teeth (5 per side)
+        this.currentToothCount = 10; 
+        this.buildHardware(this.currentToothCount);
     }
 
     /**
-     * Rebuilds the hardware. Hook this up to a UI slider so users 
-     * can select how many teeth they want brackets on!
+     * Call this from your React component when the Bracket Density slider moves!
+     * @param {number} percentage - Slider value (0 to 100)
      */
-    buildHardware(upperCount, lowerCount) {
-        this.upperToothCount = upperCount;
-        this.lowerToothCount = lowerCount;
+    setDensity(percentage) {
+        let newCount = 6; // Minimum 6 teeth
+        if (percentage >= 50) newCount = 8;
+        if (percentage >= 80) newCount = 10;
+        if (percentage >= 98) newCount = 12; // Max 12 teeth
 
-        // Clean up old meshes to prevent memory leaks
+        if (newCount !== this.currentToothCount) {
+            this.buildHardware(newCount);
+        }
+    }
+
+    buildHardware(toothCount) {
+        this.currentToothCount = toothCount;
+
+        // Cleanup old meshes
         this.upperBrackets.forEach(b => { this.scene.remove(b); b.geometry.dispose(); });
         this.lowerBrackets.forEach(b => { this.scene.remove(b); b.geometry.dispose(); });
         this.upperBrackets = [];
         this.lowerBrackets = [];
 
-        // Build new brackets
-        for (let i = 0; i < this.upperToothCount; i++) {
-            const mesh = this.createRealisticTwinBracket(this.bracketMat);
-            this.scene.add(mesh);
-            this.upperBrackets.push(mesh);
-        }
-        for (let i = 0; i < this.lowerToothCount; i++) {
-            const mesh = this.createRealisticTwinBracket(this.bracketMat);
-            this.scene.add(mesh);
-            this.lowerBrackets.push(mesh);
+        for (let i = 0; i < this.currentToothCount; i++) {
+            const upperMesh = this.createRealisticTwinBracket(this.bracketMat);
+            const lowerMesh = this.createRealisticTwinBracket(this.bracketMat);
+            this.scene.add(upperMesh);
+            this.scene.add(lowerMesh);
+            this.upperBrackets.push(upperMesh);
+            this.lowerBrackets.push(lowerMesh);
         }
     }
 
     createRealisticTwinBracket(material) {
         const group = new THREE.Group();
-
         const padGeo = new THREE.BoxGeometry(1.0, 0.8, 0.2);
         const pad = new THREE.Mesh(padGeo, material);
         group.add(pad);
@@ -101,24 +100,47 @@ export class Braces3DEngine {
     }
 
     /**
-     * 🔥 PROCEDURAL T-VALUE GENERATOR
-     * Mathematically spaces any number of brackets perfectly along the curve,
-     * ensuring the exact center (T=0.5) is always the gap between the front teeth.
+     * 🔥 BIOLOGICAL PROPORTIONS MATH
+     * Distributes brackets based on the actual physical width of human teeth.
      */
-    generateAnatomicalTValues(numTeeth, isLower) {
-        const tValues = [];
-        
-        // The visible arch usually spans from T=0.15 to T=0.85. 
-        // We shrink the span slightly for the lower jaw since the teeth are smaller.
-        const minT = isLower ? 0.18 : 0.15;
-        const maxT = isLower ? 0.82 : 0.85;
-        const range = maxT - minT;
+    generateBiologicalTValues(numTeeth, isLower) {
+        // Relative widths of teeth starting from the center gap moving outward:
+        // [Central Incisor, Lateral Incisor, Canine, 1st Premolar, 2nd Premolar, Molar]
+        const upperWidths = [1.0, 0.75, 0.85, 0.80, 0.80, 1.1];
+        const lowerWidths = [0.60, 0.65, 0.80, 0.80, 0.80, 1.1];
+        const widths = isLower ? lowerWidths : upperWidths;
 
-        for (let i = 0; i < numTeeth; i++) {
-            // Evenly distribute the brackets across the calculated range
-            const t = minT + (i / (numTeeth - 1)) * range;
-            tValues.push(t);
+        const halfCount = Math.floor(numTeeth / 2);
+        let totalHalfWidth = 0;
+        for (let i = 0; i < halfCount; i++) {
+            totalHalfWidth += widths[i];
         }
+
+        const tValues = [];
+        // Span boundaries (slightly narrower on bottom)
+        const minT = isLower ? 0.22 : 0.18;
+        const maxT = isLower ? 0.78 : 0.82;
+        const centerT = 0.5;
+        const halfRange = (maxT - minT) / 2;
+
+        // Calculate LEFT side brackets (mirrored)
+        let currentWidth = totalHalfWidth;
+        for (let i = halfCount - 1; i >= 0; i--) {
+            const toothCenter = currentWidth - (widths[i] / 2);
+            const normalized = toothCenter / totalHalfWidth; 
+            tValues.push(centerT - (normalized * halfRange));
+            currentWidth -= widths[i];
+        }
+
+        // Calculate RIGHT side brackets
+        currentWidth = 0;
+        for (let i = 0; i < halfCount; i++) {
+            const toothCenter = currentWidth + (widths[i] / 2);
+            const normalized = toothCenter / totalHalfWidth; 
+            tValues.push(centerT + (normalized * halfRange));
+            currentWidth += widths[i];
+        }
+
         return tValues;
     }
 
@@ -154,7 +176,8 @@ export class Braces3DEngine {
             let ty = (height / 2) - (lm.y * height);
             const distFromCenter = Math.abs((i / (upperIndices.length - 1)) - 0.5) * 2; 
             
-            ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.8))); 
+            // Reduced corner curvature from 0.8 to 0.5 to stop the wire from flying up into the gums
+            ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.5))); 
             upperPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
         });
 
@@ -173,9 +196,9 @@ export class Braces3DEngine {
         const upperCurve = new THREE.CatmullRomCurve3(upperPoints);
         const lowerCurve = new THREE.CatmullRomCurve3(lowerPoints);
 
-        // Fetch dynamic T-Values based on how many teeth we currently have
-        const upperTValues = this.generateAnatomicalTValues(this.upperToothCount, false);
-        const lowerTValues = this.generateAnatomicalTValues(this.lowerToothCount, true);
+        // Fetch biological T-values
+        const upperTValues = this.generateBiologicalTValues(this.currentToothCount, false);
+        const lowerTValues = this.generateBiologicalTValues(this.currentToothCount, true);
 
         const upperBracketPositions = [];
         const lowerBracketPositions = [];
