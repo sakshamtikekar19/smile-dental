@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 /**
- * 3D ORTHODONTIC ENGINE (V14 - Biological Proportions & Density Sync)
- * - Replaces "even spacing" with actual human dental anatomy ratios.
- * - Flattens the extreme corners of the wire to stop it curving into the gums.
- * - Adds a setDensity() method to hook into the UI slider.
+ * 3D ORTHODONTIC ENGINE (V15 - Photorealistic Hardware Upgrade)
+ * - Placement logic remains 100% untouched from V14.
+ * - Upgrades to MeshPhysicalMaterial for a "wet/glossy" look.
+ * - Enhances the 3D geometry of the bracket to catch realistic highlights.
  */
 export class Braces3DEngine {
     constructor(width, height) {
@@ -20,18 +20,32 @@ export class Braces3DEngine {
         this.renderer.setSize(width, height);
         this.renderer.setClearColor(0x000000, 0); 
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0); 
-        this.scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-        dirLight.position.set(0, 20, 50); 
+        // 🔥 VISUAL UPGRADE 1: STUDIO LIGHTING
+        // Added a Hemisphere light to bounce "floor" and "ceiling" light around the wet metal
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
+        this.scene.add(hemiLight);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+        dirLight.position.set(10, 30, 50); // Angled for a sharp, realistic glint
         this.scene.add(dirLight);
 
-        // Black Studs & Silver Wire
-        this.bracketMat = new THREE.MeshStandardMaterial({
-            color: 0x1a1a1a, metalness: 0.6, roughness: 0.3,   
+        // 🔥 VISUAL UPGRADE 2: WET GRAPHITE MATERIAL
+        // Upgraded to MeshPhysicalMaterial. 
+        // Color is dark graphite (not pure black) so it can cast shadows.
+        // Clearcoat adds a simulated layer of wet saliva/gloss.
+        this.bracketMat = new THREE.MeshPhysicalMaterial({
+            color: 0x2c2c2c,       // Dark Graphite
+            metalness: 0.8,        // Highly metallic
+            roughness: 0.3,        // Slightly brushed
+            clearcoat: 1.0,        // 100% wet look
+            clearcoatRoughness: 0.1 // Sharp reflections on the wet layer
         });
-        this.wireMat = new THREE.MeshStandardMaterial({ 
-            color: 0xdcdcdc, metalness: 0.9, roughness: 0.2 
+        
+        this.wireMat = new THREE.MeshPhysicalMaterial({ 
+            color: 0xdddddd, 
+            metalness: 1.0, 
+            roughness: 0.2,
+            clearcoat: 0.5
         });
 
         this.upperBrackets = [];
@@ -39,20 +53,15 @@ export class Braces3DEngine {
         this.upperWireMesh = null;
         this.lowerWireMesh = null;
         
-        // Default to 10 teeth (5 per side)
         this.currentToothCount = 10; 
         this.buildHardware(this.currentToothCount);
     }
 
-    /**
-     * Call this from your React component when the Bracket Density slider moves!
-     * @param {number} percentage - Slider value (0 to 100)
-     */
     setDensity(percentage) {
-        let newCount = 6; // Minimum 6 teeth
+        let newCount = 6; 
         if (percentage >= 50) newCount = 8;
         if (percentage >= 80) newCount = 10;
-        if (percentage >= 98) newCount = 12; // Max 12 teeth
+        if (percentage >= 98) newCount = 12; 
 
         if (newCount !== this.currentToothCount) {
             this.buildHardware(newCount);
@@ -62,7 +71,6 @@ export class Braces3DEngine {
     buildHardware(toothCount) {
         this.currentToothCount = toothCount;
 
-        // Cleanup old meshes
         this.upperBrackets.forEach(b => { this.scene.remove(b); b.geometry.dispose(); });
         this.lowerBrackets.forEach(b => { this.scene.remove(b); b.geometry.dispose(); });
         this.upperBrackets = [];
@@ -78,16 +86,28 @@ export class Braces3DEngine {
         }
     }
 
+    // 🔥 VISUAL UPGRADE 3: ENHANCED SCULPT
     createRealisticTwinBracket(material) {
         const group = new THREE.Group();
-        const padGeo = new THREE.BoxGeometry(1.0, 0.8, 0.2);
+
+        // 1. Base Pad (Thinner, slightly wider contour glued to tooth)
+        const padGeo = new THREE.BoxGeometry(1.2, 0.9, 0.15);
         const pad = new THREE.Mesh(padGeo, material);
         group.add(pad);
 
-        const wingGeo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+        // 2. Central Core (Pushes the structure outward)
+        const coreGeo = new THREE.BoxGeometry(0.8, 0.5, 0.3);
+        const core = new THREE.Mesh(coreGeo, material);
+        core.position.z = 0.2;
+        group.add(core);
+
+        // 3. The 4 Tie Wings (More distinct cubes that catch the light)
+        const wingGeo = new THREE.BoxGeometry(0.35, 0.35, 0.25);
         const wingPositions = [
-            [-0.35, 0.25, 0.25], [0.35, 0.25, 0.25],  
-            [-0.35, -0.25, 0.25], [0.35, -0.25, 0.25]  
+            [-0.35, 0.3, 0.4],  // Top Left
+            [0.35, 0.3, 0.4],   // Top Right
+            [-0.35, -0.3, 0.4], // Bottom Left
+            [0.35, -0.3, 0.4]   // Bottom Right
         ];
 
         wingPositions.forEach(pos => {
@@ -96,16 +116,17 @@ export class Braces3DEngine {
             group.add(wing);
         });
 
+        // 4. Subtle Wire Slot Highlight (adds depth between the wings)
+        const slotGeo = new THREE.BoxGeometry(1.0, 0.15, 0.1);
+        const slotMat = new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.8 }); // Darker inside the slot
+        const slot = new THREE.Mesh(slotGeo, slotMat);
+        slot.position.z = 0.35;
+        group.add(slot);
+
         return group;
     }
 
-    /**
-     * 🔥 BIOLOGICAL PROPORTIONS MATH
-     * Distributes brackets based on the actual physical width of human teeth.
-     */
     generateBiologicalTValues(numTeeth, isLower) {
-        // Relative widths of teeth starting from the center gap moving outward:
-        // [Central Incisor, Lateral Incisor, Canine, 1st Premolar, 2nd Premolar, Molar]
         const upperWidths = [1.0, 0.75, 0.85, 0.80, 0.80, 1.1];
         const lowerWidths = [0.60, 0.65, 0.80, 0.80, 0.80, 1.1];
         const widths = isLower ? lowerWidths : upperWidths;
@@ -117,13 +138,11 @@ export class Braces3DEngine {
         }
 
         const tValues = [];
-        // Span boundaries (slightly narrower on bottom)
         const minT = isLower ? 0.22 : 0.18;
         const maxT = isLower ? 0.78 : 0.82;
         const centerT = 0.5;
         const halfRange = (maxT - minT) / 2;
 
-        // Calculate LEFT side brackets (mirrored)
         let currentWidth = totalHalfWidth;
         for (let i = halfCount - 1; i >= 0; i--) {
             const toothCenter = currentWidth - (widths[i] / 2);
@@ -132,7 +151,6 @@ export class Braces3DEngine {
             currentWidth -= widths[i];
         }
 
-        // Calculate RIGHT side brackets
         currentWidth = 0;
         for (let i = 0; i < halfCount; i++) {
             const toothCenter = currentWidth + (widths[i] / 2);
@@ -176,7 +194,6 @@ export class Braces3DEngine {
             let ty = (height / 2) - (lm.y * height);
             const distFromCenter = Math.abs((i / (upperIndices.length - 1)) - 0.5) * 2; 
             
-            // Reduced corner curvature from 0.8 to 0.5 to stop the wire from flying up into the gums
             ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.5))); 
             upperPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
         });
@@ -196,7 +213,6 @@ export class Braces3DEngine {
         const upperCurve = new THREE.CatmullRomCurve3(upperPoints);
         const lowerCurve = new THREE.CatmullRomCurve3(lowerPoints);
 
-        // Fetch biological T-values
         const upperTValues = this.generateBiologicalTValues(this.currentToothCount, false);
         const lowerTValues = this.generateBiologicalTValues(this.currentToothCount, true);
 
@@ -243,12 +259,14 @@ export class Braces3DEngine {
 
         const upperWireGeo = new THREE.TubeGeometry(upperWireCurve, 32, wireRadius, 8, false);
         this.upperWireMesh = new THREE.Mesh(upperWireGeo, this.wireMat);
-        this.upperWireMesh.position.z = bracketScale * 0.15; 
+        
+        // Slightly adjusted Z-position so the wire sits perfectly inside the new 3D sculpted slot
+        this.upperWireMesh.position.z = bracketScale * 0.4; 
         this.scene.add(this.upperWireMesh);
 
         const lowerWireGeo = new THREE.TubeGeometry(lowerWireCurve, 32, wireRadius, 8, false);
         this.lowerWireMesh = new THREE.Mesh(lowerWireGeo, this.wireMat);
-        this.lowerWireMesh.position.z = bracketScale * 0.15;
+        this.lowerWireMesh.position.z = bracketScale * 0.4;
         this.scene.add(this.lowerWireMesh);
 
         this.renderer.render(this.scene, this.camera);
