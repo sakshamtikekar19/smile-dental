@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 
 /**
- * 3D ORTHODONTIC ENGINE (V15 - Photorealistic Hardware Upgrade)
- * - Placement logic remains 100% untouched from V14.
- * - Upgrades to MeshPhysicalMaterial for a "wet/glossy" look.
- * - Enhances the 3D geometry of the bracket to catch realistic highlights.
+ * 3D ORTHODONTIC ENGINE (V16 - Photorealistic Ligatures & Bite-Line Anchor)
+ * - Upgrades the 3D sculpt to include colored rubber ligatures (O-rings).
+ * - Restores bright surgical steel materials.
+ * - Drastically increases the lower drop offset to pull hardware off the gums.
+ * - Tightens the biological spacing to prevent corner-drifting.
  */
 export class Braces3DEngine {
     constructor(width, height) {
@@ -20,30 +21,32 @@ export class Braces3DEngine {
         this.renderer.setSize(width, height);
         this.renderer.setClearColor(0x000000, 0); 
 
-        // 🔥 VISUAL UPGRADE 1: STUDIO LIGHTING
-        // Added a Hemisphere light to bounce "floor" and "ceiling" light around the wet metal
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
-        this.scene.add(hemiLight);
-        
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
-        dirLight.position.set(10, 30, 50); // Angled for a sharp, realistic glint
+        // Bright Clinical Studio Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0); 
+        this.scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(10, 30, 50); 
         this.scene.add(dirLight);
 
-        // 🔥 VISUAL UPGRADE 2: WET GRAPHITE MATERIAL
-        // Upgraded to MeshPhysicalMaterial. 
-        // Color is dark graphite (not pure black) so it can cast shadows.
-        // Clearcoat adds a simulated layer of wet saliva/gloss.
-        this.bracketMat = new THREE.MeshPhysicalMaterial({
-            color: 0x2c2c2c,       // Dark Graphite
-            metalness: 0.8,        // Highly metallic
-            roughness: 0.3,        // Slightly brushed
-            clearcoat: 1.0,        // 100% wet look
-            clearcoatRoughness: 0.1 // Sharp reflections on the wet layer
+        // 🔥 REALISM UPGRADE 1: SURGICAL STEEL & COLORED BANDS
+        this.metalMat = new THREE.MeshPhysicalMaterial({
+            color: 0xeeeeee,       // Bright Silver
+            metalness: 0.85,       // Highly reflective
+            roughness: 0.15,       // Smooth surgical steel
+            clearcoat: 1.0,        // Wet gloss
+            clearcoatRoughness: 0.1 
+        });
+
+        this.bandMat = new THREE.MeshPhysicalMaterial({
+            color: 0x1f78b4,       // Clinical Blue Rubber Band (from reference)
+            metalness: 0.1,        // Rubber isn't metallic
+            roughness: 0.4,        
+            clearcoat: 0.8,        // Wet saliva gloss
         });
         
         this.wireMat = new THREE.MeshPhysicalMaterial({ 
-            color: 0xdddddd, 
-            metalness: 1.0, 
+            color: 0xcccccc, 
+            metalness: 0.9, 
             roughness: 0.2,
             clearcoat: 0.5
         });
@@ -77,8 +80,8 @@ export class Braces3DEngine {
         this.lowerBrackets = [];
 
         for (let i = 0; i < this.currentToothCount; i++) {
-            const upperMesh = this.createRealisticTwinBracket(this.bracketMat);
-            const lowerMesh = this.createRealisticTwinBracket(this.bracketMat);
+            const upperMesh = this.createRealisticTwinBracket();
+            const lowerMesh = this.createRealisticTwinBracket();
             this.scene.add(upperMesh);
             this.scene.add(lowerMesh);
             this.upperBrackets.push(upperMesh);
@@ -86,49 +89,48 @@ export class Braces3DEngine {
         }
     }
 
-    // 🔥 VISUAL UPGRADE 3: ENHANCED SCULPT
-    createRealisticTwinBracket(material) {
+    // 🔥 REALISM UPGRADE 2: THE RUBBER BAND SCULPT
+    createRealisticTwinBracket() {
         const group = new THREE.Group();
 
-        // 1. Base Pad (Thinner, slightly wider contour glued to tooth)
-        const padGeo = new THREE.BoxGeometry(1.2, 0.9, 0.15);
-        const pad = new THREE.Mesh(padGeo, material);
+        // 1. Steel Base Pad
+        const padGeo = new THREE.BoxGeometry(1.0, 0.8, 0.15);
+        const pad = new THREE.Mesh(padGeo, this.metalMat);
         group.add(pad);
 
-        // 2. Central Core (Pushes the structure outward)
-        const coreGeo = new THREE.BoxGeometry(0.8, 0.5, 0.3);
-        const core = new THREE.Mesh(coreGeo, material);
+        // 2. Steel Core
+        const coreGeo = new THREE.BoxGeometry(0.6, 0.4, 0.3);
+        const core = new THREE.Mesh(coreGeo, this.metalMat);
         core.position.z = 0.2;
         group.add(core);
 
-        // 3. The 4 Tie Wings (More distinct cubes that catch the light)
-        const wingGeo = new THREE.BoxGeometry(0.35, 0.35, 0.25);
-        const wingPositions = [
-            [-0.35, 0.3, 0.4],  // Top Left
-            [0.35, 0.3, 0.4],   // Top Right
-            [-0.35, -0.3, 0.4], // Bottom Left
-            [0.35, -0.3, 0.4]   // Bottom Right
-        ];
+        // 3. The Blue Rubber Ligature (Torus/Donut shape stretched into an oval)
+        const bandGeo = new THREE.TorusGeometry(0.4, 0.12, 8, 16);
+        const band = new THREE.Mesh(bandGeo, this.bandMat);
+        band.position.z = 0.25;
+        band.scale.set(1.1, 0.8, 0.6); // Flatten it slightly
+        group.add(band);
 
+        // 4. Subtle Steel Wings poking out
+        const wingGeo = new THREE.BoxGeometry(0.2, 0.2, 0.15);
+        const wingPositions = [
+            [-0.3, 0.25, 0.35], [0.3, 0.25, 0.35],  
+            [-0.3, -0.25, 0.35], [0.3, -0.25, 0.35]  
+        ];
         wingPositions.forEach(pos => {
-            const wing = new THREE.Mesh(wingGeo, material);
+            const wing = new THREE.Mesh(wingGeo, this.metalMat);
             wing.position.set(pos[0], pos[1], pos[2]);
             group.add(wing);
         });
-
-        // 4. Subtle Wire Slot Highlight (adds depth between the wings)
-        const slotGeo = new THREE.BoxGeometry(1.0, 0.15, 0.1);
-        const slotMat = new THREE.MeshPhysicalMaterial({ color: 0x111111, roughness: 0.8 }); // Darker inside the slot
-        const slot = new THREE.Mesh(slotGeo, slotMat);
-        slot.position.z = 0.35;
-        group.add(slot);
 
         return group;
     }
 
     generateBiologicalTValues(numTeeth, isLower) {
-        const upperWidths = [1.0, 0.75, 0.85, 0.80, 0.80, 1.1];
-        const lowerWidths = [0.60, 0.65, 0.80, 0.80, 0.80, 1.1];
+        // 🔥 ALIGNMENT UPGRADE 1: TIGHTER RATIOS
+        // Shrunk the laterals and canines slightly so brackets don't drift to the extreme edges
+        const upperWidths = [1.0, 0.65, 0.75, 0.75, 0.75, 1.0];
+        const lowerWidths = [0.55, 0.60, 0.70, 0.75, 0.75, 1.0];
         const widths = isLower ? lowerWidths : upperWidths;
 
         const halfCount = Math.floor(numTeeth / 2);
@@ -138,8 +140,8 @@ export class Braces3DEngine {
         }
 
         const tValues = [];
-        const minT = isLower ? 0.22 : 0.18;
-        const maxT = isLower ? 0.78 : 0.82;
+        const minT = isLower ? 0.25 : 0.22; // Brought inwards
+        const maxT = isLower ? 0.75 : 0.78; // Brought inwards
         const centerT = 0.5;
         const halfRange = (maxT - minT) / 2;
 
@@ -180,11 +182,17 @@ export class Braces3DEngine {
         const rightCorner = landmarks[291];
         const mouthWidthPx = (rightCorner.x - leftCorner.x) * width;
         
-        const bracketScale = mouthWidthPx * 0.035; 
-        const wireRadius = mouthWidthPx * 0.0035; 
+        // Scaled brackets down slightly to accommodate the new rubber bands
+        const bracketScale = mouthWidthPx * 0.032; 
+        const wireRadius = mouthWidthPx * 0.003; 
         
-        const upperDropOffset = mouthWidthPx * 0.08; 
-        const lowerDropOffset = mouthWidthPx * 0.03;
+        // 🔥 ALIGNMENT UPGRADE 2: MASSIVE GUM CLEARANCE
+        // Pushed the upper drop up slightly to center on top teeth (from 0.08 to 0.065)
+        const upperDropOffset = mouthWidthPx * 0.065; 
+        
+        // DRASTICALLY increased the lower push-up (from 0.03 to 0.08). 
+        // This will rip the brackets off the bottom gum and plant them on the lower teeth!
+        const lowerDropOffset = mouthWidthPx * 0.08;
 
         const upperIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
         const upperPoints = [];
@@ -194,7 +202,7 @@ export class Braces3DEngine {
             let ty = (height / 2) - (lm.y * height);
             const distFromCenter = Math.abs((i / (upperIndices.length - 1)) - 0.5) * 2; 
             
-            ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.5))); 
+            ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.6))); 
             upperPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
         });
 
@@ -260,13 +268,13 @@ export class Braces3DEngine {
         const upperWireGeo = new THREE.TubeGeometry(upperWireCurve, 32, wireRadius, 8, false);
         this.upperWireMesh = new THREE.Mesh(upperWireGeo, this.wireMat);
         
-        // Slightly adjusted Z-position so the wire sits perfectly inside the new 3D sculpted slot
-        this.upperWireMesh.position.z = bracketScale * 0.4; 
+        // Push the wire so it weaves perfectly *through* the blue rubber bands
+        this.upperWireMesh.position.z = bracketScale * 0.25; 
         this.scene.add(this.upperWireMesh);
 
         const lowerWireGeo = new THREE.TubeGeometry(lowerWireCurve, 32, wireRadius, 8, false);
         this.lowerWireMesh = new THREE.Mesh(lowerWireGeo, this.wireMat);
-        this.lowerWireMesh.position.z = bracketScale * 0.4;
+        this.lowerWireMesh.position.z = bracketScale * 0.25;
         this.scene.add(this.lowerWireMesh);
 
         this.renderer.render(this.scene, this.camera);
