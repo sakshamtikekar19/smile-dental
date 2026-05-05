@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Layers, ShieldCheck, Zap, Activity, ChevronRight, RotateCcw, Sliders, Info, CheckCircle2 } from "lucide-react";
+import { Camera, Layers, ShieldCheck, Zap, Activity, ChevronRight, RotateCcw, Sliders, Info, CheckCircle2, Upload } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
@@ -223,6 +223,21 @@ const SmileSimulatorAI = () => {
     img.onload = () => { bracesImageRef.current = img; };
     initFaceLandmarker().catch(() => { });
     return () => stopCamera();
+  }, []);
+
+  useEffect(() => {
+    const handleTreatmentSelect = (event) => {
+      const treatment = event?.detail?.treatment;
+      if (!treatment) return;
+      setSelectedTreatment(treatment);
+      pendingTreatmentRef.current = treatment;
+      setError(null);
+      // Bring user to the simulator entry screen for the selected pathway.
+      setStep("entry");
+    };
+
+    window.addEventListener("smile:select-treatment", handleTreatmentSelect);
+    return () => window.removeEventListener("smile:select-treatment", handleTreatmentSelect);
   }, []);
 
   const stopCamera = () => {
@@ -616,19 +631,18 @@ const SmileSimulatorAI = () => {
                           </div>
                         </div>
                         <div className="text-center relative z-10">
-                          <h3 className="font-serif text-2xl md:text-4xl text-white mb-2">Begin Anatomy Scan</h3>
+                          <h3 className="font-serif text-2xl md:text-4xl text-white mb-2">Live Camera</h3>
                           <p className="text-[10px] text-[#6B7280] tracking-[0.35em] uppercase font-bold">Precision Optical Hardware</p>
                         </div>
                       </button>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full max-w-[560px] rounded-2xl bg-[#0A0A0A] border border-white/10 py-4 px-6 flex items-center justify-center gap-3 hover:border-white/25 hover:bg-[#111111] transition-all duration-300"
+                      >
+                        <Upload size={18} className="text-white/80" />
+                        <span className="text-[11px] uppercase tracking-[0.2em] font-black text-white/80">Upload Photo</span>
+                      </button>
 
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={handleFileUpload}
-                        className="hidden"
-                      />
                     </div>
                   </motion.div>
                 )}
@@ -729,6 +743,14 @@ const SmileSimulatorAI = () => {
                   </motion.div>
                 )}
               </AnimatePresence>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
 
               {/* High-End Loader */}
               {isProcessing && (

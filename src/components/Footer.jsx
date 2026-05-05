@@ -37,7 +37,7 @@ const Footer = () => {
             <h4 className="font-serif text-2xl mb-10 text-white">Quick Links</h4>
             <ul className="space-y-5 text-[#6B7280] text-[13px] font-bold uppercase tracking-widest">
               <li><a href="#about" className="hover:text-accent-blue transition-colors">About Us</a></li>
-              <li><a href="#simulation" className="hover:text-accent-blue transition-colors">Smile Simulator</a></li>
+              <li><a href="#simulator" className="hover:text-accent-blue transition-colors">Smile Simulator</a></li>
               <li><a href="#gallery" className="hover:text-accent-blue transition-colors">Our Gallery</a></li>
               <li><a href="#contact" className="hover:text-accent-blue transition-colors">Contact</a></li>
             </ul>

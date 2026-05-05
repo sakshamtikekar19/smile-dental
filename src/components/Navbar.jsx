@@ -6,7 +6,7 @@ import BrandLogo from "./BrandLogo";
 
 const NAV_LINKS = [
   { label: "Services", href: "#services" },
-  { label: "Simulator", href: "#simulation" },
+  { label: "Simulator", href: "#simulator" },
   { label: "Results", href: "#gallery" },
   { label: "About", href: "#about" },
 ];

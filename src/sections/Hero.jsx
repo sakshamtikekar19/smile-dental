@@ -47,7 +47,7 @@ const Hero = () => {
             </p>
             <div className="flex flex-col sm:flex-row gap-5">
               <PremiumButton 
-                onClick={() => document.getElementById('simulation').scrollIntoView({ behavior: 'smooth' })}
+                onClick={() => document.getElementById("simulator")?.scrollIntoView({ behavior: "smooth" })}
                 className="text-base py-5 px-10"
               >
                 Start Simulation

@@ -7,7 +7,8 @@ const AnimatedSection = ({
   delay = 0, 
   duration = 0.8,
   y = 20,
-  once = true 
+  once = true,
+  ...props
 }) => {
   return (
     <motion.section
@@ -20,6 +21,7 @@ const AnimatedSection = ({
         ease: [0.22, 1, 0.36, 1] 
       }}
       className={cn("w-full", className)}
+      {...props}
     >
       {children}
     </motion.section>
