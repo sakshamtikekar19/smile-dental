@@ -4,9 +4,9 @@ import BrandLogo from "./BrandLogo";
 
 const Footer = () => {
   return (
-    <footer id="about" className="bg-[#050505] text-white py-32 scroll-mt-28 border-t border-white/5">
-      <div className="container mx-auto px-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-20 mb-24">
+    <footer id="about" className="bg-[#030303] text-white py-20 md:py-32 scroll-mt-28 border-t border-white/5">
+      <div className="container mx-auto px-4 sm:px-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 md:gap-20 mb-16 md:mb-24">
           <div className="lg:col-span-1">
             <div className="mb-12">
               <BrandLogo />
@@ -46,13 +46,13 @@ const Footer = () => {
           <div>
             <h4 className="font-serif text-2xl mb-10 text-white">Newsletter</h4>
             <p className="text-[#6B7280] mb-8 text-[13px] leading-relaxed font-medium">Join our community for the latest in dental care and exclusive offers.</p>
-            <div className="relative group">
+            <div className="relative group flex flex-col sm:block gap-3">
               <input 
                 type="email" 
                 placeholder="Diagnostic Updates" 
                 className="w-full bg-[#0A0A0A] border border-[#1F1F1F] rounded-2xl py-5 px-8 text-sm text-white focus:outline-none focus:border-accent-blue/50 transition-all placeholder:text-[#333333] placeholder:uppercase placeholder:text-[10px] placeholder:tracking-[0.2em]"
               />
-              <button className="absolute right-2 top-2 bottom-2 bg-accent-blue text-black px-8 rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(0,209,255,0.2)]">
+              <button className="sm:absolute sm:right-2 sm:top-2 sm:bottom-2 bg-accent-blue text-black px-8 py-3 sm:py-0 rounded-xl text-[10px] font-black uppercase tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(0,209,255,0.2)]">
                 Join
               </button>
             </div>

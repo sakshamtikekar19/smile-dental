@@ -506,7 +506,7 @@ const SmileSimulatorAI = () => {
         <div className="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-accent-purple blur-[180px] rounded-full opacity-10" />
       </div>
 
-      <div className="container mx-auto px-6 max-w-[1440px] relative z-10 flex flex-col flex-grow">
+      <div className="container mx-auto px-4 sm:px-6 max-w-[1440px] relative z-10 flex flex-col flex-grow">
         {/* Header System */}
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
           <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
@@ -533,11 +533,11 @@ const SmileSimulatorAI = () => {
         </div>
 
         {/* 3-Panel Professional Workspace */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 flex-grow pb-16">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-10 flex-grow pb-10 md:pb-16">
           
           {/* LEFT PANEL: Treatment Modular Cards */}
-          <div className="lg:col-span-3">
-            <div className="glass-medical p-8 rounded-[40px] h-full flex flex-col bg-black/20">
+          <div className="order-2 lg:order-1 lg:col-span-3">
+            <div className="glass-medical p-6 md:p-8 rounded-[32px] md:rounded-[40px] h-full flex flex-col bg-black/20">
               <div className="flex items-center gap-3 mb-10 pb-6 border-b border-white/5">
                 <div className="w-8 h-8 rounded-lg bg-accent-blue/5 flex items-center justify-center text-accent-blue">
                   <Sliders size={16} />
@@ -614,8 +614,8 @@ const SmileSimulatorAI = () => {
           </div>
 
           {/* CENTER PANEL: Hero Anatomy Preview */}
-          <div className="lg:col-span-6">
-            <div className="relative aspect-[3/4] lg:aspect-square rounded-[60px] overflow-hidden glass-medical border-white/5 shadow-2xl group bg-black/40">
+          <div className="order-1 lg:order-2 lg:col-span-6">
+            <div className="relative aspect-[4/5] sm:aspect-[3/4] lg:aspect-square rounded-[32px] md:rounded-[60px] overflow-hidden glass-medical border-white/5 shadow-2xl group bg-black/40">
               <AnimatePresence mode="wait">
                 {step === "entry" && (
                   <motion.div key="entry" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">
@@ -667,7 +667,7 @@ const SmileSimulatorAI = () => {
                     </div>
                     
                     {/* UI Layer: Scanner Area */}
-                    <div className="absolute inset-0 flex items-end justify-center pointer-events-none pb-[240px]">
+                    <div className="absolute inset-0 flex items-end justify-center pointer-events-none pb-[170px] sm:pb-[210px] md:pb-[240px]">
                       <div className="w-[75%] md:w-[60%] h-[16%] md:h-[22%] border border-dashed border-white/40 rounded-[100px] relative">
                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full mt-4 w-full text-center">
                            <span className="text-[9px] text-white/60 uppercase tracking-[0.3em] font-bold">
@@ -683,7 +683,7 @@ const SmileSimulatorAI = () => {
                     </div>
 
                     {/* Capture Trigger + Upload */}
-                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-3">
+                    <div className="absolute bottom-6 md:bottom-10 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-3">
                       <button 
                         onClick={() => {
                           if (videoRef.current) {
@@ -779,7 +779,7 @@ const SmileSimulatorAI = () => {
                 <motion.div 
                   initial={{ opacity: 0, y: 20 }} 
                   animate={{ opacity: 1, y: 0 }}
-                  className="mt-10 glass-medical p-8 rounded-[40px] overflow-hidden"
+                  className="mt-6 md:mt-10 glass-medical p-5 md:p-8 rounded-[28px] md:rounded-[40px] overflow-hidden"
                 >
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
@@ -807,8 +807,8 @@ const SmileSimulatorAI = () => {
           </div>
 
           {/* RIGHT PANEL: Clinical Analytics */}
-          <div className="lg:col-span-3">
-            <div className="glass-medical p-8 rounded-[40px] h-full flex flex-col">
+          <div className="order-3 lg:order-3 lg:col-span-3">
+            <div className="glass-medical p-6 md:p-8 rounded-[32px] md:rounded-[40px] h-full flex flex-col">
               <div className="flex items-center gap-3 mb-10 pb-6 border-b border-[#1F1F1F]">
                 <div className="w-8 h-8 rounded-lg bg-accent-blue/10 flex items-center justify-center text-accent-blue">
                   <Info size={16} />

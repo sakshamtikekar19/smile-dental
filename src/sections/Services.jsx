@@ -41,15 +41,15 @@ const Services = () => {
   };
 
   return (
-    <section id="services" className="py-32 bg-[#030303] scroll-mt-28 relative overflow-hidden">
+    <section id="services" className="py-24 md:py-32 bg-[#030303] scroll-mt-28 relative overflow-hidden">
       {/* Subtle Background Accents */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full pointer-events-none">
         <div className="absolute top-1/4 left-0 w-[500px] h-[500px] bg-accent-blue/5 blur-[120px] rounded-full" />
         <div className="absolute bottom-1/4 right-0 w-[500px] h-[500px] bg-accent-purple/5 blur-[120px] rounded-full" />
       </div>
 
-      <div className="container mx-auto px-6 relative z-10">
-        <div className="flex flex-col md:flex-row justify-between items-end mb-24 gap-8">
+      <div className="container mx-auto px-4 sm:px-6 relative z-10">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 md:mb-24 gap-8">
           <AnimatedSection className="max-w-2xl">
             <div className="flex items-center gap-3 mb-4">
               <span className="w-8 h-[1px] bg-accent-blue" />
@@ -61,7 +61,7 @@ const Services = () => {
             </h2>
           </AnimatedSection>
           
-          <AnimatedSection delay={0.2} className="md:w-1/3">
+          <AnimatedSection delay={0.2} className="w-full md:w-1/3">
             <p className="text-[#808080] text-lg leading-relaxed mb-8">
               We combine advanced medical technology with an artistic eye to deliver results that are both beautiful and healthy.
             </p>
@@ -74,7 +74,7 @@ const Services = () => {
           </AnimatedSection>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 md:gap-8">
           {services.map((service, index) => (
             <AnimatedSection 
               key={service.title} 

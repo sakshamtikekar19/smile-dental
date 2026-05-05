@@ -29,7 +29,7 @@ const Hero = () => {
         className="absolute bottom-1/4 right-1/4 w-[250px] md:w-[500px] h-[250px] md:h-[500px] bg-accent-purple/10 rounded-full blur-[80px] md:blur-[140px] -z-10 hidden sm:block" 
       />
       
-      <div className="container mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-16 items-center">
+      <div className="container mx-auto px-4 sm:px-6 grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-16 items-center">
         <div className="max-w-2xl text-center lg:text-left">
           <AnimatedSection delay={0.2} y={30}>
             <div className="flex items-center justify-center lg:justify-start gap-3 mb-6 md:mb-8">
@@ -46,16 +46,16 @@ const Hero = () => {
             <p className="text-lg md:text-xl text-[#808080] font-sans leading-relaxed mb-10 max-w-lg">
               Experience the power of AI-driven smile simulation. Our advanced technology lets you see your transformation before you even begin your journey.
             </p>
-            <div className="flex flex-col sm:flex-row gap-5 justify-center lg:justify-start">
+            <div className="flex flex-col sm:flex-row gap-4 sm:gap-5 justify-center lg:justify-start">
               <PremiumButton 
                 onClick={() => document.getElementById("simulator")?.scrollIntoView({ behavior: "smooth" })}
-                className="text-base py-5 px-10 bg-gradient-to-r from-accent-blue to-accent-purple border-none hover:scale-105 transition-transform"
+                className="w-full sm:w-auto text-base py-5 px-10 bg-gradient-to-r from-accent-blue to-accent-purple border-none hover:scale-105 transition-transform"
               >
                 Start Simulation
               </PremiumButton>
               <PremiumButton
                 variant="secondary"
-                className="text-base py-5 px-10 border-white/10 hover:bg-white/5 transition-colors"
+                className="w-full sm:w-auto text-base py-5 px-10 border-white/10 hover:bg-white/5 transition-colors"
                 onClick={() => document.getElementById("gallery")?.scrollIntoView({ behavior: "smooth" })}
               >
                 View Results
