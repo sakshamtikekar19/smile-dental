@@ -192,6 +192,7 @@ const SmileSimulatorAI = () => {
   const [processingLog, setProcessingLog] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
+  const [cameraFacing, setCameraFacing] = useState("environment");
   const [rawImageUrl, setRawImageUrl] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const [zoomMode, setZoomMode] = useState(false);
@@ -206,6 +207,7 @@ const SmileSimulatorAI = () => {
   const requestRef = useRef(null);
   const renderRequestRef = useRef(null);
   const bracesImageRef = useRef(null);
+  const fileInputRef = useRef(null);
   const localCanvasRef = useRef(null);
   const mainCanvasRef = useRef(null);
   const zoomAfterRef = useRef(null);
@@ -304,16 +306,61 @@ const SmileSimulatorAI = () => {
     if (step === "camera") renderRequestRef.current = requestAnimationFrame(renderLoop);
   }, [step, selectedTreatment, intensities]);
 
-  const startCamera = async () => {
+  const startCamera = async (facingOverride = null) => {
     stopCamera();
     setError(null); setStep("camera");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false
-      });
+      const preferredFacing = (facingOverride || cameraFacing) === "user" ? "user" : "environment";
+      const fallbackFacing = preferredFacing === "user" ? "environment" : "user";
+      const tryConstraints = [
+        { video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false },
+        { video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false },
+        { video: { facingMode: { ideal: fallbackFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      ];
+
+      let stream = null;
+      for (const constraints of tryConstraints) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch {
+          // Try next constraint profile.
+        }
+      }
+
+      if (!stream) throw new Error("Camera unavailable");
       streamRef.current = stream; setCameraStream(stream);
     } catch { setError("Optical hardware access denied."); setStep("entry"); }
+  };
+
+  const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      stopCamera();
+      setError(null);
+
+      if (!file.type || !file.type.startsWith("image/")) {
+        throw new Error("Please select a valid image file.");
+      }
+
+      const imageUrl = await readFileAsDataUrl(file);
+      setIsProcessing(true);
+      setRawImageUrl(imageUrl);
+    } catch (err) {
+      setIsProcessing(false);
+      setError(err.message || "Unable to read selected file.");
+    } finally {
+      if (event.target) event.target.value = "";
+    }
   };
 
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
@@ -557,18 +604,32 @@ const SmileSimulatorAI = () => {
               <AnimatePresence mode="wait">
                 {step === "entry" && (
                   <motion.div key="entry" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">
-                    <button onClick={startCamera} className="w-full h-full bg-[#050505] flex flex-col items-center justify-center gap-8 group">
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-accent-blue blur-[40px] opacity-20 group-hover:opacity-40 transition-opacity" />
-                        <div className="w-32 h-32 rounded-full bg-[#111111] border border-white/10 flex items-center justify-center group-hover:scale-110 transition-all duration-700 relative z-10">
-                          <Camera size={48} className="text-accent-blue shadow-[0_0_20px_#00D1FF]" />
+                    <div className="w-full h-full bg-[#050505] flex flex-col items-center justify-center gap-4 px-6">
+                      <button
+                        onClick={startCamera}
+                        className="w-full max-w-[560px] bg-[#0A0A0A] border border-white/10 rounded-[36px] py-10 px-6 flex flex-col items-center justify-center gap-6 group hover:border-accent-blue/40 transition-all duration-500"
+                      >
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-accent-blue blur-[40px] opacity-20 group-hover:opacity-40 transition-opacity" />
+                          <div className="w-24 h-24 md:w-28 md:h-28 rounded-full bg-[#111111] border border-white/10 flex items-center justify-center group-hover:scale-110 transition-all duration-700 relative z-10">
+                            <Camera size={40} className="text-accent-blue shadow-[0_0_20px_#00D1FF]" />
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-center relative z-10">
-                        <h3 className="font-serif text-4xl text-white mb-3">Begin Anatomy Scan</h3>
-                        <p className="text-[10px] text-[#6B7280] tracking-[0.4em] uppercase font-bold">Precision Optical Hardware</p>
-                      </div>
-                    </button>
+                        <div className="text-center relative z-10">
+                          <h3 className="font-serif text-2xl md:text-4xl text-white mb-2">Begin Anatomy Scan</h3>
+                          <p className="text-[10px] text-[#6B7280] tracking-[0.35em] uppercase font-bold">Precision Optical Hardware</p>
+                        </div>
+                      </button>
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </div>
                   </motion.div>
                 )}
 
@@ -576,6 +637,19 @@ const SmileSimulatorAI = () => {
                   <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black">
                     <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-100" playsInline muted autoPlay />
                     <canvas ref={canvasRef} className="hidden" />
+                    <div className="absolute top-6 right-6 z-40">
+                      <button
+                        onClick={() => {
+                          const nextFacing = cameraFacing === "environment" ? "user" : "environment";
+                          setCameraFacing(nextFacing);
+                          // Restart camera immediately to apply the selected source.
+                          startCamera(nextFacing);
+                        }}
+                        className="px-4 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-[10px] uppercase tracking-[0.2em] font-black text-white/80 hover:text-white hover:border-accent-blue/50 transition-all"
+                      >
+                        {cameraFacing === "environment" ? "Use Front Camera" : "Use Rear Camera"}
+                      </button>
+                    </div>
                     
                     {/* UI Layer: Scanner Area */}
                     <div className="absolute inset-0 flex items-end justify-center pointer-events-none pb-[240px]">
@@ -593,8 +667,8 @@ const SmileSimulatorAI = () => {
                       <canvas ref={localCanvasRef} className="w-full h-full opacity-100" />
                     </div>
 
-                    {/* Capture Trigger */}
-                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-40">
+                    {/* Capture Trigger + Upload */}
+                    <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-3">
                       <button 
                         onClick={() => {
                           if (videoRef.current) {
@@ -610,6 +684,12 @@ const SmileSimulatorAI = () => {
                         <div className="absolute inset-0 border-2 border-white/20 rounded-full group-hover:border-accent-blue group-hover:scale-110 transition-all duration-500" />
                         <div className="absolute inset-2 border border-white/10 rounded-full" />
                         <div className="w-16 h-16 rounded-full bg-white group-hover:bg-accent-blue shadow-[0_0_30px_rgba(255,255,255,0.2)] group-hover:shadow-accent-blue transition-all duration-300 group-active:scale-90" />
+                      </button>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="rounded-full bg-black/60 backdrop-blur-md border border-white/20 px-4 py-2 text-[10px] uppercase tracking-[0.2em] font-black text-white/80 hover:text-white hover:border-accent-blue/50 transition-all"
+                      >
+                        Upload Photo
                       </button>
                     </div>
                   </motion.div>
