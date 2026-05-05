@@ -5,28 +5,30 @@
   --font-sans: "Inter", sans-serif;
   
   --color-accent-blue: #00D1FF;
-  --color-accent-blue-dim: rgba(0, 209, 255, 0.2);
-  --color-surface-dark: #0A0A0A;
-  --color-surface-charcoal: #111111;
-  --color-border-subtle: #1F1F1F;
+  --color-accent-purple: #7000FF;
+  --color-accent-blue-dim: rgba(0, 209, 255, 0.1);
+  --color-accent-purple-dim: rgba(112, 0, 255, 0.1);
+  --color-surface-dark: #050505;
+  --color-surface-charcoal: #0A0A0A;
+  --color-border-subtle: #1A1A1A;
 }
 
 :root {
-  background-color: #050505;
+  background-color: #030303;
   color: #FFFFFF;
 }
 
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background-color: #050505;
+  background-color: #030303;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-serif);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   color: #FFFFFF;
 }
 
@@ -40,25 +42,34 @@ h1, h2, h3, h4, h5, h6 {
     scrollbar-width: none;
   }
   .glass-medical {
-    @apply bg-black/60 backdrop-blur-2xl border border-[#1F1F1F] shadow-[0_0_40px_rgba(0,0,0,0.8)];
+    @apply bg-black/40 backdrop-blur-3xl border border-white/5 shadow-[0_20px_50px_rgba(0,0,0,0.5)];
   }
   .glow-blue {
-    box-shadow: 0 0 30px rgba(0, 209, 255, 0.15);
+    box-shadow: 0 0 30px rgba(0, 209, 255, 0.1);
   }
-  .glow-blue-strong {
-    box-shadow: 0 0 50px rgba(0, 209, 255, 0.3);
+  .glow-purple {
+    box-shadow: 0 0 30px rgba(112, 0, 255, 0.1);
+  }
+  .glow-combined {
+    box-shadow: 0 0 40px rgba(0, 209, 255, 0.1), 0 0 40px rgba(112, 0, 255, 0.1);
+  }
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-accent-blue to-accent-purple;
+  }
+  .bg-premium-gradient {
+    @apply bg-gradient-to-br from-accent-blue/20 via-transparent to-accent-purple/20;
   }
   .vignette-overlay {
-    background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.85) 100%);
+    background: radial-gradient(circle, transparent 30%, rgba(0,0,0,0.9) 100%);
   }
 }
 
 @layer base {
   * {
-    @apply border-[#1F1F1F];
+    @apply border-white/5;
   }
   body {
-    @apply bg-[#050505] text-[#FFFFFF];
+    @apply bg-[#030303] text-[#FFFFFF];
   }
 }
 

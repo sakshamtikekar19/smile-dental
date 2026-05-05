@@ -4,57 +4,58 @@ import AnimatedSection from "../components/AnimatedSection";
 
 const Hero = () => {
   return (
-    <section className="relative min-h-[90vh] md:min-h-[95vh] flex items-center pt-20 md:pt-24 overflow-hidden bg-[#050505]">
+    <section className="relative min-h-[90vh] md:min-h-[95vh] flex items-center pt-20 md:pt-24 overflow-hidden bg-[#030303]">
       {/* Background patterns: Premium Layering */}
-      <div className="absolute top-0 right-0 w-[80%] md:w-[60%] h-full bg-accent-blue/5 -z-10 skew-x-[-12deg] translate-x-12 md:translate-x-24" />
+      <div className="absolute top-0 right-0 w-[80%] md:w-[60%] h-full bg-gradient-to-l from-accent-blue/5 to-transparent -z-10 skew-x-[-12deg] translate-x-12 md:translate-x-24" />
+      <div className="absolute bottom-0 left-0 w-[80%] md:w-[60%] h-full bg-gradient-to-r from-accent-purple/5 to-transparent -z-10 skew-x-[12deg] -translate-x-12 md:-translate-x-24" />
       
       {/* Dynamic Animated Blobs */}
       <motion.div 
         animate={{ 
           scale: [1, 1.2, 1],
-          x: [0, 50, 0],
-          y: [0, -30, 0]
+          x: [0, 30, 0],
+          y: [0, -20, 0]
         }}
         transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-        className="absolute top-1/4 left-1/4 w-[300px] md:w-[500px] h-[300px] md:h-[500px] bg-accent-blue/10 rounded-full blur-[100px] md:blur-[140px] -z-10 hidden sm:block" 
+        className="absolute top-1/4 left-1/4 w-[300px] md:w-[600px] h-[300px] md:h-[600px] bg-accent-blue/10 rounded-full blur-[100px] md:blur-[160px] -z-10 hidden sm:block" 
       />
       <motion.div 
         animate={{ 
           scale: [1, 1.1, 1],
-          x: [0, -40, 0],
-          y: [0, 40, 0]
+          x: [0, -30, 0],
+          y: [0, 20, 0]
         }}
         transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-        className="absolute bottom-1/4 right-1/4 w-[250px] md:w-[400px] h-[250px] md:h-[400px] bg-white/5 rounded-full blur-[80px] md:blur-[120px] -z-10 hidden sm:block" 
+        className="absolute bottom-1/4 right-1/4 w-[250px] md:w-[500px] h-[250px] md:h-[500px] bg-accent-purple/10 rounded-full blur-[80px] md:blur-[140px] -z-10 hidden sm:block" 
       />
       
       <div className="container mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-16 items-center">
         <div className="max-w-2xl text-center lg:text-left">
           <AnimatedSection delay={0.2} y={30}>
             <div className="flex items-center justify-center lg:justify-start gap-3 mb-6 md:mb-8">
-              <span className="h-px w-6 md:w-8 bg-accent-blue" />
-              <span className="text-accent-blue text-[10px] md:text-[11px] font-bold uppercase tracking-[0.3em]">
+              <span className="h-px w-6 md:w-8 bg-gradient-to-r from-accent-blue to-accent-purple" />
+              <span className="text-gradient text-[10px] md:text-[11px] font-bold uppercase tracking-[0.4em]">
                 The Future of Aesthetic Dentistry
               </span>
             </div>
             <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-serif leading-[1.1] md:leading-[1.02] tracking-tight text-white mb-6 md:mb-8">
               Visualize Your <br className="hidden sm:block" />
               <span className="italic text-[#A0A0A0] font-normal">Perfect Smile</span> <br className="hidden sm:block" />
-              Before Treatment
+              <span className="text-gradient">Before Treatment</span>
             </h1>
-            <p className="text-lg md:text-xl text-[#A0A0A0] font-sans leading-relaxed mb-10 max-w-lg">
+            <p className="text-lg md:text-xl text-[#808080] font-sans leading-relaxed mb-10 max-w-lg">
               Experience the power of AI-driven smile simulation. Our advanced technology lets you see your transformation before you even begin your journey.
             </p>
-            <div className="flex flex-col sm:flex-row gap-5">
+            <div className="flex flex-col sm:flex-row gap-5 justify-center lg:justify-start">
               <PremiumButton 
                 onClick={() => document.getElementById("simulator")?.scrollIntoView({ behavior: "smooth" })}
-                className="text-base py-5 px-10"
+                className="text-base py-5 px-10 bg-gradient-to-r from-accent-blue to-accent-purple border-none hover:scale-105 transition-transform"
               >
                 Start Simulation
               </PremiumButton>
               <PremiumButton
                 variant="secondary"
-                className="text-base py-5 px-10"
+                className="text-base py-5 px-10 border-white/10 hover:bg-white/5 transition-colors"
                 onClick={() => document.getElementById("gallery")?.scrollIntoView({ behavior: "smooth" })}
               >
                 View Results

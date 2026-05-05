@@ -48,7 +48,7 @@ const Navbar = () => {
       transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-700 ${
         isScrolled || mobileOpen 
-          ? "py-4 bg-black/60 backdrop-blur-2xl shadow-[0_4px_30px_rgba(0,0,0,0.8)] border-b border-white/5" 
+          ? "py-4 bg-black/40 backdrop-blur-3xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] border-b border-white/5" 
           : "py-8 bg-transparent"
       }`}
     >
@@ -67,9 +67,10 @@ const Navbar = () => {
               key={item.href}
               type="button"
               onClick={() => scrollTo(item.href)}
-              className="text-[11px] uppercase tracking-widest font-bold text-[#A0A0A0] hover:text-white transition-colors"
+              className="text-[10px] uppercase tracking-[0.3em] font-black text-[#606060] hover:text-white transition-colors relative group"
             >
               {item.label}
+              <span className="absolute -bottom-1 left-0 w-0 h-[1px] bg-accent-blue transition-all duration-300 group-hover:w-full" />
             </button>
           ))}
         </div>
@@ -77,7 +78,7 @@ const Navbar = () => {
         <div className="flex items-center gap-3">
           <PremiumButton
             variant="primary"
-            className="hidden md:inline-flex py-2.5 px-6"
+            className="hidden md:inline-flex py-2.5 px-8 bg-gradient-to-r from-accent-blue to-accent-purple border-none text-[10px] uppercase tracking-[0.2em] font-black"
             onClick={() => scrollTo("#contact")}
           >
             Book Now

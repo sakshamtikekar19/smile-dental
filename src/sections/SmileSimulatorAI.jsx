@@ -499,11 +499,11 @@ const SmileSimulatorAI = () => {
 
 
   return (
-    <section id="simulator" className="relative min-h-screen bg-[#050505] overflow-hidden flex flex-col pt-20">
+    <section id="simulator" className="relative min-h-screen bg-[#030303] overflow-hidden flex flex-col pt-20">
       {/* Background Decor */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden opacity-30">
-        <div className="absolute top-[-10%] right-[-5%] w-[50%] h-[50%] bg-accent-blue blur-[200px] rounded-full opacity-20" />
-        <div className="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-accent-blue/40 blur-[180px] rounded-full opacity-10" />
+        <div className="absolute top-[-10%] right-[-5%] w-[50%] h-[50%] bg-accent-blue blur-[200px] rounded-full opacity-10" />
+        <div className="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-accent-purple blur-[180px] rounded-full opacity-10" />
       </div>
 
       <div className="container mx-auto px-6 max-w-[1440px] relative z-10 flex flex-col flex-grow">
@@ -512,20 +512,20 @@ const SmileSimulatorAI = () => {
           <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
             <div className="flex items-center gap-3 mb-2">
               <div className="w-2 h-2 rounded-full bg-accent-blue animate-pulse shadow-[0_0_8px_#00D1FF]" />
-              <span className="text-[10px] uppercase tracking-[0.4em] font-bold text-accent-blue">Aesthetic Intelligence</span>
+              <span className="text-gradient text-[10px] uppercase tracking-[0.4em] font-bold">Aesthetic Intelligence</span>
             </div>
             <h2 className="text-4xl md:text-5xl lg:text-7xl font-serif leading-none tracking-tight">
-              Smile <span className="text-[#6B7280]">Studio</span>
+              Smile <span className="text-[#404040]">Studio</span>
             </h2>
           </motion.div>
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-4">
             <div className="text-right hidden md:block">
-              <p className="text-[10px] uppercase tracking-widest text-[#6B7280] font-bold mb-1">Optical Engine</p>
-              <p className="text-xs font-mono text-white">V3.3 CALIBRATED</p>
+              <p className="text-[10px] uppercase tracking-widest text-[#606060] font-bold mb-1">Optical Engine</p>
+              <p className="text-xs font-mono text-white/60">V3.3 CALIBRATED</p>
             </div>
             <button 
               onClick={() => { setStep("entry"); setBeforeImage(null); setAfterImage(null); stopCamera(); }}
-              className="w-14 h-14 bg-[#111111] border border-[#1F1F1F] rounded-2xl flex items-center justify-center text-[#A0A0A0] hover:text-white hover:border-white/20 transition-all duration-300 group"
+              className="w-14 h-14 bg-[#0A0A0A] border border-white/5 rounded-2xl flex items-center justify-center text-[#606060] hover:text-white hover:border-white/20 transition-all duration-300 group"
             >
               <RotateCcw size={20} className="group-hover:rotate-[-45deg] transition-transform" />
             </button>
@@ -537,12 +537,12 @@ const SmileSimulatorAI = () => {
           
           {/* LEFT PANEL: Treatment Modular Cards */}
           <div className="lg:col-span-3">
-            <div className="glass-medical p-8 rounded-[40px] h-full flex flex-col">
-              <div className="flex items-center gap-3 mb-10 pb-6 border-b border-[#1F1F1F]">
-                <div className="w-8 h-8 rounded-lg bg-accent-blue/10 flex items-center justify-center text-accent-blue">
+            <div className="glass-medical p-8 rounded-[40px] h-full flex flex-col bg-black/20">
+              <div className="flex items-center gap-3 mb-10 pb-6 border-b border-white/5">
+                <div className="w-8 h-8 rounded-lg bg-accent-blue/5 flex items-center justify-center text-accent-blue">
                   <Sliders size={16} />
                 </div>
-                <h3 className="text-[11px] uppercase tracking-[0.25em] font-black text-white">Modality</h3>
+                <h3 className="text-[11px] uppercase tracking-[0.25em] font-black text-white/80">Modality</h3>
               </div>
               
               <div className="space-y-1 mb-10 overflow-y-auto no-scrollbar flex-grow">
@@ -563,7 +563,7 @@ const SmileSimulatorAI = () => {
                 ))}
               </div>
 
-              <div className="border-t border-[#1F1F1F] pt-10">
+              <div className="border-t border-white/5 pt-10">
                 <MedicalSlider 
                   label="Chrominance Lift" 
                   value={intensities.whitening} 
@@ -591,8 +591,8 @@ const SmileSimulatorAI = () => {
               </div>
 
               <div className="mt-10">
-                <h4 className="text-[9px] uppercase tracking-[0.3em] text-[#6B7280] font-black mb-6">Expert Presets</h4>
-                <div className="space-y-2">
+                <h4 className="text-[9px] uppercase tracking-[0.3em] text-[#606060] font-black mb-6">Expert Presets</h4>
+                <div className="grid grid-cols-1 gap-2">
                   {PRESETS.map(p => (
                     <button 
                       key={p.id}
@@ -600,7 +600,7 @@ const SmileSimulatorAI = () => {
                         setIntensities({ whitening: p.intensity, alignment: p.intensity, braces: 100, transformation: 100 });
                         if (step === "result") setIsProcessing(true);
                       }}
-                      className="w-full text-left p-4 rounded-2xl bg-[#0A0A0A] border border-[#1F1F1F] text-[11px] font-bold text-[#A0A0A0] hover:border-accent-blue/40 hover:text-white hover:bg-[#111111] transition-all group relative overflow-hidden"
+                      className="w-full text-left p-4 rounded-2xl bg-white/5 border border-white/5 text-[11px] font-bold text-[#808080] hover:border-accent-blue/40 hover:text-white hover:bg-white/10 transition-all group relative overflow-hidden"
                     >
                       <div className="flex justify-between items-center relative z-10">
                         <span>{p.label}</span>
@@ -615,15 +615,16 @@ const SmileSimulatorAI = () => {
 
           {/* CENTER PANEL: Hero Anatomy Preview */}
           <div className="lg:col-span-6">
-            <div className="relative aspect-[3/4] lg:aspect-square rounded-[60px] overflow-hidden glass-medical border-white/5 shadow-2xl group">
+            <div className="relative aspect-[3/4] lg:aspect-square rounded-[60px] overflow-hidden glass-medical border-white/5 shadow-2xl group bg-black/40">
               <AnimatePresence mode="wait">
                 {step === "entry" && (
                   <motion.div key="entry" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0">
-                    <div className="w-full h-full bg-[#050505] flex flex-col items-center justify-center gap-4 px-6">
+                    <div className="w-full h-full bg-[#030303] flex flex-col items-center justify-center gap-4 px-6">
                       <button
                         onClick={startCamera}
-                        className="w-full max-w-[560px] bg-[#0A0A0A] border border-white/10 rounded-[36px] py-10 px-6 flex flex-col items-center justify-center gap-6 group hover:border-accent-blue/40 transition-all duration-500"
+                        className="w-full max-w-[560px] bg-[#0A0A0A] border border-white/5 rounded-[36px] py-12 px-6 flex flex-col items-center justify-center gap-6 group hover:border-accent-blue/40 transition-all duration-500 relative overflow-hidden"
                       >
+                        <div className="absolute inset-0 bg-gradient-to-br from-accent-blue/5 to-accent-purple/5 opacity-0 group-hover:opacity-100 transition-opacity" />
                         <div className="relative">
                           <div className="absolute inset-0 bg-accent-blue blur-[40px] opacity-20 group-hover:opacity-40 transition-opacity" />
                           <div className="w-24 h-24 md:w-28 md:h-28 rounded-full bg-[#111111] border border-white/10 flex items-center justify-center group-hover:scale-110 transition-all duration-700 relative z-10">
@@ -632,15 +633,15 @@ const SmileSimulatorAI = () => {
                         </div>
                         <div className="text-center relative z-10">
                           <h3 className="font-serif text-2xl md:text-4xl text-white mb-2">Live Camera</h3>
-                          <p className="text-[10px] text-[#6B7280] tracking-[0.35em] uppercase font-bold">Precision Optical Hardware</p>
+                          <p className="text-[10px] text-[#606060] tracking-[0.35em] uppercase font-bold">Precision Optical Hardware</p>
                         </div>
                       </button>
                       <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-full max-w-[560px] rounded-2xl bg-[#0A0A0A] border border-white/10 py-4 px-6 flex items-center justify-center gap-3 hover:border-white/25 hover:bg-[#111111] transition-all duration-300"
+                        className="w-full max-w-[560px] rounded-2xl bg-[#0A0A0A] border border-white/5 py-5 px-6 flex items-center justify-center gap-3 hover:border-white/20 hover:bg-[#111111] transition-all duration-300"
                       >
-                        <Upload size={18} className="text-white/80" />
-                        <span className="text-[11px] uppercase tracking-[0.2em] font-black text-white/80">Upload Photo</span>
+                        <Upload size={18} className="text-white/60" />
+                        <span className="text-[11px] uppercase tracking-[0.2em] font-black text-white/60">Upload Photo</span>
                       </button>
 
                     </div>

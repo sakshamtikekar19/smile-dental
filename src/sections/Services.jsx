@@ -41,19 +41,28 @@ const Services = () => {
   };
 
   return (
-    <section id="services" className="py-32 bg-[#0A0A0A] scroll-mt-28 relative">
-      <div className="container mx-auto px-6">
+    <section id="services" className="py-32 bg-[#030303] scroll-mt-28 relative overflow-hidden">
+      {/* Subtle Background Accents */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full pointer-events-none">
+        <div className="absolute top-1/4 left-0 w-[500px] h-[500px] bg-accent-blue/5 blur-[120px] rounded-full" />
+        <div className="absolute bottom-1/4 right-0 w-[500px] h-[500px] bg-accent-purple/5 blur-[120px] rounded-full" />
+      </div>
+
+      <div className="container mx-auto px-6 relative z-10">
         <div className="flex flex-col md:flex-row justify-between items-end mb-24 gap-8">
           <AnimatedSection className="max-w-2xl">
-            <span className="text-accent-blue text-[10px] font-bold uppercase tracking-[0.4em] mb-4 block">Expertise</span>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="w-8 h-[1px] bg-accent-blue" />
+              <span className="text-accent-blue text-[10px] font-bold uppercase tracking-[0.4em]">Expertise</span>
+            </div>
             <h2 className="text-4xl md:text-5xl lg:text-7xl font-serif text-white leading-tight">
               Crafting Smiles with <br />
-              <span className="italic text-[#A0A0A0]">Precision & Care</span>
+              <span className="text-gradient italic">Precision & Artistry</span>
             </h2>
           </AnimatedSection>
           
           <AnimatedSection delay={0.2} className="md:w-1/3">
-            <p className="text-[#A0A0A0] text-lg leading-relaxed mb-8">
+            <p className="text-[#808080] text-lg leading-relaxed mb-8">
               We combine advanced medical technology with an artistic eye to deliver results that are both beautiful and healthy.
             </p>
             <button 
@@ -65,12 +74,12 @@ const Services = () => {
           </AnimatedSection>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
           {services.map((service, index) => (
             <AnimatedSection 
               key={service.title} 
               delay={index * 0.1}
-              className="group p-10 rounded-[2.5rem] border border-white/5 bg-[#111111] hover:bg-[#161616] hover:border-accent-blue/30 transition-all duration-700 glow-blue cursor-pointer"
+              className="group p-8 rounded-[2.5rem] border border-white/5 bg-[#0A0A0A] hover:bg-[#0F0F0F] hover:border-accent-blue/20 transition-all duration-500 cursor-pointer relative overflow-hidden"
               onClick={() => goToSimulator(service.treatment)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -81,15 +90,17 @@ const Services = () => {
               role="button"
               tabIndex={0}
             >
-              <div className="w-16 h-16 bg-accent-blue/10 border border-accent-blue/20 text-accent-blue rounded-2xl flex items-center justify-center mb-10 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 shadow-[0_0_15px_rgba(0,209,255,0.1)]">
-                <service.icon size={28} />
+              <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-accent-blue/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              
+              <div className="w-14 h-14 bg-white/5 border border-white/10 text-accent-blue rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 group-hover:bg-accent-blue group-hover:text-black transition-all duration-500 shadow-xl">
+                <service.icon size={24} />
               </div>
-              <h3 className="text-2xl font-serif mb-5 text-white leading-tight">{service.title}</h3>
-              <p className="text-[#A0A0A0] leading-relaxed mb-10 text-sm font-medium opacity-80">
+              <h3 className="text-xl font-serif mb-4 text-white leading-tight group-hover:text-accent-blue transition-colors">{service.title}</h3>
+              <p className="text-[#606060] leading-relaxed mb-8 text-sm font-medium group-hover:text-[#808080] transition-colors">
                 {service.description}
               </p>
-              <div className="w-12 h-12 rounded-full border border-white/10 flex items-center justify-center text-white group-hover:bg-accent-blue group-hover:border-accent-blue group-hover:text-black transition-all duration-500">
-                <ArrowRight size={18} />
+              <div className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white group-hover:bg-white group-hover:text-black transition-all duration-500">
+                <ArrowRight size={16} />
               </div>
             </AnimatedSection>
           ))}

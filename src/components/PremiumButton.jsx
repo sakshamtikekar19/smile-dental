@@ -9,10 +9,10 @@ const PremiumButton = ({
   ...props 
 }) => {
   const variants = {
-    primary: "bg-accent-blue text-black hover:brightness-110 shadow-[0_0_20px_rgba(0,209,255,0.3)]",
-    secondary: "bg-[#111111] text-white border border-[#1F1F1F] hover:bg-[#1A1A1A] backdrop-blur-xl",
-    outline: "bg-transparent border border-[#1F1F1F] text-[#A0A0A0] hover:border-accent-blue hover:text-white",
-    gold: "bg-accent-blue text-black hover:brightness-110 shadow-[0_0_20px_rgba(0,209,255,0.3)]"
+    primary: "bg-gradient-to-r from-accent-blue to-accent-purple text-white hover:brightness-110 shadow-[0_0_30px_rgba(0,209,255,0.2)] border-none",
+    secondary: "bg-white/5 text-white border border-white/10 hover:bg-white/10 backdrop-blur-xl",
+    outline: "bg-transparent border border-white/10 text-[#808080] hover:border-accent-blue hover:text-white",
+    gold: "bg-gradient-to-r from-accent-blue to-accent-purple text-white hover:brightness-110 shadow-[0_0_30px_rgba(0,209,255,0.2)] border-none"
   };
 
   return (
