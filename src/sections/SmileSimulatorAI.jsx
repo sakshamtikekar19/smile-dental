@@ -72,6 +72,44 @@ async function detectLandmarks(imageUrl) {
   return result.faceLandmarks?.[0] || null;
 }
 
+async function mirrorImage(url) {
+  const img = await loadImage(url);
+  const c = document.createElement("canvas");
+  c.width = img.width;
+  c.height = img.height;
+  const ctx = c.getContext("2d");
+  ctx.translate(c.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(img, 0, 0);
+  return c.toDataURL("image/jpeg", 0.94);
+}
+
+async function detectLandmarksRobust(imageUrl) {
+  // Pass 1: direct image detection
+  let landmarks = await detectLandmarks(imageUrl);
+  if (landmarks) return { landmarks, processedUrl: imageUrl };
+
+  // Pass 2: mirrored variant (helps for selfies/media that fail initial orientation assumptions)
+  try {
+    const mirroredUrl = await mirrorImage(imageUrl);
+    landmarks = await detectLandmarks(mirroredUrl);
+    if (landmarks) return { landmarks, processedUrl: mirroredUrl };
+  } catch {
+    // Continue to next fallback.
+  }
+
+  // Pass 3: downscaled variant for very large files
+  try {
+    const { url: resizedUrl } = await resizeImage(imageUrl, 1600);
+    landmarks = await detectLandmarks(resizedUrl);
+    if (landmarks) return { landmarks, processedUrl: resizedUrl };
+  } catch {
+    // Final fallback returns null landmarks.
+  }
+
+  return { landmarks: null, processedUrl: imageUrl };
+}
+
 async function resizeImage(url, maxDim) {
   const img = await loadImage(url);
   let { width: w, height: h } = img;
@@ -383,12 +421,14 @@ const SmileSimulatorAI = () => {
     const generation = ++generationRef.current;
     try {
       setProcessingLog("Scanning anatomical structure...");
-      let landmarks = await detectLandmarks(imageUrl);
+      const robustDetection = await detectLandmarksRobust(imageUrl);
+      let landmarks = robustDetection.landmarks;
+      let workingImageUrl = robustDetection.processedUrl;
       if (!landmarks && latestLandmarksRef.current) landmarks = latestLandmarksRef.current;
       if (generation !== generationRef.current) return;
       if (!landmarks) throw new Error("Anatomical detection failed.");
 
-      const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(imageUrl, MAX_IMAGE_SIZE);
+      const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(workingImageUrl, MAX_IMAGE_SIZE);
       
       if (!mainCanvasRef.current) mainCanvasRef.current = document.createElement("canvas");
       const procCanvas = mainCanvasRef.current;
