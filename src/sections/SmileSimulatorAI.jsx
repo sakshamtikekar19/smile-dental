@@ -317,7 +317,7 @@ const SmileSimulatorAI = () => {
       // 🦷 APPLY EFFECTS TO FULL FRAME (Optimized ROI inside engines)
       if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(bgCtx, marks, vw, vh, wInt);
       if (t === "alignment" || t === "transformation") applyProfessionalAlignment(bgCtx, marks, vw, vh, aInt);
-      if (t === "braces" || t === "transformation") {
+      if (t === "braces") {
         if (!engine3DRef.current) engine3DRef.current = new Braces3DEngine(vw, vh);
         const density = intensities.bracesDensity || 80;
         applyBracesEffect(bgCtx, marks, vw, vh, engine3DRef.current, density);
@@ -445,8 +445,10 @@ const SmileSimulatorAI = () => {
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
         applyProfessionalWhitening(pctx, landmarks, iw, ih, wInt);
       }
-      if (treatment === "braces" || treatment === "transformation") {
-        if (!engine3DRef.current) engine3DRef.current = new Braces3DEngine(iw, ih);
+      if (treatment === "braces") {
+        // Recreate engine fresh per processing run so a previous image's
+        // dimensions/state never bleed into a new upload (prevents tilted/stale braces).
+        engine3DRef.current = new Braces3DEngine(iw, ih);
         const density = intensities.bracesDensity || 80;
         applyBracesEffect(pctx, landmarks, iw, ih, engine3DRef.current, density);
       }
@@ -875,7 +877,7 @@ const SmileSimulatorAI = () => {
                       </div>
                     </div>
                     <div className="flex items-start gap-4">
-                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shadow-[0_0_8px_currentColor]", selectedTreatment === "braces" || selectedTreatment === "transformation" ? "bg-accent-blue text-accent-blue" : "bg-[#1F1F1F] text-[#1F1F1F]")} />
+                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shadow-[0_0_8px_currentColor]", selectedTreatment === "braces" ? "bg-accent-blue text-accent-blue" : "bg-[#1F1F1F] text-[#1F1F1F]")} />
                       <div>
                         <p className="text-[12px] font-bold text-white mb-0.5">Metallic Integration</p>
                         <p className="text-[10px] text-[#A0A0A0] font-medium leading-relaxed">Precision bracket mapping enabled</p>
