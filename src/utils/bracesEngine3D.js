@@ -44,7 +44,7 @@ export class Braces3DEngine {
         });
 
         this.bandMat = new THREE.MeshPhysicalMaterial({
-            color: 0x1f78b4,       // Clinical Blue Rubber Band (from reference)
+            color: 0x3b82f6,       // Brighter clinical blue rubber band — reads per bracket
             metalness: 0.1,        // Rubber isn't metallic
             roughness: 0.4,        
             clearcoat: 0.8,        // Wet saliva gloss
@@ -95,33 +95,32 @@ export class Braces3DEngine {
         }
     }
 
-    // 🔥 REALISM UPGRADE 2: THE RUBBER BAND SCULPT
     createRealisticTwinBracket() {
         const group = new THREE.Group();
 
-        // 1. Steel Base Pad
-        const padGeo = new THREE.BoxGeometry(1.0, 0.8, 0.15);
+        // Steel base pad (slightly larger so each bracket clearly lands on its tooth)
+        const padGeo = new THREE.BoxGeometry(1.15, 0.95, 0.18);
         const pad = new THREE.Mesh(padGeo, this.metalMat);
         group.add(pad);
 
-        // 2. Steel Core
-        const coreGeo = new THREE.BoxGeometry(0.6, 0.4, 0.3);
+        // Steel core
+        const coreGeo = new THREE.BoxGeometry(0.7, 0.5, 0.32);
         const core = new THREE.Mesh(coreGeo, this.metalMat);
         core.position.z = 0.2;
         group.add(core);
 
-        // 3. The Blue Rubber Ligature (Torus/Donut shape stretched into an oval)
-        const bandGeo = new THREE.TorusGeometry(0.4, 0.12, 8, 16);
+        // Blue rubber ligature
+        const bandGeo = new THREE.TorusGeometry(0.46, 0.14, 10, 18);
         const band = new THREE.Mesh(bandGeo, this.bandMat);
-        band.position.z = 0.25;
-        band.scale.set(1.1, 0.8, 0.6); // Flatten it slightly
+        band.position.z = 0.27;
+        band.scale.set(1.15, 0.85, 0.6);
         group.add(band);
 
-        // 4. Subtle Steel Wings poking out
-        const wingGeo = new THREE.BoxGeometry(0.2, 0.2, 0.15);
+        // Steel wings
+        const wingGeo = new THREE.BoxGeometry(0.22, 0.22, 0.18);
         const wingPositions = [
-            [-0.3, 0.25, 0.35], [0.3, 0.25, 0.35],  
-            [-0.3, -0.25, 0.35], [0.3, -0.25, 0.35]  
+            [-0.34, 0.28, 0.36], [0.34, 0.28, 0.36],
+            [-0.34, -0.28, 0.36], [0.34, -0.28, 0.36]
         ];
         wingPositions.forEach(pos => {
             const wing = new THREE.Mesh(wingGeo, this.metalMat);
@@ -188,9 +187,11 @@ export class Braces3DEngine {
         const rightCorner = landmarks[291];
         const mouthWidthPx = (rightCorner.x - leftCorner.x) * width;
         
-        // Scaled brackets down slightly to accommodate the new rubber bands
-        const bracketScale = mouthWidthPx * 0.032; 
-        const wireRadius = mouthWidthPx * 0.003; 
+        // Make each bracket clearly land on its tooth instead of looking like
+        // a dot on the wire. Larger pad + thicker arch wire reads as braces
+        // even when the mouth opening is narrow in the photo.
+        const bracketScale = mouthWidthPx * 0.048;
+        const wireRadius = mouthWidthPx * 0.005;
         
         // 🔥 ALIGNMENT UPGRADE 2: MASSIVE GUM CLEARANCE
         // Pushed the upper drop up slightly to center on top teeth (from 0.08 to 0.065)
