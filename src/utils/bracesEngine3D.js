@@ -200,6 +200,37 @@ export class Braces3DEngine {
         // This will rip the brackets off the bottom gum and plant them on the lower teeth!
         const lowerDropOffset = mouthWidthPx * 0.08;
 
+        // Stabilize uploaded photos where head roll or an uneven smile can
+        // make the lip landmarks tilt the whole braces arch.
+        const eyeLeft = landmarks[33];
+        const eyeRight = landmarks[263];
+        const eyeDx = (eyeRight.x - eyeLeft.x) * width;
+        const eyeDy = (eyeRight.y - eyeLeft.y) * height;
+        const rollAngle = Math.atan2(eyeDy, eyeDx); // radians, positive = head tilted right
+        const cosA = Math.cos(-rollAngle);
+        const sinA = Math.sin(-rollAngle);
+        const mouthCenterX = ((leftCorner.x + rightCorner.x) * 0.5 * width) - (width / 2);
+        const mouthCenterY = (height / 2) - ((leftCorner.y + rightCorner.y) * 0.5 * height);
+
+        const rotatePoint = (tx, ty, z = 0) => {
+            const dx = tx - mouthCenterX;
+            const dy = ty - mouthCenterY;
+            const rx = dx * cosA - dy * sinA;
+            const ry = dx * sinA + dy * cosA;
+            return new THREE.Vector3(mouthCenterX + rx, mouthCenterY + ry, z);
+        };
+
+        const rotatedLeftCorner = rotatePoint((leftCorner.x * width) - (width / 2), (height / 2) - (leftCorner.y * height));
+        const rotatedRightCorner = rotatePoint((rightCorner.x * width) - (width / 2), (height / 2) - (rightCorner.y * height));
+        const cornerDx = rotatedRightCorner.x - rotatedLeftCorner.x;
+        const cornerSlope = Math.abs(cornerDx) > 1 ? (rotatedRightCorner.y - rotatedLeftCorner.y) / cornerDx : 0;
+
+        const levelPoint = (tx, ty, z) => {
+            const rotated = rotatePoint(tx, ty, z);
+            rotated.y -= (rotated.x - mouthCenterX) * cornerSlope;
+            return rotated;
+        };
+
         const upperIndices = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308];
         const upperPoints = [];
         upperIndices.forEach((idx, i) => {
@@ -209,7 +240,8 @@ export class Braces3DEngine {
             const distFromCenter = Math.abs((i / (upperIndices.length - 1)) - 0.5) * 2; 
             
             ty -= (upperDropOffset - (distFromCenter * (upperDropOffset * 0.6))); 
-            upperPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
+            const z = 5 - (distFromCenter * (mouthWidthPx * 0.05));
+            upperPoints.push(levelPoint(tx, ty, z));
         });
 
         const lowerIndices = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308];
@@ -221,7 +253,8 @@ export class Braces3DEngine {
             const distFromCenter = Math.abs((i / (lowerIndices.length - 1)) - 0.5) * 2; 
             
             ty += lowerDropOffset; 
-            lowerPoints.push(new THREE.Vector3(tx, ty, 5 - (distFromCenter * (mouthWidthPx * 0.05))));
+            const z = 5 - (distFromCenter * (mouthWidthPx * 0.05));
+            lowerPoints.push(levelPoint(tx, ty, z));
         });
 
         const upperCurve = new THREE.CatmullRomCurve3(upperPoints);
