@@ -393,6 +393,20 @@ const SmileSimulatorAI = () => {
     reader.readAsDataURL(file);
   });
 
+  // Re-encode an uploaded image through a canvas. This strips EXIF metadata
+  // and bakes the visual orientation in pixel data, ensuring MediaPipe and
+  // our canvas pipeline see the exact same upright pixels (matches the camera
+  // capture path which already does this implicitly).
+  const normalizeImageOrientation = async (url) => {
+    const img = await loadImage(url);
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth || img.width;
+    c.height = img.naturalHeight || img.height;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    return c.toDataURL("image/jpeg", 0.95);
+  };
+
   const handleFileUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -405,9 +419,10 @@ const SmileSimulatorAI = () => {
         throw new Error("Please select a valid image file.");
       }
 
-      const imageUrl = await readFileAsDataUrl(file);
+      const rawDataUrl = await readFileAsDataUrl(file);
+      const normalizedUrl = await normalizeImageOrientation(rawDataUrl);
       setIsProcessing(true);
-      setRawImageUrl(imageUrl);
+      setRawImageUrl(normalizedUrl);
     } catch (err) {
       setIsProcessing(false);
       setError(err.message || "Unable to read selected file.");

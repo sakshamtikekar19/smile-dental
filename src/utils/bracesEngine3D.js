@@ -17,7 +17,13 @@ export class Braces3DEngine {
         this.camera.position.z = 100;
 
         this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-        this.renderer.setPixelRatio(window.devicePixelRatio || 1); 
+        // Force pixelRatio to 1 — this renderer is used as an offscreen source
+        // for ctx.drawImage(...) onto the main 2D canvas, never displayed
+        // directly. Using devicePixelRatio here would multiply the WebGL buffer
+        // (e.g. 2400x1800 image on a 2x display => 4800x3600 buffer) which can
+        // exceed GPU MAX_TEXTURE_SIZE on uploaded high-resolution photos and
+        // produce tilted/clipped braces. Buffer = logical size keeps it safe.
+        this.renderer.setPixelRatio(1);
         this.renderer.setSize(width, height);
         this.renderer.setClearColor(0x000000, 0); 
 
