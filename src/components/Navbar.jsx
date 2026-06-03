@@ -25,18 +25,20 @@ const Navbar = () => {
 
   const scrollTo = (href) => {
     const id = href.replace("#", "");
-    const element = document.getElementById(id);
-    if (element) {
+    // Close the mobile menu first, then scroll on the next tick. Doing both in
+    // the same render lets the menu-collapse re-render interrupt the smooth
+    // scroll on mobile, which made taps appear to do nothing.
+    setMobileOpen(false);
+    const performScroll = () => {
+      const element = document.getElementById(id);
+      if (!element) return;
       const offset = 80;
       const elementPosition = element.getBoundingClientRect().top + window.scrollY;
       const offsetPosition = Math.max(0, elementPosition - offset);
-
-      window.scrollTo({
-        top: offsetPosition,
-        behavior: "smooth"
-      });
-    }
-    setMobileOpen(false);
+      window.scrollTo({ top: offsetPosition, behavior: "smooth" });
+    };
+    // Defer past the menu-close layout change so the target position is stable.
+    setTimeout(performScroll, 60);
   };
 
   return (
@@ -77,7 +79,7 @@ const Navbar = () => {
           <PremiumButton
             variant="primary"
             className="hidden md:inline-flex py-2.5 px-8 bg-gradient-to-r from-accent-blue to-accent-purple border-none text-[10px] uppercase tracking-[0.2em] font-black"
-            onClick={() => scrollTo("#contact")}
+            onClick={() => scrollTo("#about")}
           >
             Book Now
           </PremiumButton>
@@ -113,7 +115,7 @@ const Navbar = () => {
                   {item.label}
                 </button>
               ))}
-              <PremiumButton variant="primary" className="mt-4 w-full justify-center py-4" onClick={() => scrollTo("#contact")}>
+              <PremiumButton variant="primary" className="mt-4 w-full justify-center py-4" onClick={() => scrollTo("#about")}>
                 Book Now
               </PremiumButton>
             </div>
