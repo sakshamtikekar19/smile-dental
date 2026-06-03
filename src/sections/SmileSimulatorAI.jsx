@@ -191,7 +191,7 @@ const TreatmentModule = ({ treatment, active, onSelect }) => {
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("entry");
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
-  const [intensities, setIntensities] = useState({ whitening: 80, alignment: 100, transformation: 100 });
+  const [intensities, setIntensities] = useState({ whitening: 90, alignment: 100, transformation: 100 });
   const [beforeImage, setBeforeImage] = useState(null);
   const [afterImage, setAfterImage] = useState(null);
   const [error, setError] = useState(null);
