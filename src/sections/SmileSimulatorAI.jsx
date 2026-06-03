@@ -228,7 +228,9 @@ const SmileSimulatorAI = () => {
   useEffect(() => {
     const handleTreatmentSelect = (event) => {
       const treatment = event?.detail?.treatment;
-      if (!treatment) return;
+      // Ignore unknown/removed treatments so the simulator never lands in a
+      // no-op state where no engine runs.
+      if (!treatment || !TREATMENTS.some((t) => t.id === treatment)) return;
       setSelectedTreatment(treatment);
       pendingTreatmentRef.current = treatment;
       setError(null);
@@ -343,25 +345,41 @@ const SmileSimulatorAI = () => {
     } catch { setError("Optical hardware access denied."); setStep("entry"); }
   };
 
-  const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+  // Decode the selected mobile/gallery file through an object URL, then
+  // downscale + re-encode it. This avoids large base64 reads on mobile and
+  // gives the processing pipeline a stable JPEG data URL.
+  const normalizeUploadedFile = async (file) => {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const img = await loadImage(objectUrl);
+      const c = document.createElement("canvas");
+      let imageWidth = img.naturalWidth || img.width;
+      let imageHeight = img.naturalHeight || img.height;
+      if (imageWidth > MAX_IMAGE_SIZE || imageHeight > MAX_IMAGE_SIZE) {
+        if (imageWidth > imageHeight) {
+          imageHeight = (imageHeight / imageWidth) * MAX_IMAGE_SIZE;
+          imageWidth = MAX_IMAGE_SIZE;
+        } else {
+          imageWidth = (imageWidth / imageHeight) * MAX_IMAGE_SIZE;
+          imageHeight = MAX_IMAGE_SIZE;
+        }
+      }
+      c.width = Math.round(imageWidth);
+      c.height = Math.round(imageHeight);
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      return c.toDataURL("image/jpeg", 0.95);
+    } catch {
+      throw new Error("Unable to load selected photo. Please choose a JPG, PNG, or WebP image.");
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
 
-  // Re-encode an uploaded image through a canvas. This strips EXIF metadata
-  // and bakes the visual orientation in pixel data, ensuring MediaPipe and
-  // our canvas pipeline see the exact same upright pixels (matches the camera
-  // capture path which already does this implicitly).
-  const normalizeImageOrientation = async (url) => {
-    const img = await loadImage(url);
-    const c = document.createElement("canvas");
-    c.width = img.naturalWidth || img.width;
-    c.height = img.naturalHeight || img.height;
-    const ctx = c.getContext("2d");
-    ctx.drawImage(img, 0, 0);
-    return c.toDataURL("image/jpeg", 0.95);
+  const isSupportedImageFile = (file) => {
+    const hasImageMime = file.type?.startsWith("image/");
+    const hasImageExtension = /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file.name || "");
+    return hasImageMime || hasImageExtension;
   };
 
   const handleFileUpload = async (event) => {
@@ -371,14 +389,15 @@ const SmileSimulatorAI = () => {
     try {
       stopCamera();
       setError(null);
+      setRawImageUrl(null);
+      setProcessingLog("Loading selected photo...");
+      setIsProcessing(true);
 
-      if (!file.type || !file.type.startsWith("image/")) {
+      if (!isSupportedImageFile(file)) {
         throw new Error("Please select a valid image file.");
       }
 
-      const rawDataUrl = await readFileAsDataUrl(file);
-      const normalizedUrl = await normalizeImageOrientation(rawDataUrl);
-      setIsProcessing(true);
+      const normalizedUrl = await normalizeUploadedFile(file);
       setRawImageUrl(normalizedUrl);
     } catch (err) {
       setIsProcessing(false);
@@ -386,6 +405,12 @@ const SmileSimulatorAI = () => {
     } finally {
       if (event.target) event.target.value = "";
     }
+  };
+
+  const openFilePicker = () => {
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = "";
+    fileInputRef.current.click();
   };
 
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
@@ -636,7 +661,8 @@ const SmileSimulatorAI = () => {
                         </div>
                       </button>
                       <button
-                        onClick={() => fileInputRef.current?.click()}
+                        type="button"
+                        onClick={openFilePicker}
                         className="w-full max-w-[560px] rounded-2xl bg-[#0A0A0A] border border-white/5 py-5 px-6 flex items-center justify-center gap-3 hover:border-white/20 hover:bg-[#111111] transition-all duration-300"
                       >
                         <Upload size={18} className="text-white/60" />
@@ -700,7 +726,8 @@ const SmileSimulatorAI = () => {
                         <div className="w-16 h-16 rounded-full bg-white group-hover:bg-accent-blue shadow-[0_0_30px_rgba(255,255,255,0.2)] group-hover:shadow-accent-blue transition-all duration-300 group-active:scale-90" />
                       </button>
                       <button
-                        onClick={() => fileInputRef.current?.click()}
+                        type="button"
+                        onClick={openFilePicker}
                         className="rounded-full bg-black/60 backdrop-blur-md border border-white/20 px-4 py-2 text-[10px] uppercase tracking-[0.2em] font-black text-white/80 hover:text-white hover:border-accent-blue/50 transition-all"
                       >
                         Upload Photo
@@ -750,6 +777,12 @@ const SmileSimulatorAI = () => {
                 onChange={handleFileUpload}
                 className="hidden"
               />
+
+              {error && !isProcessing && (
+                <div className="absolute left-4 right-4 bottom-4 z-50 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-center text-xs font-bold text-red-100 backdrop-blur-xl">
+                  {error}
+                </div>
+              )}
 
               {/* High-End Loader */}
               {isProcessing && (
