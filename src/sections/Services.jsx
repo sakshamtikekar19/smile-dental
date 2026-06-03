@@ -1,4 +1,4 @@
-import { Sparkles, ShieldCheck, HeartPulse, Layers, ArrowRight } from "lucide-react";
+import { Sparkles, HeartPulse, Layers, ArrowRight } from "lucide-react";
 import AnimatedSection from "../components/AnimatedSection";
 
 const services = [
@@ -15,13 +15,6 @@ const services = [
     icon: Layers,
     color: "bg-purple-50 text-purple-500",
     treatment: "alignment"
-  },
-  {
-    title: "Braces",
-    description: "Dedicated braces simulation showing realistic bracket and wire placement on your teeth.",
-    icon: ShieldCheck,
-    color: "bg-indigo-50 text-indigo-500",
-    treatment: "braces"
   },
   {
     title: "Full Smile Transformation",
@@ -74,7 +67,7 @@ const Services = () => {
           </AnimatedSection>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 md:gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
           {services.map((service, index) => (
             <AnimatedSection 
               key={service.title} 

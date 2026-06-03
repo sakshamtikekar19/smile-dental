@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Layers, ShieldCheck, Zap, Activity, ChevronRight, RotateCcw, Sliders, Info, CheckCircle2, Upload } from "lucide-react";
+import { Camera, Layers, Zap, Activity, ChevronRight, RotateCcw, Sliders, Info, CheckCircle2, Upload } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import { cn } from "../utils/cn";
-import { Braces3DEngine } from "../utils/bracesEngine3D";
 import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
 import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
 import { applyClinicalZoom } from "../utils/zoomEngine";
@@ -17,7 +16,6 @@ const ACCENT_CYAN = "#00D1FF";
 const TREATMENTS = [
   { id: "whitening", label: "Whitening", desc: "Advanced enamel sheen enhancement.", icon: Zap },
   { id: "alignment", label: "Alignment", desc: "Surgical-grade dental rectification.", icon: Layers },
-  { id: "braces", label: "Braces", desc: "Precision bracket simulation.", icon: ShieldCheck },
   { id: "transformation", label: "Full Smile", desc: "Hollywood-style reconstruction.", icon: Activity },
 ];
 
@@ -134,36 +132,6 @@ function loadImage(url) {
   });
 }
 
-const INNER_LIP_INDICES = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
-
-function applyBracesEffect(ctx, landmarks, w, h, engine3D, density) {
-  if (!landmarks || !engine3D) return;
-
-  // Sync density with the engine (handles tooth count logic internally)
-  engine3D.setDensity(density);
-
-  // 1. Update 3D scene and get the rendered canvas
-  const canvas3D = engine3D.updateAndRender(landmarks, w, h);
-
-  // 2. THE SURGICAL CLIP
-  // We trace the inside of the mouth. The 3D braces are ONLY allowed to paint inside this hole.
-  ctx.save();
-  ctx.beginPath();
-  INNER_LIP_INDICES.forEach((idx, i) => {
-    const x = landmarks[idx].x * w;
-    const y = landmarks[idx].y * h;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.closePath();
-  ctx.clip(); // Activate the mask
-
-  // 3. Draw the 3D render over the teeth
-  ctx.drawImage(canvas3D, 0, 0, w, h);
-  
-  ctx.restore(); // Remove the mask
-}
-
 // ── Premium UI Components ────────────────────────────────────────────────────
 
 const MedicalSlider = ({ label, value, onChange }) => (
@@ -223,7 +191,7 @@ const TreatmentModule = ({ treatment, active, onSelect }) => {
 const SmileSimulatorAI = () => {
   const [step, setStep] = useState("entry");
   const [selectedTreatment, setSelectedTreatment] = useState("whitening");
-  const [intensities, setIntensities] = useState({ whitening: 80, alignment: 100, braces: 100, bracesDensity: 80, transformation: 100 });
+  const [intensities, setIntensities] = useState({ whitening: 80, alignment: 100, transformation: 100 });
   const [beforeImage, setBeforeImage] = useState(null);
   const [afterImage, setAfterImage] = useState(null);
   const [error, setError] = useState(null);
@@ -244,21 +212,15 @@ const SmileSimulatorAI = () => {
   const generationRef = useRef(0);
   const requestRef = useRef(null);
   const renderRequestRef = useRef(null);
-  const bracesImageRef = useRef(null);
   const fileInputRef = useRef(null);
   const localCanvasRef = useRef(null);
   const mainCanvasRef = useRef(null);
   const zoomAfterRef = useRef(null);
   const zoomBeforeRef = useRef(null);
   const stabilizerRef = useRef(null);
-  const engine3DRef = useRef(null);
   const lerpState = useRef({ x: 0, y: 0, ang: 0, w: 0 });
 
   useEffect(() => {
-    const img = new Image();
-    const base = import.meta.env.BASE_URL || "/";
-    img.src = `${base}assets/bracket.png`.replace(/\/\//g, '/');
-    img.onload = () => { bracesImageRef.current = img; };
     initFaceLandmarker().catch(() => { });
     return () => stopCamera();
   }, []);
@@ -317,11 +279,6 @@ const SmileSimulatorAI = () => {
       // 🦷 APPLY EFFECTS TO FULL FRAME (Optimized ROI inside engines)
       if (t === "whitening" || t === "alignment" || t === "transformation") applyProfessionalWhitening(bgCtx, marks, vw, vh, wInt);
       if (t === "alignment" || t === "transformation") applyProfessionalAlignment(bgCtx, marks, vw, vh, aInt);
-      if (t === "braces") {
-        if (!engine3DRef.current) engine3DRef.current = new Braces3DEngine(vw, vh);
-        const density = intensities.bracesDensity || 80;
-        applyBracesEffect(bgCtx, marks, vw, vh, engine3DRef.current, density);
-      }
 
       const anchorX = marks[168].x * vw;
       const anchorY = marks[13].y * vh;
@@ -459,13 +416,6 @@ const SmileSimulatorAI = () => {
 
       if (treatment === "whitening" || treatment === "alignment" || treatment === "transformation") {
         applyProfessionalWhitening(pctx, landmarks, iw, ih, wInt);
-      }
-      if (treatment === "braces") {
-        // Recreate engine fresh per processing run so a previous image's
-        // dimensions/state never bleed into a new upload (prevents tilted/stale braces).
-        engine3DRef.current = new Braces3DEngine(iw, ih);
-        const density = intensities.bracesDensity || 80;
-        applyBracesEffect(pctx, landmarks, iw, ih, engine3DRef.current, density);
       }
       if (treatment === "alignment" || treatment === "transformation") {
         applyProfessionalAlignment(pctx, landmarks, iw, ih, aInt);
@@ -637,14 +587,6 @@ const SmileSimulatorAI = () => {
                     if (step === "result") setIsProcessing(true);
                   }} 
                 />
-                <MedicalSlider 
-                  label="Bracket Density" 
-                  value={intensities.bracesDensity} 
-                  onChange={(v) => {
-                    setIntensities(prev => ({...prev, bracesDensity: v}));
-                    if (step === "result") setIsProcessing(true);
-                  }} 
-                />
               </div>
 
               <div className="mt-10">
@@ -654,7 +596,7 @@ const SmileSimulatorAI = () => {
                     <button 
                       key={p.id}
                       onClick={() => {
-                        setIntensities({ whitening: p.intensity, alignment: p.intensity, braces: 100, transformation: 100 });
+                        setIntensities({ whitening: p.intensity, alignment: p.intensity, transformation: 100 });
                         if (step === "result") setIsProcessing(true);
                       }}
                       className="w-full text-left p-4 rounded-2xl bg-white/5 border border-white/5 text-[11px] font-bold text-[#808080] hover:border-accent-blue/40 hover:text-white hover:bg-white/10 transition-all group relative overflow-hidden"
@@ -805,7 +747,6 @@ const SmileSimulatorAI = () => {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="environment"
                 onChange={handleFileUpload}
                 className="hidden"
               />
@@ -889,13 +830,6 @@ const SmileSimulatorAI = () => {
                       <div>
                         <p className="text-[12px] font-bold text-white mb-0.5">Orthodontic Arch V3.3</p>
                         <p className="text-[10px] text-[#A0A0A0] font-medium leading-relaxed">Magnetic leveling system active</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-4">
-                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shadow-[0_0_8px_currentColor]", selectedTreatment === "braces" ? "bg-accent-blue text-accent-blue" : "bg-[#1F1F1F] text-[#1F1F1F]")} />
-                      <div>
-                        <p className="text-[12px] font-bold text-white mb-0.5">Metallic Integration</p>
-                        <p className="text-[10px] text-[#A0A0A0] font-medium leading-relaxed">Precision bracket mapping enabled</p>
                       </div>
                     </div>
                   </div>

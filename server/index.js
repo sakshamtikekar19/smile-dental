@@ -73,12 +73,6 @@ app.post('/api/smile', async (req, res) => {
       }
       negative_prompt = `${baseNegative}, ${alignmentNegativeExtra}`;
       prompt_strength = 0.40;
-    } else if (activeTreatment === 'braces_texture') {
-      prompt =
-        'Photorealistic straight orthodontic hardware: continuous metal archwire with evenly spaced small clear ceramic brackets in a single horizontal row, flat frontal product view, studio lighting, neutral gray background, sharp metallic specular highlights, isolated dental appliance only';
-      negative_prompt =
-        'human face, lips, skin, mouth interior, portrait, teeth, gums, tongue, cartoon, illustration, blurry, distorted, extra wires';
-      prompt_strength = 0.52;
     } else if (activeTreatment === 'transformation') {
       prompt =
         'Full-arch smile refinement: natural straight alignment, level occlusal plane, closed interdental contacts with no black gaps or voids, seamless enamel continuity, realistic translucency, crisp incisal edges, photorealistic 8k dental portrait, medical photography.';
@@ -87,11 +81,6 @@ app.post('/api/smile', async (req, res) => {
       }
       negative_prompt = `${baseNegative}, ${alignmentNegativeExtra}, black holes between teeth, dark vertical gaps, duplicated teeth, ghosting, double exposure, stretched smeared enamel, plastic block teeth, jagged white artifacts, blue or gray digital corruption`;
       prompt_strength = 0.39;
-    } else if (activeTreatment === 'braces') {
-      prompt =
-        'Subtle professional orthodontic alignment, original human tooth positions preserved, straightened natural edges, high-definition dental photography.';
-      negative_prompt = baseNegative;
-      prompt_strength = 0.35;
     } else if (activeTreatment === 'whitening') {
       prompt =
         'Pristine natural dentition, flawlessly whitened translucent enamel, professional in-office whitening, lifelike enamel depth and translucency, realistic inter-tooth separation, photorealistic oral close-up, 8k dental photography.';
