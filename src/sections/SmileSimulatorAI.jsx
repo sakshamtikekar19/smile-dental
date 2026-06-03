@@ -30,33 +30,46 @@ let _faceLandmarkerInstance = null;
 let _faceLandmarkerFailed = false;
 let _faceLandmarkerPromise = null;
 
+async function createFaceLandmarker(delegate) {
+  const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
+  const fileset = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
+  );
+  return FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      delegate,
+    },
+    runningMode: "IMAGE",
+    numFaces: 1,
+    minFaceDetectionConfidence: 0.1,
+    minFacePresenceConfidence: 0.1,
+  });
+}
+
 async function initFaceLandmarker() {
   if (_faceLandmarkerFailed) return null;
   if (_faceLandmarkerInstance) return _faceLandmarkerInstance;
   if (_faceLandmarkerPromise) return _faceLandmarkerPromise;
 
   _faceLandmarkerPromise = (async () => {
-    try {
-      const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
-      const fileset = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
-      );
-      _faceLandmarkerInstance = await FaceLandmarker.createFromOptions(fileset, {
-        baseOptions: {
-          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
-          delegate: "GPU",
-        },
-        runningMode: "IMAGE",
-        numFaces: 1,
-        minFaceDetectionConfidence: 0.1,
-        minFacePresenceConfidence: 0.1,
-      });
-      return _faceLandmarkerInstance;
-    } catch {
-      _faceLandmarkerFailed = true;
-      _faceLandmarkerPromise = null;
-      return null;
+    // The GPU (WebGL) delegate is unreliable on many mobile browsers and can
+    // fail to initialize or silently return no detections. Try CPU first on
+    // mobile (reliable) and GPU first on desktop (fast), falling back to the
+    // other before giving up — so a single GPU failure no longer permanently
+    // disables detection for the whole session.
+    const delegates = IS_MOBILE ? ["CPU", "GPU"] : ["GPU", "CPU"];
+    for (const delegate of delegates) {
+      try {
+        _faceLandmarkerInstance = await createFaceLandmarker(delegate);
+        if (_faceLandmarkerInstance) return _faceLandmarkerInstance;
+      } catch {
+        // Try the next delegate.
+      }
     }
+    _faceLandmarkerFailed = true;
+    _faceLandmarkerPromise = null;
+    return null;
   })();
   return _faceLandmarkerPromise;
 }
@@ -423,7 +436,12 @@ const SmileSimulatorAI = () => {
       let workingImageUrl = robustDetection.processedUrl;
       if (!landmarks && latestLandmarksRef.current) landmarks = latestLandmarksRef.current;
       if (generation !== generationRef.current) return;
-      if (!landmarks) throw new Error("Anatomical detection failed.");
+      if (!landmarks) {
+        const reason = _faceLandmarkerFailed
+          ? "Face engine failed to load. Check your connection and reload."
+          : "No face detected. Use a clear, front-facing photo showing the full face and smile.";
+        throw new Error(reason);
+      }
 
       const { url: snapshotUrl, w: iw, h: ih } = await resizeImage(workingImageUrl, MAX_IMAGE_SIZE);
       
@@ -474,7 +492,7 @@ const SmileSimulatorAI = () => {
       setStep("result"); 
       setIsProcessing(false); 
       stopCamera();
-    } catch (err) { setError(`System Latency Error: ${err.message}`); setIsProcessing(false); }
+    } catch (err) { setError(err.message || "Processing failed. Please try another photo."); setIsProcessing(false); }
   }, [selectedTreatment, intensities]);
 
   useEffect(() => {
