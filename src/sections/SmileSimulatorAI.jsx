@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Layers, Zap, Activity, ChevronRight, RotateCcw, Sliders, Info, CheckCircle2, Upload } from "lucide-react";
+import { Camera, Layers, Zap, Activity, ChevronRight, RotateCcw, Sliders, Info, CheckCircle2, Upload, Download } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
+import LeadCaptureForm from "../components/LeadCaptureForm";
 import { cn } from "../utils/cn";
 import { applyAlignment as applyProfessionalAlignment } from "../utils/alignmentEngine";
 import { applyWhitening as applyProfessionalWhitening } from "../utils/whiteningEngine";
@@ -203,6 +204,10 @@ const SmileSimulatorAI = () => {
   const [rawImageUrl, setRawImageUrl] = useState(null);
   const [finalLandmarks, setFinalLandmarks] = useState(null);
   const [zoomMode, setZoomMode] = useState(false);
+  const [leadCaptured, setLeadCaptured] = useState(() => {
+    try { return localStorage.getItem("smile_lead_captured") === "true"; }
+    catch { return false; }
+  });
 
   const pendingTreatmentRef = useRef("whitening");
   const videoRef = useRef(null);
@@ -401,6 +406,21 @@ const SmileSimulatorAI = () => {
     if (!fileInputRef.current) return;
     fileInputRef.current.value = "";
     fileInputRef.current.click();
+  };
+
+  const handleLeadCaptured = () => {
+    setLeadCaptured(true);
+    try { localStorage.setItem("smile_lead_captured", "true"); } catch { /* ignore */ }
+  };
+
+  const downloadResult = () => {
+    if (!afterImage) return;
+    const link = document.createElement("a");
+    link.href = afterImage;
+    link.download = `smile-studio-${selectedTreatment}-result.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const startHeavyProcessingPipeline = useCallback(async (imageUrl) => {
@@ -810,10 +830,19 @@ const SmileSimulatorAI = () => {
                       </div>
                       <h4 className="text-[10px] uppercase tracking-[0.3em] font-black text-text-primary">Anatomical Zoom Layer</h4>
                     </div>
-                    <span className="px-3 py-1 rounded-full bg-accent-blue/10 text-[9px] text-accent-blue font-black tracking-widest uppercase border border-accent-blue/20">3.0x Clinical</span>
+                    {leadCaptured ? (
+                      <button
+                        onClick={downloadResult}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-blue text-white text-[9px] font-black tracking-widest uppercase hover:bg-[#6B98B9] transition-colors shadow-[0_6px_20px_rgba(123,168,201,0.25)]"
+                      >
+                        <Download size={12} /> HD Download
+                      </button>
+                    ) : (
+                      <span className="px-3 py-1 rounded-full bg-accent-blue/10 text-[9px] text-accent-blue font-black tracking-widest uppercase border border-accent-blue/20">3.0x Clinical</span>
+                    )}
                   </div>
-                  <div className="relative aspect-[21/9] bg-[#F8FAFC] rounded-[24px] overflow-hidden border border-black/5 shadow-inner">
-                    <div className="absolute inset-0 flex items-center justify-center">
+                  <div className={cn("relative bg-[#F8FAFC] rounded-[24px] overflow-hidden border border-black/5 shadow-inner", leadCaptured ? "aspect-[21/9]" : "min-h-[460px]")}>
+                    <div className={cn("absolute inset-0 flex items-center justify-center transition-all duration-500", !leadCaptured && "blur-xl scale-105")}>
                       <canvas ref={zoomAfterRef} className="w-full h-full object-cover transition-opacity duration-700" />
                       <canvas ref={zoomBeforeRef} className="hidden" />
                     </div>
@@ -822,6 +851,17 @@ const SmileSimulatorAI = () => {
                       <div className="w-full h-px bg-accent-blue/10 absolute top-1/2 animate-scanner-slow" />
                       <div className="absolute inset-0 opacity-5" style={{ backgroundImage: 'radial-gradient(#000000 0.5px, transparent 0.5px)', backgroundSize: '15px 15px' }} />
                     </div>
+
+                    {/* Lead Capture Gate */}
+                    {!leadCaptured && (
+                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-md px-5 py-8 overflow-y-auto no-scrollbar">
+                        <LeadCaptureForm
+                          treatment={selectedTreatment}
+                          intensity={intensities.whitening}
+                          onSuccess={handleLeadCaptured}
+                        />
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
