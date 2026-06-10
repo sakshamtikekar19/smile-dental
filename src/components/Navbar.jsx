@@ -77,8 +77,8 @@ const Navbar = () => {
 
         <div className="flex items-center gap-3">
           <PremiumButton
-            variant="primary"
-            className="hidden md:inline-flex py-2.5 px-8 text-[10px] uppercase tracking-[0.2em] font-black"
+            variant="gold"
+            className="hidden md:inline-flex py-2.5 px-8 text-[10px] uppercase tracking-luxury font-black"
             onClick={() => scrollTo("#about")}
           >
             Book Now

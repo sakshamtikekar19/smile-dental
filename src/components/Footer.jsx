@@ -3,9 +3,9 @@ import BrandLogo from "./BrandLogo";
 
 const Footer = () => {
   return (
-    <footer id="about" className="bg-white text-text-primary py-20 md:py-32 scroll-mt-28 border-t border-black/5">
+    <footer id="about" className="bg-white text-text-primary py-16 md:py-24 scroll-mt-28 border-t border-black/5">
       <div className="container mx-auto px-4 sm:px-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 md:gap-20 mb-16 md:mb-24">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 md:gap-20 mb-12 md:mb-16">
           <div className="lg:col-span-1">
             <div className="mb-12">
               <BrandLogo />

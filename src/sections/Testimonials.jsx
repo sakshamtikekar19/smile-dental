@@ -27,12 +27,12 @@ const testimonials = [
 
 const Testimonials = () => {
   return (
-    <section id="gallery" className="py-24 md:py-32 bg-[#F8FAFC] overflow-hidden scroll-mt-28 relative">
+    <section id="gallery" className="py-16 md:py-24 bg-[#F8FAFC] overflow-hidden scroll-mt-28 relative">
       {/* Background Decor */}
       <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-accent-blue/5 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/2" />
       
       <div className="container mx-auto px-4 sm:px-6 relative z-10">
-        <div className="text-center max-w-3xl mx-auto mb-16 md:mb-24">
+        <div className="text-center max-w-3xl mx-auto mb-12 md:mb-16">
           <AnimatedSection>
             <div className="flex items-center justify-center gap-3 mb-4">
               <span className="w-8 h-[1px] bg-accent-blue" />
@@ -50,7 +50,7 @@ const Testimonials = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-10">
           {testimonials.map((t, i) => (
-            <AnimatedSection key={t.name} delay={i * 0.1}>
+            <AnimatedSection key={t.name} delay={0.2 + i * 0.15}>
               <div className="h-full p-8 md:p-10 rounded-[32px] bg-white border border-black/5 hover:border-accent-blue/20 transition-all duration-500 group relative shadow-sm hover:shadow-xl">
                 <div className="absolute top-8 right-8 text-accent-blue-pale group-hover:text-accent-blue/20 transition-colors">
                   <Quote size={40} fill="currentColor" />

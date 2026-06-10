@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, Layers, Zap, Activity, ChevronRight, RotateCcw, Sliders, Info, CheckCircle2, Upload, Download } from "lucide-react";
+import { Camera, Layers, Zap, Activity, ChevronRight, RotateCcw, Sliders, Upload, Download } from "lucide-react";
 import ReactCompareImage from "react-compare-image";
 import AnimatedSection from "../components/AnimatedSection";
 import LeadCaptureForm from "../components/LeadCaptureForm";
@@ -551,16 +551,16 @@ const SmileSimulatorAI = () => {
 
 
   return (
-    <section id="simulator" className="relative min-h-screen bg-white overflow-hidden flex flex-col pt-20">
+    <section id="simulator" className="relative bg-white overflow-hidden flex flex-col py-16 md:py-24 scroll-mt-28">
       {/* Background Decor */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden opacity-40">
         <div className="absolute top-[-10%] right-[-5%] w-[50%] h-[50%] bg-accent-blue blur-[200px] rounded-full opacity-10" />
         <div className="absolute bottom-[-10%] left-[-5%] w-[40%] h-[40%] bg-accent-blue-pale blur-[180px] rounded-full opacity-10" />
       </div>
 
-      <div className="container mx-auto px-4 sm:px-6 max-w-[1440px] relative z-10 flex flex-col flex-grow">
+      <div className="container mx-auto px-4 sm:px-6 max-w-[1440px] relative z-10 flex flex-col">
         {/* Header System */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-6">
           <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
             <div className="flex items-center gap-3 mb-2">
               <div className="w-2 h-2 rounded-full bg-accent-blue animate-pulse shadow-[0_0_8px_rgba(123,168,201,0.5)]" />
@@ -585,7 +585,7 @@ const SmileSimulatorAI = () => {
         </div>
 
         {/* 3-Panel Professional Workspace */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-10 flex-grow pb-10 md:pb-16">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-10">
           
           {/* LEFT PANEL: Treatment Modular Cards */}
           <div className="order-2 lg:order-1 lg:col-span-3">
@@ -658,7 +658,7 @@ const SmileSimulatorAI = () => {
           </div>
 
           {/* CENTER PANEL: Hero Anatomy Preview */}
-          <div className="order-1 lg:order-2 lg:col-span-6">
+          <div className="order-1 lg:order-2 lg:col-span-9">
             <div className="relative aspect-[4/5] sm:aspect-[3/4] lg:aspect-square rounded-[32px] md:rounded-[60px] overflow-hidden glass-medical border-black/5 shadow-xl group">
               <AnimatePresence mode="wait">
                 {step === "entry" && (
@@ -876,86 +876,6 @@ const SmileSimulatorAI = () => {
             </AnimatePresence>
           </div>
 
-          {/* RIGHT PANEL: Clinical Analytics */}
-          <div className="order-3 lg:order-3 lg:col-span-3">
-            <div className="glass-medical p-6 md:p-8 rounded-[32px] md:rounded-[40px] h-full flex flex-col">
-              <div className="flex items-center gap-3 mb-10 pb-6 border-b border-black/5">
-                <div className="w-8 h-8 rounded-lg bg-accent-blue/10 flex items-center justify-center text-accent-blue">
-                  <Info size={16} />
-                </div>
-                <h3 className="text-[11px] uppercase tracking-[0.25em] font-black text-text-primary">Diagnostics</h3>
-              </div>
-
-              <div className="flex-grow space-y-8">
-                <div className="bg-[#F8FAFC] rounded-3xl p-6 border border-black/5 shadow-inner">
-                  <h4 className="text-[9px] text-text-secondary uppercase tracking-[0.3em] font-black mb-6">Treatment Summary</h4>
-                  <div className="space-y-5">
-                    <div className="flex items-start gap-4">
-                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shadow-[0_0_8px_currentColor]", selectedTreatment === "whitening" || selectedTreatment === "transformation" ? "bg-accent-blue text-accent-blue" : "bg-black/10 text-black/10")} />
-                      <div>
-                        <p className="text-[12px] font-bold text-text-primary mb-0.5">Enamel Reconstruction</p>
-                        <p className="text-[10px] text-text-secondary font-medium leading-relaxed">Intensity calibrated at {intensities.whitening}%</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-4">
-                      <div className={cn("w-2 h-2 rounded-full mt-1.5 shadow-[0_0_8px_currentColor]", selectedTreatment === "alignment" || selectedTreatment === "transformation" ? "bg-accent-blue text-accent-blue" : "bg-black/10 text-black/10")} />
-                      <div>
-                        <p className="text-[12px] font-bold text-text-primary mb-0.5">Orthodontic Arch V3.3</p>
-                        <p className="text-[10px] text-text-secondary font-medium leading-relaxed">Magnetic leveling system active</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* NEW: Clinical Telemetry Section */}
-                <div className="bg-[#F8FAFC] rounded-3xl p-6 border border-black/5 relative overflow-hidden group shadow-inner">
-                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <Activity size={40} className="text-accent-blue" />
-                  </div>
-                  <h4 className="text-[9px] text-text-secondary uppercase tracking-[0.3em] font-black mb-6">Clinical Telemetry</h4>
-                  <div className="space-y-6">
-                    <div className="relative">
-                      <div className="flex justify-between text-[10px] mb-2">
-                        <span className="text-text-secondary font-bold uppercase tracking-widest">Enamel Reflectivity</span>
-                        <span className="text-text-primary font-mono">94.2%</span>
-                      </div>
-                      <div className="h-1 w-full bg-black/5 rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }} 
-                          animate={{ width: "94.2%" }} 
-                          transition={{ duration: 1.5, delay: 0.2 }}
-                          className="h-full bg-accent-blue shadow-[0_0_8px_rgba(123,168,201,0.3)]" 
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="relative">
-                      <div className="flex justify-between text-[10px] mb-2">
-                        <span className="text-text-secondary font-bold uppercase tracking-widest">Arch Symmetry</span>
-                        <span className="text-text-primary font-mono">88.7%</span>
-                      </div>
-                      <div className="h-1 w-full bg-black/5 rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }} 
-                          animate={{ width: "88.7%" }} 
-                          transition={{ duration: 1.5, delay: 0.4 }}
-                          className="h-full bg-accent-blue/60" 
-                        />
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t border-black/5 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 size={12} className="text-accent-blue" />
-                        <span className="text-[10px] text-text-primary font-bold uppercase tracking-tighter">HD Optical Lock</span>
-                      </div>
-                      <span className="text-[9px] px-2 py-0.5 rounded-md bg-accent-blue/10 text-accent-blue font-black border border-accent-blue/20">SECURE</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>

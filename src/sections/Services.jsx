@@ -34,7 +34,7 @@ const Services = () => {
   };
 
   return (
-    <section id="services" className="py-24 md:py-32 bg-white scroll-mt-28 relative overflow-hidden">
+    <section id="services" className="py-16 md:py-24 bg-white scroll-mt-28 relative overflow-hidden">
       {/* Subtle Background Accents */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full pointer-events-none">
         <div className="absolute top-1/4 left-0 w-[500px] h-[500px] bg-accent-blue/5 blur-[120px] rounded-full" />
@@ -42,7 +42,7 @@ const Services = () => {
       </div>
 
       <div className="container mx-auto px-4 sm:px-6 relative z-10">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 md:mb-24 gap-8">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 md:mb-16 gap-8">
           <AnimatedSection className="max-w-2xl">
             <div className="flex items-center gap-3 mb-4">
               <span className="w-8 h-[1px] bg-accent-blue" />
@@ -71,7 +71,7 @@ const Services = () => {
           {services.map((service, index) => (
             <AnimatedSection 
               key={service.title} 
-              delay={index * 0.1}
+              delay={0.2 + index * 0.15}
               className="group p-8 rounded-[2.5rem] border border-black/5 bg-[#F8FAFC] hover:bg-white hover:border-accent-blue/20 hover:shadow-[0_20px_50px_rgba(0,0,0,0.03)] transition-all duration-500 cursor-pointer relative overflow-hidden"
               onClick={() => goToSimulator(service.treatment)}
               onKeyDown={(e) => {

@@ -7,6 +7,9 @@
   --color-accent-blue: #7BA8C9;
   --color-accent-blue-soft: #B8D4E3;
   --color-accent-blue-pale: #D4E6F1;
+  --color-accent-gold: #D4AF37;
+  --color-accent-platinum: #E5E4E2;
+  --color-accent-champagne: #F7E7CE;
   --color-text-primary: #2C3E50;
   --color-text-secondary: #5D6D7E;
   --color-surface-light: #F8FAFC;
@@ -16,6 +19,7 @@
 :root {
   background-color: #FFFFFF;
   color: #2C3E50;
+  cursor: default;
 }
 
 body {
@@ -25,16 +29,21 @@ body {
   color: #2C3E50;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  line-height: 1.6;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-serif);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   color: #2C3E50;
+  line-height: 1.2;
 }
 
 /* Clinical Serenity Utilities */
 @layer utilities {
+  .tracking-luxury {
+    letter-spacing: 0.3em;
+  }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
@@ -48,11 +57,20 @@ h1, h2, h3, h4, h5, h6 {
   .glow-blue {
     box-shadow: 0 0 30px rgba(123, 168, 201, 0.15);
   }
+  .glow-gold {
+    box-shadow: 0 0 30px rgba(212, 175, 55, 0.15);
+  }
   .text-gradient {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-[#7BA8C9] to-[#B8D4E3];
   }
+  .text-gradient-gold {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-[#D4AF37] to-[#F7E7CE];
+  }
   .bg-medical-gradient {
     @apply bg-gradient-to-br from-[#F8FAFC] via-[#FFFFFF] to-[#EBF5FB];
+  }
+  .bg-luxury-texture {
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%237ba8c9' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2v-4h4v-2h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2v-4h4v-2H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
   }
 }
 
