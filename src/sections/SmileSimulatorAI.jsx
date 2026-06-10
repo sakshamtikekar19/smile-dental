@@ -99,13 +99,17 @@ async function detectLandmarksRobust(imageUrl) {
     const mirroredUrl = await mirrorImage(imageUrl);
     landmarks = await detectLandmarks(mirroredUrl);
     if (landmarks) return { landmarks, processedUrl: mirroredUrl };
-  } catch { }
+  } catch {
+    // Mirror fallback failed; fall through to the resized attempt.
+  }
 
   try {
     const { url: resizedUrl } = await resizeImage(imageUrl, 1600);
     landmarks = await detectLandmarks(resizedUrl);
     if (landmarks) return { landmarks, processedUrl: resizedUrl };
-  } catch { }
+  } catch {
+    // Resized fallback failed; return null landmarks below.
+  }
 
   return { landmarks: null, processedUrl: imageUrl };
 }
@@ -257,7 +261,9 @@ const SmileSimulatorAI = () => {
     try {
       const result = _faceLandmarkerInstance.detectForVideo(videoRef.current, performance.now());
       if (result.faceLandmarks?.[0]) latestLandmarksRef.current = result.faceLandmarks[0];
-    } catch { }
+    } catch {
+      // Per-frame detection can throw transiently; ignore and try next frame.
+    }
     if (step === "camera") requestRef.current = requestAnimationFrame(detectionLoop);
   }, [step]);
 
@@ -335,7 +341,9 @@ const SmileSimulatorAI = () => {
         try {
           stream = await navigator.mediaDevices.getUserMedia(constraints);
           if (stream) break;
-        } catch { }
+        } catch {
+          // Try next constraint profile.
+        }
       }
 
       if (!stream) throw new Error("Camera unavailable");

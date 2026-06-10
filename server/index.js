@@ -8,11 +8,76 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Render (and most hosts) put the app behind a proxy, so trust it to get the
+// real client IP for rate limiting.
+app.set('trust proxy', 1);
+
 const ACTIVE_VERSION = 'aca001c8b137114d5e594c68f7084ae6d82f364758aab8d997b233e8ef3c4d93';
 
-app.use(cors());
+// Restrict who can call this API. Set ALLOWED_ORIGINS on the server (comma
+// separated, e.g. "https://user.github.io,http://localhost:5173"). If it is
+// not set we fall back to open CORS so existing deployments keep working, but
+// a warning is logged to nudge proper lockdown.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+if (allowedOrigins.length === 0) {
+  console.warn(
+    '[security] ALLOWED_ORIGINS is not set — CORS is open to all origins. ' +
+    'Set ALLOWED_ORIGINS to your site URL(s) to protect your Replicate credits.'
+  );
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    // No allowlist configured → allow all (legacy behavior).
+    if (allowedOrigins.length === 0) return callback(null, true);
+    // Allow same-origin / non-browser requests (no Origin header) and health checks.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
+};
+
+app.use(cors(corsOptions));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
+// Lightweight in-memory rate limiter for the expensive AI endpoint. Prevents a
+// single client from draining Replicate credits. Tune via env if needed.
+const RATE_LIMIT_WINDOW_MS = Math.max(1000, parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10) || 60000);
+const RATE_LIMIT_MAX = Math.max(1, parseInt(process.env.RATE_LIMIT_MAX || '15', 10) || 15);
+const rateBuckets = new Map();
+
+function rateLimit(req, res, next) {
+  const key = req.ip || 'unknown';
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return next();
+  }
+
+  if (bucket.count >= RATE_LIMIT_MAX) {
+    const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
+    res.set('Retry-After', String(retryAfter));
+    return res.status(429).json({ error: 'Too many requests. Please slow down.', retry_after: retryAfter });
+  }
+
+  bucket.count += 1;
+  return next();
+}
+
+// Periodically clear stale buckets so the map does not grow unbounded.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) {
+    if (now > bucket.resetAt) rateBuckets.delete(key);
+  }
+}, 5 * 60 * 1000).unref?.();
 
 app.get('/', (_req, res) => {
   res.send('Smile Dental API is running. Use /api/health and /api/smile.');
@@ -41,7 +106,9 @@ async function toDataUrlFromRemote(url) {
   }
 }
 
-app.post('/api/smile', async (req, res) => {
+const ALLOWED_TREATMENTS = ['whitening', 'alignment', 'transformation'];
+
+app.post('/api/smile', rateLimit, async (req, res) => {
   try {
     const { image, mask, treatment, midlineX } = req.body;
 
@@ -51,8 +118,13 @@ app.post('/api/smile', async (req, res) => {
     if (typeof image !== 'string' || typeof mask !== 'string') {
       return res.status(400).json({ error: 'Image and mask must be base64 strings' });
     }
+    // Only accept data-URL image payloads to avoid the server being used to
+    // fetch arbitrary remote URLs (SSRF) via the model input.
+    if (!image.startsWith('data:image/') || !mask.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'Image and mask must be data URLs' });
+    }
 
-    const activeTreatment = typeof treatment === 'string' ? treatment : 'whitening';
+    const activeTreatment = ALLOWED_TREATMENTS.includes(treatment) ? treatment : 'whitening';
     /** Whitening-only: no words implying hardware (client composites vectors). Describe exclusions without naming appliances. */
     const whiteningNegative =
       'facial structure change, new teeth, distorted mouth, unrealistic, plastic beauty filter, recolored lips or gums, lip color change, skin discoloration near mouth, unnatural or painted gum line, gum tissue recoloring, non-enamel surface attachments, stray specular blobs on enamel';

@@ -72,9 +72,6 @@ export function applyUltraRealisticWhitening(ctx, landmarks, w, h, intensity = 0
       const mask = mctx.getImageData(minX, minY, boxW, boxH).data;
       const d = imgData.data;
 
-      // 🛡️ ACTUAL WIDTH FIX: Prevents diagonal array skewing on high-DPI
-      const actualWidth = imgData.width;
-
       // 3. 🧪 FINAL CORRECTED PIXEL LOOP
       for (let i = 0; i < d.length; i += 4) {
         // 🛡️ GATE 0: Alpha Threshold

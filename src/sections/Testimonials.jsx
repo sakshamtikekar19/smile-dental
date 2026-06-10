@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import AnimatedSection from "../components/AnimatedSection";
 import { Star, Quote } from "lucide-react";
 
@@ -64,7 +63,7 @@ const Testimonials = () => {
                 </div>
 
                 <p className="text-text-primary text-lg leading-relaxed mb-10 font-medium relative z-10">
-                  "{t.content}"
+                  &ldquo;{t.content}&rdquo;
                 </p>
 
                 <div className="flex items-center gap-4 mt-auto">
