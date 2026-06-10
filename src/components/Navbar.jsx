@@ -48,7 +48,7 @@ const Navbar = () => {
       transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-700 ${
         isScrolled || mobileOpen 
-          ? "py-4 bg-black/40 backdrop-blur-3xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] border-b border-white/5" 
+          ? "py-4 bg-white/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] border-b border-black/5" 
           : "py-8 bg-transparent"
       }`}
     >
@@ -67,7 +67,7 @@ const Navbar = () => {
               key={item.href}
               type="button"
               onClick={() => scrollTo(item.href)}
-              className="text-[10px] uppercase tracking-[0.3em] font-black text-[#606060] hover:text-white transition-colors relative group"
+              className="text-[10px] uppercase tracking-[0.3em] font-black text-[#5D6D7E] hover:text-[#2C3E50] transition-colors relative group"
             >
               {item.label}
               <span className="absolute -bottom-1 left-0 w-0 h-[1px] bg-accent-blue transition-all duration-300 group-hover:w-full" />
@@ -78,7 +78,7 @@ const Navbar = () => {
         <div className="flex items-center gap-3">
           <PremiumButton
             variant="primary"
-            className="hidden md:inline-flex py-2.5 px-8 bg-gradient-to-r from-accent-blue to-accent-purple border-none text-[10px] uppercase tracking-[0.2em] font-black"
+            className="hidden md:inline-flex py-2.5 px-8 text-[10px] uppercase tracking-[0.2em] font-black"
             onClick={() => scrollTo("#about")}
           >
             Book Now
@@ -86,7 +86,7 @@ const Navbar = () => {
 
           <button
             type="button"
-            className="md:hidden p-2 rounded-lg text-white hover:bg-white/5 transition-colors"
+            className="md:hidden p-2 rounded-lg text-[#2C3E50] hover:bg-black/5 transition-colors"
             aria-label={mobileOpen ? "Close menu" : "Open menu"}
             onClick={() => setMobileOpen((o) => !o)}
           >
@@ -102,7 +102,7 @@ const Navbar = () => {
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.25 }}
-            className="md:hidden overflow-hidden border-t border-white/5 bg-[#0A0A0A]"
+            className="md:hidden overflow-hidden border-t border-black/5 bg-white"
           >
             <div className="container mx-auto px-6 py-6 flex flex-col gap-1">
               {NAV_LINKS.map((item) => (
@@ -110,7 +110,7 @@ const Navbar = () => {
                   key={item.href}
                   type="button"
                   onClick={() => scrollTo(item.href)}
-                  className="text-left py-4 text-xs font-bold uppercase tracking-widest text-[#A0A0A0] border-b border-white/5 last:border-0"
+                  className="text-left py-4 text-xs font-bold uppercase tracking-widest text-[#5D6D7E] border-b border-black/5 last:border-0"
                 >
                   {item.label}
                 </button>

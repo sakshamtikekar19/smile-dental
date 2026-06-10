@@ -4,35 +4,36 @@
   --font-serif: "Playfair Display", serif;
   --font-sans: "Inter", sans-serif;
   
-  --color-accent-blue: #00D1FF;
-  --color-accent-purple: #7000FF;
-  --color-accent-blue-dim: rgba(0, 209, 255, 0.1);
-  --color-accent-purple-dim: rgba(112, 0, 255, 0.1);
-  --color-surface-dark: #050505;
-  --color-surface-charcoal: #0A0A0A;
-  --color-border-subtle: #1A1A1A;
+  --color-accent-blue: #7BA8C9;
+  --color-accent-blue-soft: #B8D4E3;
+  --color-accent-blue-pale: #D4E6F1;
+  --color-text-primary: #2C3E50;
+  --color-text-secondary: #5D6D7E;
+  --color-surface-light: #F8FAFC;
+  --color-border-subtle: rgba(0, 0, 0, 0.05);
 }
 
 :root {
-  background-color: #030303;
-  color: #FFFFFF;
+  background-color: #FFFFFF;
+  color: #2C3E50;
 }
 
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background-color: #030303;
+  background-color: #FFFFFF;
+  color: #2C3E50;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-serif);
-  letter-spacing: -0.03em;
-  color: #FFFFFF;
+  letter-spacing: -0.02em;
+  color: #2C3E50;
 }
 
-/* Futuristic Luxury Utilities */
+/* Clinical Serenity Utilities */
 @layer utilities {
   .no-scrollbar::-webkit-scrollbar {
     display: none;
@@ -42,34 +43,25 @@ h1, h2, h3, h4, h5, h6 {
     scrollbar-width: none;
   }
   .glass-medical {
-    @apply bg-black/40 backdrop-blur-3xl border border-white/5 shadow-[0_20px_50px_rgba(0,0,0,0.5)];
+    @apply bg-white/70 backdrop-blur-xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.04)];
   }
   .glow-blue {
-    box-shadow: 0 0 30px rgba(0, 209, 255, 0.1);
-  }
-  .glow-purple {
-    box-shadow: 0 0 30px rgba(112, 0, 255, 0.1);
-  }
-  .glow-combined {
-    box-shadow: 0 0 40px rgba(0, 209, 255, 0.1), 0 0 40px rgba(112, 0, 255, 0.1);
+    box-shadow: 0 0 30px rgba(123, 168, 201, 0.15);
   }
   .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-accent-blue to-accent-purple;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-[#7BA8C9] to-[#B8D4E3];
   }
-  .bg-premium-gradient {
-    @apply bg-gradient-to-br from-accent-blue/20 via-transparent to-accent-purple/20;
-  }
-  .vignette-overlay {
-    background: radial-gradient(circle, transparent 30%, rgba(0,0,0,0.9) 100%);
+  .bg-medical-gradient {
+    @apply bg-gradient-to-br from-[#F8FAFC] via-[#FFFFFF] to-[#EBF5FB];
   }
 }
 
 @layer base {
   * {
-    @apply border-white/5;
+    @apply border-black/5;
   }
   body {
-    @apply bg-[#030303] text-[#FFFFFF];
+    @apply bg-white text-[#2C3E50];
   }
 }
 
