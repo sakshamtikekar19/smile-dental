@@ -50,11 +50,19 @@ const LeadCaptureForm = ({ treatment, intensity, onSuccess }) => {
     persistLeadLocally(lead);
 
     try {
-      if (SERVICE_ID && TEMPLATE_ID && PUBLIC_KEY) {
-        await emailjs.send(SERVICE_ID, TEMPLATE_ID, lead, { publicKey: PUBLIC_KEY });
+      if (!SERVICE_ID || !TEMPLATE_ID || !PUBLIC_KEY) {
+        console.warn(
+          "[LeadCapture] EmailJS env vars missing. Email will NOT be sent.",
+          { SERVICE_ID, TEMPLATE_ID, hasPublicKey: Boolean(PUBLIC_KEY) }
+        );
+        throw new Error("EmailJS is not configured (missing keys).");
       }
+      const response = await emailjs.send(SERVICE_ID, TEMPLATE_ID, lead, { publicKey: PUBLIC_KEY });
+      console.log("[LeadCapture] EmailJS send OK:", response?.status, response?.text);
       onSuccess?.(lead);
-    } catch {
+    } catch (err) {
+      // Log the real EmailJS error so the cause is visible in the console.
+      console.error("[LeadCapture] EmailJS send FAILED:", err?.status, err?.text || err?.message || err);
       // The lead is already saved locally; surface a soft error but still let
       // the user through so the experience never feels broken.
       setStatus("error");

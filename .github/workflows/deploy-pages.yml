@@ -33,6 +33,12 @@ jobs:
       - name: Build
         env:
           VITE_AI_SMILE_API: https://smile-dental-xnax.onrender.com/api/smile
+          # EmailJS keys are public-by-design (they ship in the client bundle),
+          # so they can live here. Harden by restricting allowed origins in the
+          # EmailJS dashboard (Account → Security → Allowed Origins).
+          VITE_EMAILJS_SERVICE_ID: service_jkgbawb
+          VITE_EMAILJS_TEMPLATE_ID: template_4waxh8w
+          VITE_EMAILJS_PUBLIC_KEY: Bdv22Zbz9J_g7h-gm
         run: npm run build
 
       - name: Setup Pages
