@@ -5,7 +5,7 @@ const testimonials = [
   {
     name: "Sarah Jenkins",
     role: "Veneer Patient",
-    content: "The AI simulation was spot on. Seeing my future smile gave me the confidence to move forward with my treatment plan.",
+    content: "The whitening preview was spot on. Seeing my future smile gave me the confidence to move forward with my treatment plan.",
     rating: 5,
     image: "https://i.pravatar.cc/150?u=sarah"
   },
@@ -43,7 +43,7 @@ const Testimonials = () => {
               Clinical <span className="text-accent-blue italic">Excellence</span>
             </h2>
             <p className="text-text-secondary text-lg leading-relaxed">
-              Hear from our patients and partners who have experienced the precision of our aesthetic intelligence.
+              Hear from our patients and partners who have experienced the precision of our clinical smile imaging.
             </p>
           </AnimatedSection>
         </div>

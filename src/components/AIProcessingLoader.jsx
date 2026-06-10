@@ -29,7 +29,7 @@ const AIProcessingLoader = ({ text = "Enhancing your smile..." }) => {
         className="text-center"
       >
         <h3 className="text-xl font-serif text-zinc-800 mb-2">{text}</h3>
-        <p className="text-sm text-zinc-400 font-sans tracking-wide uppercase">AI Engine Processing</p>
+        <p className="text-sm text-zinc-400 font-sans tracking-wide uppercase">Clinical Engine Processing</p>
       </motion.div>
       
       <div className="mt-12 w-64 h-1 bg-zinc-100 rounded-full overflow-hidden">

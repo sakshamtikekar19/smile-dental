@@ -564,7 +564,7 @@ const SmileSimulatorAI = () => {
           <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
             <div className="flex items-center gap-3 mb-2">
               <div className="w-2 h-2 rounded-full bg-accent-blue animate-pulse shadow-[0_0_8px_rgba(123,168,201,0.5)]" />
-              <span className="text-accent-blue text-[10px] uppercase tracking-[0.4em] font-bold">Aesthetic Intelligence</span>
+              <span className="text-accent-blue text-[10px] uppercase tracking-[0.4em] font-bold">Dental-Grade Whitening</span>
             </div>
             <h2 className="text-4xl md:text-5xl lg:text-7xl font-serif leading-none tracking-tight text-text-primary">
               Smile <span className="text-accent-blue/40">Studio</span>

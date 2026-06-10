@@ -35,7 +35,7 @@ const Hero = () => {
               <span className="text-text-primary">Before Treatment</span>
             </h1>
             <p className="text-lg md:text-xl text-text-secondary font-sans leading-relaxed mb-10 max-w-lg">
-              Experience the power of AI-driven smile simulation. Our advanced technology lets you see your transformation before you even begin your journey.
+              See a true-to-life preview of your smile with dental-grade whitening and alignment imaging. Visualize your transformation before treatment begins.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 sm:gap-5 justify-center lg:justify-start">
               <PremiumButton 
@@ -81,12 +81,12 @@ const Hero = () => {
             >
               <div className="flex items-start gap-4">
                 <div className="relative">
-                  <div className="w-12 h-12 bg-accent-blue rounded-2xl flex items-center justify-center text-white font-serif text-lg font-bold">AI</div>
+                  <div className="w-12 h-12 bg-accent-blue rounded-2xl flex items-center justify-center text-white font-serif text-lg font-bold">HD</div>
                   <div className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-accent-blue animate-pulse shadow-[0_0_8px_rgba(123,168,201,0.5)]" />
                 </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-widest text-text-secondary font-bold mb-1">Status</div>
-                  <div className="text-sm font-bold text-text-primary leading-tight">Simulator Online</div>
+                  <div className="text-sm font-bold text-text-primary leading-tight">Preview Engine Online</div>
                   <div className="text-[11px] text-accent-blue mt-1 font-mono">98.4% Precision</div>
                 </div>
               </div>
